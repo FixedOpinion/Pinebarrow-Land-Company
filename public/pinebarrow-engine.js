@@ -247,9 +247,9 @@
         cash: root.querySelector("#pb7-cash"),
         truck: root.querySelector("#pb7-truck"),
         truckModel: root.querySelector("#pb7-truck-model"),
+        truckPanel: root.querySelector("#pb7-truck-stat"),
+        truckStatus: root.querySelector("#pb7-truck-status"),
         company: root.querySelector("#pb7-company"),
-        road: root.querySelector("#pb7-road"),
-        roadProgress: root.querySelector("#pb7-road-progress"),
         time: root.querySelector("#pb7-time"),
         destination: root.querySelector("#pb7-destination"),
         go: root.querySelector("#pb7-go"),
@@ -1149,6 +1149,7 @@
           state.cargo = Object.assign(emptyMaterialStore(), saved.cargo || {});
           state.cleared = new Set(Array.isArray(saved.cleared) ? saved.cleared.filter(function (key) { return typeof key === "string"; }) : []);
           state.roadTiles = new Set(Array.isArray(saved.roadTiles) ? saved.roadTiles.filter(function (key) { return typeof key === "string"; }) : []);
+          clearRoadSurfaceDecoration();
           state.roadDraft = Array.isArray(saved.roadDraft) ? saved.roadDraft.filter(function (key) { return typeof key === "string"; }) : [];
           state.roadApproval = saved.roadApproval && typeof saved.roadApproval === "object" ? saved.roadApproval : null;
           state.roadMarketImpact = saved.roadMarketImpact && typeof saved.roadMarketImpact === "object" ? saved.roadMarketImpact : null;
@@ -1759,7 +1760,7 @@
               const edgeNoise = (seededUnit(x, depth, lane + sectionIndex * 5, side === "north" ? 3 : 7) - .5) * roughness;
               if (normalizedX * normalizedX + normalizedY * normalizedY > 1 + edgeNoise) continue;
               const y = claimYAtDepth(side, depth);
-              if (!isClaimWallCell(x, y)) target.add(keyFor(x, y));
+              if (isResourceSpawnableTile(x, y)) target.add(keyFor(x, y));
             }
           }
         }
@@ -1795,7 +1796,7 @@
                     const x = centerX + dx;
                     const depth = centerDepth + dy;
                     const y = claimYAtDepth(side, depth);
-                    if (x <= laneLeft || x >= laneLeft + 29 || depth <= CLAIM_SECTION_DEPTHS[sectionIndex] || depth >= CLAIM_SECTION_ENDS[sectionIndex] || isClaimWallCell(x, y)) continue;
+                    if (x <= laneLeft || x >= laneLeft + 29 || depth <= CLAIM_SECTION_DEPTHS[sectionIndex] || depth >= CLAIM_SECTION_ENDS[sectionIndex] || !isResourceSpawnableTile(x, y)) continue;
                     const key = keyFor(x, y);
                     terrain.resources.set(key, material);
                     terrain.trees.delete(key);
@@ -1824,21 +1825,41 @@
 
       const claimTerrain = buildClaimTerrain();
 
+      function isResourceRoadCell(x, y) {
+        return isPlayerClaimPath(x, y) || isPavedClaimRoad(x, y);
+      }
+
+      function clearRoadSurfaceDecoration() {
+        [claimTerrain.trees, claimTerrain.dirt, claimTerrain.resources].forEach(function (collection) {
+          Array.from(collection.keys()).forEach(function (key) {
+            const point = pointFromKey(key);
+            if (point && isResourceRoadCell(point.x, point.y)) collection.delete(key);
+          });
+        });
+      }
+
+      function roadSurfaceResourceOverlapCount() {
+        return Array.from(claimTerrain.resources.keys()).reduce(function (count, key) {
+          const point = pointFromKey(key);
+          return count + (point && isResourceRoadCell(point.x, point.y) ? 1 : 0);
+        }, 0);
+      }
+
       function isTreeAt(x, y) {
         const key = keyFor(x, y);
         return Boolean(claimTerrain.trees.has(key) && !state.cleared.has(key) && !isPavedClaimRoad(x, y) && !isStructureCell(x, y));
       }
 
       function isNaturalDirtAt(x, y) {
-        return claimTerrain.dirt.has(keyFor(x, y));
+        return !isResourceRoadCell(x, y) && claimTerrain.dirt.has(keyFor(x, y));
       }
 
       function surfaceResourceAt(x, y) {
-        return claimTerrain.resources.get(keyFor(x, y)) || null;
+        return isResourceRoadCell(x, y) ? null : claimTerrain.resources.get(keyFor(x, y)) || null;
       }
 
       function isSurveyableGround(x, y) {
-        if (!isPlayerClaimTile(x, y) || !claimZoneUnlockedAt(x, y) || isTreeAt(x, y) || isStructureCell(x, y)) return false;
+        if (!isPlayerClaimTile(x, y) || !claimZoneUnlockedAt(x, y) || isResourceRoadCell(x, y) || isTreeAt(x, y) || isStructureCell(x, y)) return false;
         const gate = claimGateAt(x, y);
         if (gate) return isClaimGateOpen(gate);
         return !isClaimWallCell(x, y);
@@ -1935,6 +1956,10 @@
 
       function isPavedClaimRoad(x, y) {
         return (isPlayerClaimPath(x, y) && y - SOUTH_TOP < state.pavedDepth) || state.roadTiles.has(keyFor(x, y));
+      }
+
+      function isResourceSpawnableTile(x, y) {
+        return insideAnyClaim(x, y) && !isClaimWallCell(x, y) && !isResourceRoadCell(x, y) && !isStructureCell(x, y);
       }
 
       function isCleared(x, y) {
@@ -3687,7 +3712,12 @@
           return;
         }
         state.cash -= approval.totalCost;
-        approval.routeTiles.forEach(function (key) { state.roadTiles.add(key); });
+        approval.routeTiles.forEach(function (key) {
+          state.roadTiles.add(key);
+          claimTerrain.resources.delete(key);
+          claimTerrain.dirt.delete(key);
+          claimTerrain.trees.delete(key);
+        });
         state.roadContractsCompleted += 1;
         state.roadMarketImpact = {
           day: state.day,
@@ -4131,6 +4161,18 @@
         }
       }
 
+      function currentTruckStatus() {
+        const moving = Boolean(state.path.length || movementSegment);
+        const cargoUsed = usedCargo();
+        const blocked = state.contextTone === "danger" && /blocked|no open route|cannot reach|no route/i.test(state.contextTitle + " " + state.contextText);
+        if (blocked) return { key: "blocked", label: "Blocked" };
+        if (cargoUsed >= state.capacity - .01) return { key: "full", label: "Full" };
+        if (moving) return { key: "hauling", label: "Hauling" };
+        if (cargoUsed > .01) return { key: "waiting", label: "Waiting" };
+        if (!state.selected && !state.location) return { key: "no-destination", label: "No destination" };
+        return { key: "idle", label: "Idle" };
+      }
+
       function renderInterface() {
         if (!state.menuOpen) {
           newsReaderOpen = false;
@@ -4142,15 +4184,12 @@
         el.cash.textContent = "$" + Math.round(state.cash);
         el.truck.textContent = round1(usedCargo()).toFixed(1) + " / " + state.capacity.toFixed(1) + " t";
         if (el.truckModel) el.truckModel.textContent = "V" + state.truckSpeedLevel + "S" + state.truckSizeLevel + "W" + state.workers;
-        el.truck.setAttribute("data-tooltip", cargoSummary() + " · cargo size level " + state.truckSizeLevel + " · speed level " + state.truckSpeedLevel + " · " + state.workers + " permanent workers · prospector " + (state.prospectorHired ? "employed" : "not hired") + " · saw " + (state.sawOwnership || "not attached"));
+        const truckStatus = currentTruckStatus();
+        if (el.truckStatus) el.truckStatus.textContent = truckStatus.label;
+        if (el.truckPanel) el.truckPanel.dataset.status = truckStatus.key;
+        el.truck.setAttribute("data-tooltip", truckStatus.label + " · " + cargoSummary() + " · cargo size level " + state.truckSizeLevel + " · speed level " + state.truckSpeedLevel + " · " + state.workers + " permanent workers · prospector " + (state.prospectorHired ? "employed" : "not hired") + " · saw " + (state.sawOwnership || "not attached"));
         el.company.textContent = companyStatusText();
-        const customRoadCount = Array.from(state.roadTiles).filter(function (key) {
-          const point = pointFromKey(key);
-          return point && !(isPlayerClaimPath(point.x, point.y) && point.y - SOUTH_TOP < state.pavedDepth);
-        }).length;
-        const pavedTileCount = state.pavedDepth * 2 + customRoadCount;
-        el.road.textContent = pavedTileCount + " road tiles · " + state.roadContractsCompleted + " contract" + (state.roadContractsCompleted === 1 ? "" : "s");
-        el.roadProgress.style.width = Math.max(0, Math.min(100, pavedTileCount / (CLAIM_DEPTH * 2) * 100)) + "%";
+        root.dataset.resourceRoadOverlaps = String(roadSurfaceResourceOverlapCount());
         el.time.textContent = "Day " + state.day + " · " + formatTime();
         el.contextTitle.textContent = state.contextTitle;
         el.context.textContent = state.contextText;

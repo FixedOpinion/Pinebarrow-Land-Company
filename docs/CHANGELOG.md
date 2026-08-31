@@ -8,11 +8,17 @@
 - Preserved the untouched production build on `baseline-live-v17`.
 - Recorded the product blueprint, economy rules, town design, and phased implementation plan.
 
-### Confirmed next fixes
+### Phase 1 — focused cleanup
 
-- Prevent ore deposits and extraction decoration from spawning on any road or reserved road path.
-- Increase truck-stat panel opacity and contrast while retaining useful information.
-- Remove the low-value road-tile management display without removing road gameplay.
+- Prevented ore deposits, dirt, and trees from occupying the reserved company road or a completed custom road.
+- Prevented prospecting on reserved and completed road cells.
+- Added cleanup for older saves whose road tiles overlapped generated extraction decoration.
+- Rebuilt the truck-stat panel as a fully opaque gauge with `IDLE`, `HAULING`, `FULL`, `WAITING`, `BLOCKED`, and `NO DESTINATION` states.
+- Removed the low-value road-tile counter and progress strip without changing Town Hall surveys, paid stone quotes, road construction, travel, or price effects.
+- Added deterministic regressions for road-safe resources, truck states, and the removed counter.
+
+### Confirmed next work
+
 - Correct town building/road proportions while preserving the large future-development footprint.
 
 ## Production baseline — Sites version 17

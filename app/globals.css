@@ -3524,8 +3524,32 @@ body {
 }
 
 .truck-stat {
+  --truck-state: #7fd8c3;
   color: white;
-  background: linear-gradient(145deg, rgba(25, 39, 79, 0.96), rgba(43, 91, 117, 0.94));
+  border: 2px solid var(--truck-state);
+  background: linear-gradient(145deg, #17274f 0%, #22506a 100%);
+  box-shadow: 0 3px 0 #101a35, 0 8px 18px rgba(10, 19, 42, 0.38), inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  backdrop-filter: none;
+}
+
+.truck-stat[data-status="hauling"] {
+  --truck-state: #58d4ff;
+}
+
+.truck-stat[data-status="full"] {
+  --truck-state: #ffbd3e;
+}
+
+.truck-stat[data-status="waiting"] {
+  --truck-state: #ffe078;
+}
+
+.truck-stat[data-status="blocked"] {
+  --truck-state: #ff7185;
+}
+
+.truck-stat[data-status="no-destination"] {
+  --truck-state: #b69cff;
 }
 
 .stat-pill .stat-icon {
@@ -3593,6 +3617,19 @@ body {
   background: rgba(6, 19, 44, 0.32);
   font-size: 6.5px;
   letter-spacing: 0.08em;
+}
+
+.truck-status {
+  padding: 1px 4px;
+  border-radius: 999px;
+  color: #10213b;
+  background: var(--truck-state);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+  font-size: 6px;
+  font-weight: 950;
+  letter-spacing: 0.06em;
+  line-height: 1.35;
+  text-transform: uppercase;
 }
 
 .truck-stat-copy strong {

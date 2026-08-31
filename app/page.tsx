@@ -96,10 +96,10 @@ export default function Home() {
               <span className="stat-icon clock-icon" aria-hidden="true">◷</span>
               <span className="stat-copy"><small>Shift clock</small><strong id="pb7-time">Day 1 · 8:00 AM</strong></span>
             </div>
-            <div className="stat-pill wide-stat truck-stat">
+            <div id="pb7-truck-stat" className="stat-pill wide-stat truck-stat" data-status="idle">
               <span className="stat-icon engine-icon" aria-hidden="true">⚙</span>
               <span className="stat-copy truck-stat-copy">
-                <small><b>ZEUS</b><span id="pb7-truck-model">V1S1W0</span></small>
+                <small><b>ZEUS</b><span id="pb7-truck-model">V1S1W0</span><span id="pb7-truck-status" className="truck-status">Idle</span></small>
                 <strong><span className="anchor-icon" aria-hidden="true">⚓</span><span id="pb7-truck">0.0 / 6.0 t</span></strong>
               </span>
             </div>
@@ -127,16 +127,6 @@ export default function Home() {
             </div>
           </section>
         </header>
-
-        <section className="progress-strip" aria-label="Road building progress">
-          <div className="progress-copy">
-            <span className="progress-label">Road to the deep claim</span>
-            <strong id="pb7-road">3 / 125 tiles paved</strong>
-          </div>
-          <div className="progress-track">
-            <div id="pb7-road-progress" className="progress-fill" style={{ width: "2.4%" }} />
-          </div>
-        </section>
 
         <div className="game-layout">
           <section className="play-panel" aria-label="Pinebarrow map">

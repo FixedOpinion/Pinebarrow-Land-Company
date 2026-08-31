@@ -704,6 +704,81 @@ test("the daily paper and ZEUS model update automatically", async () => {
   assert.match(game.element("pb7-news-market").textContent, /Logs · \$20\/t · ▲11%/);
 });
 
+test("truck gauge reports useful full, waiting, and no-destination states", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const common = {
+    version: 8,
+    day: 1,
+    minutes: 480,
+    cash: 160,
+    player: { x: 45, y: 145 },
+    selected: { type: "road", x: 45, y: 145 },
+    location: "road",
+    cleared: [],
+  };
+
+  const waiting = createEngineHarness({ ...common, cargo: { stone: 1 } }, engineSource);
+  assert.equal(waiting.element("pb7-truck-status").textContent, "Waiting");
+  assert.equal(waiting.element("pb7-truck-stat").dataset.status, "waiting");
+
+  const full = createEngineHarness({ ...common, cargo: { stone: 6 } }, engineSource);
+  assert.equal(full.element("pb7-truck-status").textContent, "Full");
+  assert.equal(full.element("pb7-truck-stat").dataset.status, "full");
+
+  const withoutDestination = createEngineHarness({ ...common, selected: null, location: null }, engineSource);
+  assert.equal(withoutDestination.element("pb7-truck-status").textContent, "No destination");
+  assert.equal(withoutDestination.element("pb7-truck-stat").dataset.status, "no-destination");
+});
+
+test("surface ore cannot occupy or be prospected from reserved and custom road cells", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const common = {
+    version: 8,
+    day: 1,
+    minutes: 480,
+    cash: 160,
+    prospectorHired: true,
+    prospectorDay: 1,
+    prospectsUsedToday: 0,
+    unlockedClaimZones: 1,
+    pavedDepth: 1,
+  };
+
+  const reservedTile = { x: 74, y: 169 };
+  const reserved = createEngineHarness({
+    ...common,
+    player: reservedTile,
+    selected: { type: "cleared", ...reservedTile },
+    location: "cleared",
+    cleared: ["74,169"],
+    roadTiles: [],
+  }, engineSource);
+  assert.equal(reserved.element("pinebarrow-visible-menu-demo").dataset.resourceRoadOverlaps, "0");
+  assert.equal(reserved.element("pb7-prospect").disabled, true);
+
+  const customRoadTile = { x: 76, y: 169 };
+  const custom = createEngineHarness({
+    ...common,
+    player: customRoadTile,
+    selected: { type: "cleared", ...customRoadTile },
+    location: "cleared",
+    cleared: ["76,169"],
+    roadTiles: ["76,169"],
+  }, engineSource);
+  assert.equal(custom.element("pinebarrow-visible-menu-demo").dataset.resourceRoadOverlaps, "0");
+  assert.equal(custom.element("pb7-prospect").disabled, true);
+});
+
+test("the HUD removes the road-tile counter while retaining the readable truck gauge", async () => {
+  const pageSource = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const styleSource = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.doesNotMatch(pageSource, /id="pb7-road"/);
+  assert.doesNotMatch(pageSource, /id="pb7-road-progress"/);
+  assert.match(pageSource, /id="pb7-truck-status"/);
+  assert.match(styleSource, /background:\s*linear-gradient\(145deg, #17274f 0%, #22506a 100%\)/);
+  assert.match(styleSource, /\.truck-stat\[data-status="blocked"\]/);
+});
+
 test("Town Hall approves and builds a turning two-wide road with purchased stone", async () => {
   const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
   const roadDraft = ["74,170", "74,171", "73,171"];
@@ -742,6 +817,7 @@ test("Town Hall approves and builds a turning two-wide road with purchased stone
   assert.equal(built.cargo.stone, 2);
   assert.ok(built.cash < 5000);
   assert.match(built.contextText, /purchased .* t of stone/i);
+  assert.equal(game.element("pinebarrow-visible-menu-demo").dataset.resourceRoadOverlaps, "0");
 });
 
 test("road-contract stone demand rises on purchase day and corrects the next day", async () => {

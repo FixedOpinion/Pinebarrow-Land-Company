@@ -6,6 +6,10 @@ Do not shrink the overall town footprint. Empty blocks and open lots are future-
 
 ## Street hierarchy
 
+### Phase 2 implementation
+
+The current town keeps its original 90-by-42 footprint. A four-lane east-west Main Street crosses five two-lane north-south streets, forming twelve blocks with continuous sidewalks, curbs, marked intersections, and crosswalks. Civic, commercial, service, and future-industry buildings occupy distinct lots within those blocks. Contract-linked future industries continue to progress from vacant lot to Coming Soon construction and then an operating business.
+
 ### Main Street
 
 Main Street is a four-lane primary artery with clear lane markings and major intersections. Its visual language can include a center divider or center markings, sidewalks, curbs, crosswalks, signs, and streetlights.

@@ -75,6 +75,12 @@ button {
   --pb7-tree-light: #70c88c;
   --pb7-road: #ead8b3;
   --pb7-road-line: #e99042;
+  --pb7-main-road: #66737f;
+  --pb7-side-road: #7b8791;
+  --pb7-sidewalk: #e4ded1;
+  --pb7-curb: #f5efe2;
+  --pb7-road-white: #fffaf0;
+  --pb7-town-lot: #b8d9a8;
   --pb7-soil: #a97a50;
   --pb7-stone-wall: #667482;
   --pb7-stone-light: #aebbc4;

@@ -17,9 +17,15 @@
 - Removed the low-value road-tile counter and progress strip without changing Town Hall surveys, paid stone quotes, road construction, travel, or price effects.
 - Added deterministic regressions for road-safe resources, truck states, and the removed counter.
 
-### Confirmed next work
+### Phase 2 — town streets and proportions
 
-- Correct town building/road proportions while preserving the large future-development footprint.
+- Preserved the full 90-by-42 town footprint for long-term city growth.
+- Rebuilt Main Street as a four-lane artery with lane markings, curbs, crosswalks, and five intersections.
+- Added five two-lane side streets, sidewalks, and twelve recognizable city blocks.
+- Rescaled and relocated civic, retail, service, and future-industry lots to believable proportions without changing their services.
+- Made undeveloped industry sites visible as future lots while preserving their contract-driven Coming Soon and opening states.
+- Added safe migration for older saves whose truck position falls inside a newly proportioned town building.
+- Added deterministic layout regressions for street hierarchy, block count, entrance access, future lots, and save migration.
 
 ## Production baseline — Sites version 17
 

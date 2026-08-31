@@ -934,4 +934,48 @@ test("a fulfilled founding contract creates a Coming Soon business", async () =>
   assert.equal(saved.companyContracts[0].status, "complete");
   assert.equal(saved.townBusinesses.foundry.status, "announced");
   assert.equal(saved.townBusinesses.foundry.opensDay, 3);
+  assert.equal(game.element("pinebarrow-visible-menu-demo").dataset.townFutureLots, "3");
+});
+
+test("the large town uses a four-lane Main Street and twelve accessible blocks", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const game = createEngineHarness({
+    version: 8,
+    day: 1,
+    minutes: 480,
+    cash: 160,
+    player: { x: 45, y: 145 },
+    selected: { type: "road", x: 45, y: 145 },
+    location: "road",
+    cleared: [],
+    townBusinesses: {},
+  }, engineSource);
+
+  const root = game.element("pinebarrow-visible-menu-demo");
+  assert.equal(root.dataset.townMainStreetLanes, "4");
+  assert.equal(root.dataset.townSideStreetLanes, "2");
+  assert.equal(root.dataset.townBlockCount, "12");
+  assert.equal(root.dataset.townLayoutConflicts, "0");
+  assert.equal(root.dataset.townFutureLots, "4");
+});
+
+test("an older save inside a relocated town building moves safely to its entrance", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const game = createEngineHarness({
+    version: 8,
+    day: 1,
+    minutes: 480,
+    cash: 160,
+    player: { x: 35, y: 132 },
+    selected: { type: "road", x: 35, y: 132 },
+    location: "road",
+    cleared: [],
+    townBusinesses: {},
+  }, engineSource);
+
+  game.element("pb7-save-now").click();
+  const saved = game.saved();
+  assert.deepEqual(saved.player, { x: 38, y: 141 });
+  assert.deepEqual(saved.selected, { type: "road", x: 38, y: 141 });
+  assert.equal(saved.location, "road");
 });

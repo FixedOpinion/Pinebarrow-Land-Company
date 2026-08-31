@@ -21,6 +21,21 @@
       const STARTER_TREE = { x: PLAYER_ROAD_X + 2, y: SOUTH_TOP + 2 };
       const CLAIM_SECTION_DEPTHS = [0, 42, 84];
       const CLAIM_SECTION_ENDS = [41, 83, CLAIM_DEPTH - 1];
+      const MAIN_STREET_TOP = 142;
+      const MAIN_STREET_BOTTOM = 146;
+      const TOWN_SIDE_STREET_WIDTH = 2;
+      const TOWN_SIDE_STREET_XS = [14, 29, 44, 59, 74];
+      const TOWN_BLOCK_COLUMNS = [
+        { x: 1, w: 12 }, { x: 17, w: 11 }, { x: 32, w: 11 },
+        { x: 47, w: 11 }, { x: 62, w: 11 }, { x: 77, w: 12 }
+      ];
+      const TOWN_BLOCK_ROWS = [{ y: 126, h: 15 }, { y: 147, h: 19 }];
+      const TOWN_BLOCKS = [];
+      TOWN_BLOCK_ROWS.forEach(function (row) {
+        TOWN_BLOCK_COLUMNS.forEach(function (column) {
+          TOWN_BLOCKS.push({ x: column.x, y: row.y, w: column.w, h: row.h });
+        });
+      });
 
       const CONFIG = {
         truckCapacity: 6,
@@ -79,18 +94,18 @@
       };
 
       const buildings = [
-        { id: "townhall", label: "Town Hall", x: 37, y: 147, w: 16, h: 10, doorX: 45, doorY: 146 },
-        { id: "market", label: "Market", x: 10, y: 134, w: 11, h: 8, doorX: 15, doorY: 142 },
-        { id: "garage", label: "Garage", x: 64, y: 134, w: 10, h: 8, doorX: 69, doorY: 142 },
-        { id: "newsstand", label: "News", x: 25, y: 151, w: 4, h: 4, doorX: 27, doorY: 150 },
-        { id: "rental", label: "Rental Shop", x: 58, y: 151, w: 9, h: 6, doorX: 62, doorY: 150 }
+        { id: "townhall", label: "Town Hall", x: 34, y: 130, w: 9, h: 9, doorX: 38, doorY: 141 },
+        { id: "market", label: "Market", x: 3, y: 130, w: 9, h: 9, doorX: 7, doorY: 141 },
+        { id: "garage", label: "Garage", x: 63, y: 130, w: 9, h: 9, doorX: 67, doorY: 141 },
+        { id: "newsstand", label: "News", x: 19, y: 150, w: 5, h: 5, doorX: 21, doorY: 146 },
+        { id: "rental", label: "Rental Shop", x: 49, y: 150, w: 8, h: 7, doorX: 53, doorY: 146 }
       ];
 
       const businessLots = [
-        { id: "foundry", label: "Pinebarrow Foundry", material: "coal", x: 2, y: 151, w: 7, h: 7, doorX: 5, doorY: 150, sign: "FOUNDRY" },
-        { id: "railworks", label: "Rail Works", material: "iron", x: 31, y: 134, w: 7, h: 7, doorX: 34, doorY: 141, sign: "RAIL" },
-        { id: "glassworks", label: "Glassworks", material: "quartz", x: 50, y: 134, w: 8, h: 7, doorX: 54, doorY: 141, sign: "GLASS" },
-        { id: "cannery", label: "Main Street Cannery", material: "tin", x: 70, y: 151, w: 8, h: 7, doorX: 74, doorY: 150, sign: "CANNERY" }
+        { id: "foundry", label: "Pinebarrow Foundry", material: "coal", x: 3, y: 150, w: 9, h: 9, doorX: 7, doorY: 146, sign: "FOUNDRY" },
+        { id: "railworks", label: "Rail Works", material: "iron", x: 19, y: 130, w: 8, h: 9, doorX: 23, doorY: 141, sign: "RAIL" },
+        { id: "glassworks", label: "Glassworks", material: "quartz", x: 49, y: 130, w: 8, h: 9, doorX: 53, doorY: 141, sign: "GLASS" },
+        { id: "cannery", label: "Main Street Cannery", material: "tin", x: 78, y: 150, w: 9, h: 9, doorX: 82, doorY: 146, sign: "CANNERY" }
       ];
 
       const basePrices = Object.freeze({
@@ -1277,6 +1292,7 @@
             haulingMineIds.add(haul.mineId);
             return true;
           });
+          relocatePlayerFromTownBuilding();
           state.path = [];
           state.pendingArrival = null;
           state.menuOpen = false;
@@ -1638,6 +1654,12 @@
           treeLight: color("--pb7-tree-light", "--viz-series-2"),
           road: color("--pb7-road", "--secondary"),
           roadLine: color("--pb7-road-line", "--primary"),
+          mainRoad: color("--pb7-main-road", "--pb7-road"),
+          sideRoad: color("--pb7-side-road", "--pb7-road"),
+          sidewalk: color("--pb7-sidewalk", "--pb7-town"),
+          curb: color("--pb7-curb", "--border"),
+          roadWhite: color("--pb7-road-white", "--surface-light"),
+          townLot: color("--pb7-town-lot", "--pb7-town"),
           town: color("--pb7-town", "--accent"),
           building: color("--pb7-building", "--viz-series-4"),
           roof: color("--pb7-roof", "--viz-series-4"),
@@ -1939,19 +1961,65 @@
         return isPlayerClaimTile(x, y) && (x === PLAYER_ROAD_X || x === PLAYER_ROAD_X + 1);
       }
 
+      function isTownMainStreet(x, y) {
+        return insideTown(x, y) && y >= MAIN_STREET_TOP && y < MAIN_STREET_BOTTOM;
+      }
+
+      function isTownSideStreet(x, y) {
+        return insideTown(x, y) && TOWN_SIDE_STREET_XS.some(function (streetX) {
+          return x >= streetX && x < streetX + TOWN_SIDE_STREET_WIDTH;
+        });
+      }
+
       function isTownRoad(x, y) {
-        const eastWest = y >= 143 && y <= 145 && x >= TOWN_LEFT && x < TOWN_RIGHT;
-        const hallAvenue = x >= 44 && x <= 45 && y >= TOWN_TOP && y < TOWN_BOTTOM;
-        const playerAvenue = x >= PLAYER_ROAD_X && x <= PLAYER_ROAD_X + 1 && y >= 143 && y < TOWN_BOTTOM;
-        const marketSpur = x >= 14 && x <= 16 && y >= 141 && y <= 145;
-        const garageSpur = x >= 68 && x <= 70 && y >= 141 && y <= 145;
-        const newsSpur = x >= 26 && x <= 28 && y >= 143 && y <= 151;
-        const rentalSpur = x >= 61 && x <= 63 && y >= 143 && y <= 151;
-        const civicSquare = x >= 39 && x <= 51 && y >= 143 && y <= 147;
-        const foundrySpur = x >= 4 && x <= 6 && y >= 143 && y <= 151;
-        const railSpur = x >= 33 && x <= 35 && y >= 140 && y <= 145;
-        const glassSpur = x >= 53 && x <= 55 && y >= 140 && y <= 145;
-        return eastWest || hallAvenue || playerAvenue || marketSpur || garageSpur || newsSpur || rentalSpur || civicSquare || foundrySpur || railSpur || glassSpur;
+        return isTownMainStreet(x, y) || isTownSideStreet(x, y);
+      }
+
+      function isTownSidewalk(x, y) {
+        if (!insideTown(x, y) || isTownRoad(x, y)) return false;
+        if (y === MAIN_STREET_TOP - 1 || y === MAIN_STREET_BOTTOM) return true;
+        return TOWN_SIDE_STREET_XS.some(function (streetX) {
+          return x === streetX - 1 || x === streetX + TOWN_SIDE_STREET_WIDTH;
+        });
+      }
+
+      function townSurfaceColorAt(x, y, colors) {
+        if (isTownMainStreet(x, y)) return colors.mainRoad;
+        if (isTownSideStreet(x, y)) return colors.sideRoad;
+        if (isTownSidewalk(x, y)) return colors.sidewalk;
+        return colors.townLot;
+      }
+
+      function townLayoutConflictCount() {
+        const townStructures = buildings.concat(businessLots);
+        let conflicts = 0;
+        townStructures.forEach(function (building, index) {
+          const inside = building.x >= TOWN_LEFT && building.x + building.w <= TOWN_RIGHT && building.y >= TOWN_TOP && building.y + building.h <= TOWN_BOTTOM;
+          const overlapsStreet = !inside || Array.from({ length: building.w * building.h }).some(function (_, cellIndex) {
+            const x = building.x + cellIndex % building.w;
+            const y = building.y + Math.floor(cellIndex / building.w);
+            return isTownRoad(x, y) || isTownSidewalk(x, y);
+          });
+          const entranceConnected = isTownRoad(building.doorX, building.doorY) || isTownSidewalk(building.doorX, building.doorY);
+          if (overlapsStreet || !entranceConnected) conflicts += 1;
+          for (let otherIndex = index + 1; otherIndex < townStructures.length; otherIndex += 1) {
+            if (rectanglesOverlap(building, townStructures[otherIndex])) conflicts += 1;
+          }
+        });
+        return conflicts;
+      }
+
+      function relocatePlayerFromTownBuilding() {
+        const occupied = buildingAt(state.player.x, state.player.y);
+        if (!occupied) return false;
+        state.player = { x: occupied.doorX, y: occupied.doorY };
+        if (state.location === occupied.id) {
+          state.selected = { type: "building", x: occupied.x, y: occupied.y, buildingId: occupied.id };
+        } else {
+          state.location = "road";
+          state.selected = { type: "road", x: occupied.doorX, y: occupied.doorY };
+        }
+        return true;
       }
 
       function isPavedClaimRoad(x, y) {
@@ -4190,6 +4258,11 @@
         el.truck.setAttribute("data-tooltip", truckStatus.label + " · " + cargoSummary() + " · cargo size level " + state.truckSizeLevel + " · speed level " + state.truckSpeedLevel + " · " + state.workers + " permanent workers · prospector " + (state.prospectorHired ? "employed" : "not hired") + " · saw " + (state.sawOwnership || "not attached"));
         el.company.textContent = companyStatusText();
         root.dataset.resourceRoadOverlaps = String(roadSurfaceResourceOverlapCount());
+        root.dataset.townMainStreetLanes = String(MAIN_STREET_BOTTOM - MAIN_STREET_TOP);
+        root.dataset.townSideStreetLanes = String(TOWN_SIDE_STREET_WIDTH);
+        root.dataset.townBlockCount = String(TOWN_BLOCKS.length);
+        root.dataset.townLayoutConflicts = String(townLayoutConflictCount());
+        root.dataset.townFutureLots = String(businessLots.filter(function (business) { return !state.townBusinesses[business.id]; }).length);
         el.time.textContent = "Day " + state.day + " · " + formatTime();
         el.contextTitle.textContent = state.contextTitle;
         el.context.textContent = state.contextText;
@@ -5297,7 +5370,7 @@
         ctx.stroke();
       }
 
-      function drawLaneLabels(colors) {
+      function drawLaneLabels() {
         if (drawView.scale < 1.5) return;
         ctx.fillStyle = colors.foreground;
         ctx.font = "400 11px system-ui, sans-serif";
@@ -5313,6 +5386,167 @@
         }
       }
 
+      function drawTownBlocksAndLots(colors) {
+        ctx.save();
+        ctx.strokeStyle = "rgba(65,89,82,.24)";
+        ctx.lineWidth = Math.max(1, drawView.scale * .055);
+        TOWN_BLOCKS.forEach(function (block) {
+          const point = screenPoint(block.x, block.y);
+          roundedPath(point.x, point.y, block.w * drawView.scale, block.h * drawView.scale, Math.max(2, drawView.scale * .3));
+          ctx.stroke();
+        });
+
+        buildings.concat(businessLots).forEach(function (building) {
+          const point = screenPoint(building.x - .65, building.y - .65);
+          const width = (building.w + 1.3) * drawView.scale;
+          const height = (building.h + 1.3) * drawView.scale;
+          ctx.fillStyle = building.id === "townhall" ? "rgba(247,239,213,.72)" : "rgba(213,211,196,.68)";
+          ctx.strokeStyle = building.id === "townhall" ? "rgba(119,104,67,.5)" : "rgba(91,101,104,.42)";
+          roundedPath(point.x, point.y, width, height, Math.max(2, drawView.scale * .3));
+          ctx.fill();
+          ctx.stroke();
+
+          if (drawView.scale >= 4 && building.id !== "townhall") {
+            ctx.strokeStyle = "rgba(255,255,255,.72)";
+            ctx.lineWidth = Math.max(.7, drawView.scale * .045);
+            const parkingY = point.y + height - drawView.scale * .35;
+            const spaces = Math.max(2, Math.min(6, Math.floor(building.w / 2)));
+            for (let space = 1; space < spaces; space += 1) {
+              const parkingX = point.x + width * space / spaces;
+              ctx.beginPath();
+              ctx.moveTo(parkingX, parkingY - drawView.scale * .3);
+              ctx.lineTo(parkingX, parkingY + drawView.scale * .24);
+              ctx.stroke();
+            }
+          }
+        });
+        ctx.restore();
+      }
+
+      function drawVacantBusinessLot(business, colors) {
+        const point = screenPoint(business.x, business.y);
+        const width = business.w * drawView.scale;
+        const height = business.h * drawView.scale;
+        ctx.save();
+        ctx.fillStyle = "rgba(169,122,80,.2)";
+        ctx.strokeStyle = "rgba(96,78,59,.72)";
+        ctx.lineWidth = Math.max(1, drawView.scale * .065);
+        ctx.setLineDash([Math.max(2, drawView.scale * .24), Math.max(2, drawView.scale * .18)]);
+        roundedPath(point.x, point.y, width, height, Math.max(2, drawView.scale * .25));
+        ctx.fill();
+        ctx.stroke();
+        ctx.setLineDash([]);
+        if (drawView.scale >= 5) {
+          const signWidth = Math.min(width * .78, 92);
+          const signHeight = Math.max(13, Math.min(21, drawView.scale * .92));
+          ctx.fillStyle = "rgba(35,49,66,.9)";
+          roundedPath(point.x + (width - signWidth) / 2, point.y + height * .42, signWidth, signHeight, 4);
+          ctx.fill();
+          ctx.fillStyle = colors.roadWhite;
+          ctx.font = "900 " + Math.max(7, Math.min(10, drawView.scale * .5)) + "px system-ui, sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText("FUTURE INDUSTRY", point.x + width / 2, point.y + height * .42 + signHeight / 2, signWidth - 6);
+        }
+        ctx.restore();
+      }
+
+      function drawTownStreetDetails(colors) {
+        const scale = drawView.scale;
+        const mainLeft = screenPoint(TOWN_LEFT, MAIN_STREET_TOP);
+        const mainRight = screenPoint(TOWN_RIGHT, MAIN_STREET_TOP);
+        const centerY = screenPoint(TOWN_LEFT, MAIN_STREET_TOP + 2).y;
+        ctx.save();
+        ctx.lineCap = "butt";
+
+        ctx.strokeStyle = colors.curb;
+        ctx.globalAlpha = .94;
+        ctx.lineWidth = Math.max(1, scale * .11);
+        [MAIN_STREET_TOP, MAIN_STREET_BOTTOM].forEach(function (roadY) {
+          const edge = screenPoint(TOWN_LEFT, roadY);
+          ctx.beginPath();
+          ctx.moveTo(edge.x, edge.y);
+          ctx.lineTo(mainRight.x, edge.y);
+          ctx.stroke();
+        });
+
+        ctx.strokeStyle = colors.roadLine;
+        ctx.lineWidth = Math.max(1.2, scale * .09);
+        ctx.setLineDash([]);
+        [-.09, .09].forEach(function (offset) {
+          ctx.beginPath();
+          ctx.moveTo(mainLeft.x, centerY + scale * offset);
+          ctx.lineTo(mainRight.x, centerY + scale * offset);
+          ctx.stroke();
+        });
+
+        ctx.strokeStyle = colors.roadWhite;
+        ctx.globalAlpha = .76;
+        ctx.lineWidth = Math.max(1, scale * .065);
+        ctx.setLineDash([Math.max(3, scale * .52), Math.max(3, scale * .48)]);
+        [MAIN_STREET_TOP + 1, MAIN_STREET_TOP + 3].forEach(function (laneY) {
+          const lane = screenPoint(TOWN_LEFT, laneY);
+          ctx.beginPath();
+          ctx.moveTo(lane.x, lane.y);
+          ctx.lineTo(mainRight.x, lane.y);
+          ctx.stroke();
+        });
+
+        TOWN_SIDE_STREET_XS.forEach(function (streetX) {
+          const centerX = screenPoint(streetX + TOWN_SIDE_STREET_WIDTH / 2, TOWN_TOP).x;
+          const townTop = screenPoint(streetX, TOWN_TOP).y;
+          const mainTop = screenPoint(streetX, MAIN_STREET_TOP).y;
+          const mainBottom = screenPoint(streetX, MAIN_STREET_BOTTOM).y;
+          const townBottom = screenPoint(streetX, TOWN_BOTTOM).y;
+
+          ctx.strokeStyle = colors.curb;
+          ctx.globalAlpha = .88;
+          ctx.lineWidth = Math.max(1, scale * .08);
+          ctx.setLineDash([]);
+          [streetX, streetX + TOWN_SIDE_STREET_WIDTH].forEach(function (edgeX) {
+            const edge = screenPoint(edgeX, TOWN_TOP);
+            ctx.beginPath();
+            ctx.moveTo(edge.x, townTop);
+            ctx.lineTo(edge.x, townBottom);
+            ctx.stroke();
+          });
+
+          ctx.strokeStyle = colors.roadLine;
+          ctx.globalAlpha = .68;
+          ctx.lineWidth = Math.max(1, scale * .055);
+          ctx.setLineDash([Math.max(2, scale * .38), Math.max(3, scale * .42)]);
+          [[townTop, mainTop], [mainBottom, townBottom]].forEach(function (segment) {
+            ctx.beginPath();
+            ctx.moveTo(centerX, segment[0]);
+            ctx.lineTo(centerX, segment[1]);
+            ctx.stroke();
+          });
+
+          ctx.fillStyle = colors.roadWhite;
+          ctx.globalAlpha = .78;
+          for (let stripe = 0; stripe < 4; stripe += 1) {
+            const stripePoint = screenPoint(streetX + .14 + stripe * .47, MAIN_STREET_TOP);
+            const stripeWidth = Math.max(1, scale * .2);
+            ctx.fillRect(stripePoint.x, stripePoint.y + scale * .06, stripeWidth, Math.max(1, scale * .3));
+            const southStripe = screenPoint(streetX + .14 + stripe * .47, MAIN_STREET_BOTTOM);
+            ctx.fillRect(southStripe.x, southStripe.y - scale * .36, stripeWidth, Math.max(1, scale * .3));
+          }
+        });
+
+        if (scale >= 6) {
+          ctx.globalAlpha = .62;
+          ctx.fillStyle = colors.roadWhite;
+          ctx.font = "900 " + Math.max(7, Math.min(11, scale * .58)) + "px system-ui, sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          [7, 84].forEach(function (roadX) {
+            const label = screenPoint(roadX, MAIN_STREET_TOP + 2);
+            ctx.fillText("MAIN ST", label.x, label.y);
+          });
+        }
+        ctx.restore();
+      }
+
       function drawRoadAccents(colors) {
         ctx.save();
         ctx.strokeStyle = colors.roadLine;
@@ -5326,13 +5560,8 @@
         ctx.moveTo(roadTop.x, roadTop.y);
         ctx.lineTo(roadBottom.x, roadBottom.y);
         ctx.stroke();
-        const townLeft = screenPoint(TOWN_LEFT, 144);
-        const townRight = screenPoint(TOWN_RIGHT, 144);
-        ctx.beginPath();
-        ctx.moveTo(townLeft.x, townLeft.y);
-        ctx.lineTo(townRight.x, townRight.y);
-        ctx.stroke();
         ctx.restore();
+        drawTownStreetDetails(colors);
       }
 
       function drawRoadSurvey(colors) {
@@ -5382,11 +5611,11 @@
         for (let y = minY; y <= maxY; y += 1) {
           for (let x = minX; x <= maxX; x += 1) {
             if (buildingAt(x, y)) {
-              fillTile(x, y, colors.town, 1);
+              fillTile(x, y, colors.townLot, 1);
               continue;
             }
             if (insideTown(x, y)) {
-              fillTile(x, y, isTownRoad(x, y) ? colors.road : colors.town, 1);
+              fillTile(x, y, townSurfaceColorAt(x, y, colors), 1);
             } else {
               const gate = claimGateAt(x, y);
               const wall = isClaimWallCell(x, y);
@@ -5434,14 +5663,15 @@
         ctx.strokeRect(townPoint.x, townPoint.y, (TOWN_RIGHT - TOWN_LEFT) * drawView.scale, TOWN_HEIGHT * drawView.scale);
         ctx.globalAlpha = 1;
 
+        drawTownBlocksAndLots(colors);
         drawRoadAccents(colors);
         drawRoadSurvey(colors);
         drawActiveGateLabels(colors);
         buildings.forEach(function (building) { drawBuilding(building, colors); });
         businessLots.forEach(function (business) {
           const record = state.townBusinesses[business.id];
-          if (!record) return;
-          if (record.status === "open") drawBuilding(business, colors);
+          if (!record) drawVacantBusinessLot(business, colors);
+          else if (record.status === "open") drawBuilding(business, colors);
           else if (record.status === "announced") drawComingSoonBusiness(business, colors);
         });
         state.mineParcels.forEach(function (parcel, index) {
@@ -5459,7 +5689,7 @@
         drawActiveHauler(colors);
         drawSelection(colors);
         drawStarterMarker(colors);
-        drawLaneLabels(colors);
+        drawLaneLabels();
         drawPlayer(colors);
       }
 

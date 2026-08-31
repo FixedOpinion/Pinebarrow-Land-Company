@@ -39,6 +39,10 @@ class FakeElement {
     for (const listener of this.listeners.get("click") ?? []) listener({});
   }
 
+  async clickAsync() {
+    await Promise.all((this.listeners.get("click") ?? []).map((listener) => listener({})));
+  }
+
   setAttribute(name, value) {
     this[name] = String(value);
   }
@@ -118,19 +122,35 @@ function createEngineHarness(savedState, engineSource, options = {}) {
   const root = getElement("pinebarrow-visible-menu-demo");
   root.querySelector = (selector) => getElement(selector.slice(1));
   root.querySelectorAll = (selector) => selector === "[data-hauler-size]" ? haulers : selector === "[data-profile-slot]" ? profileSlots : [];
-  root.requestFullscreen = async () => {};
 
   const documentListeners = new Map();
+  const documentElement = new FakeElement("html");
   const document = {
     activeElement: null,
+    documentElement,
     fullscreenElement: null,
+    webkitFullscreenElement: null,
     visibilityState: "visible",
     getElementById: (id) => id === root.id ? root : null,
     addEventListener(type, listener) {
       documentListeners.set(type, listener);
     },
     createElement: (tag) => new FakeElement(tag),
-    async exitFullscreen() {},
+    async exitFullscreen() {
+      this.fullscreenElement = null;
+      const listener = documentListeners.get("fullscreenchange");
+      if (listener) listener({});
+    },
+  };
+  documentElement.requestFullscreen = async () => {
+    document.fullscreenElement = documentElement;
+    const listener = documentListeners.get("fullscreenchange");
+    if (listener) listener({});
+  };
+  root.requestFullscreen = async () => {
+    document.fullscreenElement = root;
+    const listener = documentListeners.get("fullscreenchange");
+    if (listener) listener({});
   };
   documentRef = document;
 
@@ -223,6 +243,7 @@ function createEngineHarness(savedState, engineSource, options = {}) {
       return prevented;
     },
     frame: runAnimationFrame,
+    fullscreenElement: () => document.fullscreenElement,
     saved: () => JSON.parse(storage.get(PROFILE_KEY)).save,
   };
 }
@@ -553,6 +574,31 @@ test("keyboard controls cut an adjacent tree and toggle the PL system menu", asy
   game.dispatchKey("keyup", "KeyE");
   game.dispatchKey("keydown", "KeyE");
   assert.equal(game.element("pb7-system-menu").hidden, true);
+});
+
+test("fullscreen keeps the complete game mounted and refreshes the map viewport", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const game = createEngineHarness({
+    version: 8,
+    day: 2,
+    minutes: 480,
+    cash: 160,
+    player: { x: 45, y: 145 },
+    selected: { type: "road", x: 45, y: 145 },
+    location: "road",
+    cleared: [],
+  }, engineSource);
+
+  game.element("pb7-menu-toggle").click();
+  await game.element("pb7-landscape").clickAsync();
+
+  assert.equal(game.fullscreenElement().id, "html");
+  assert.equal(game.element("pinebarrow-visible-menu-demo").dataset.fullscreen, "true");
+  assert.equal(game.element("pinebarrow-visible-menu-demo").dataset.fullscreenTarget, "document");
+  assert.equal(game.element("pb7-system-menu").hidden, true);
+  assert.match(game.element("pb7-landscape").textContent, /Exit full screen/);
+  assert.ok(game.element("pb7-map").width >= 1000);
+  assert.ok(game.element("pb7-map").height >= 650);
 });
 
 test("controller left-stick steering and right trigger move the truck smoothly by tile", async () => {

@@ -3615,29 +3615,73 @@
         }
       }
 
+      function activeFullscreenElement() {
+        return document.fullscreenElement || document.webkitFullscreenElement || null;
+      }
+
+      function gameFullscreenTarget() {
+        const documentRoot = document.documentElement;
+        if (documentRoot && (typeof documentRoot.requestFullscreen === "function" || typeof documentRoot.webkitRequestFullscreen === "function")) return documentRoot;
+        return root;
+      }
+
+      async function enterGameFullscreen() {
+        const target = gameFullscreenTarget();
+        const standardRequest = target && target.requestFullscreen;
+        const webkitRequest = target && target.webkitRequestFullscreen;
+        if (typeof standardRequest === "function") {
+          try {
+            await standardRequest.call(target, { navigationUI: "hide" });
+          } catch {
+            await standardRequest.call(target);
+          }
+          return true;
+        }
+        if (typeof webkitRequest === "function") {
+          await webkitRequest.call(target);
+          return true;
+        }
+        return false;
+      }
+
+      async function exitGameFullscreen() {
+        if (typeof document.exitFullscreen === "function") {
+          await document.exitFullscreen();
+          return true;
+        }
+        if (typeof document.webkitExitFullscreen === "function") {
+          await document.webkitExitFullscreen();
+          return true;
+        }
+        return false;
+      }
+
       async function toggleLandscape() {
-        if (document.fullscreenElement) {
+        if (activeFullscreenElement()) {
           try {
             if (screen.orientation && typeof screen.orientation.unlock === "function") screen.orientation.unlock();
           } catch {}
-          try { await document.exitFullscreen(); } catch {}
+          try { await exitGameFullscreen(); } catch {}
+          stabilizeViewport();
           setContext("Landscape closed", "The game returned to the normal responsive layout.");
           return;
         }
         let expanded = false;
         try {
-          if (typeof root.requestFullscreen === "function") {
-            await root.requestFullscreen({ navigationUI: "hide" });
-            expanded = true;
-          }
+          expanded = await enterGameFullscreen();
         } catch {}
         let locked = false;
         try {
           if (screen.orientation && typeof screen.orientation.lock === "function") {
-            await screen.orientation.lock("landscape");
+            const orientationLock = screen.orientation.lock("landscape");
+            await Promise.race([
+              orientationLock,
+              new Promise(function (resolve) { setTimeout(resolve, 700); })
+            ]);
             locked = true;
           }
         } catch {}
+        stabilizeViewport();
         if (locked) setContext("Full screen ready", "The game now fills the screen and is locked to landscape. Tap Exit full screen to return.", "success");
         else if (expanded) setContext("Full screen ready", "The game now fills the screen. Rotate your device sideways if it did not rotate automatically.", "success");
         else setContext("Rotate your device", "Turn your phone sideways for the landscape map. Your browser did not allow full-screen orientation control.");
@@ -4422,7 +4466,10 @@
         el.overview.setAttribute("aria-label", state.overview ? "Follow truck" : "World map");
         el.overview.title = state.overview ? "Follow truck" : "World map";
         syncAudioButtons();
-        el.landscape.textContent = document.fullscreenElement ? "⛶ Exit full screen" : "⛶ Full screen";
+        const fullscreenElement = activeFullscreenElement();
+        root.dataset.fullscreen = fullscreenElement ? "true" : "false";
+        root.dataset.fullscreenTarget = fullscreenElement === root ? "game" : fullscreenElement ? "document" : "none";
+        el.landscape.textContent = fullscreenElement ? "⛶ Exit full screen" : "⛶ Full screen";
 
         const panelTitles = {
           market: "Market sales & hiring",
@@ -4481,13 +4528,26 @@
       function resizeCanvas() {
         const rect = canvas.getBoundingClientRect();
         const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
-        const width = Math.max(1, Math.round(rect.width));
-        const height = Math.max(1, Math.round(rect.height));
+        const width = Math.round(rect.width);
+        const height = Math.round(rect.height);
+        if (width < 2 || height < 2) return false;
         if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
           canvas.width = Math.round(width * dpr);
           canvas.height = Math.round(height * dpr);
         }
         viewport = { width: width, height: height, dpr: dpr };
+        return true;
+      }
+
+      function stabilizeViewport() {
+        const refresh = function () {
+          if (!resizeCanvas()) return;
+          drawMap();
+        };
+        refresh();
+        requestAnimationFrame(refresh);
+        setTimeout(refresh, 90);
+        setTimeout(refresh, 260);
       }
 
       function calculateView() {
@@ -5370,7 +5430,7 @@
         ctx.stroke();
       }
 
-      function drawLaneLabels() {
+      function drawLaneLabels(colors) {
         if (drawView.scale < 1.5) return;
         ctx.fillStyle = colors.foreground;
         ctx.font = "400 11px system-ui, sans-serif";
@@ -5386,7 +5446,7 @@
         }
       }
 
-      function drawTownBlocksAndLots(colors) {
+      function drawTownBlocksAndLots() {
         ctx.save();
         ctx.strokeStyle = "rgba(65,89,82,.24)";
         ctx.lineWidth = Math.max(1, drawView.scale * .055);
@@ -5663,7 +5723,7 @@
         ctx.strokeRect(townPoint.x, townPoint.y, (TOWN_RIGHT - TOWN_LEFT) * drawView.scale, TOWN_HEIGHT * drawView.scale);
         ctx.globalAlpha = 1;
 
-        drawTownBlocksAndLots(colors);
+        drawTownBlocksAndLots();
         drawRoadAccents(colors);
         drawRoadSurvey(colors);
         drawActiveGateLabels(colors);
@@ -5689,7 +5749,7 @@
         drawActiveHauler(colors);
         drawSelection(colors);
         drawStarterMarker(colors);
-        drawLaneLabels();
+        drawLaneLabels(colors);
         drawPlayer(colors);
       }
 
@@ -5970,11 +6030,18 @@
       root.addEventListener("pointerdown", ensureAudio, { passive: true });
       document.addEventListener("fullscreenchange", function () {
         renderInterface();
-        resizeCanvas();
+        stabilizeViewport();
+      });
+
+      document.addEventListener("webkitfullscreenchange", function () {
+        renderInterface();
+        stabilizeViewport();
       });
 
       const resizeObserver = new ResizeObserver(function () { resizeCanvas(); });
       resizeObserver.observe(canvas);
+      window.addEventListener("resize", stabilizeViewport);
+      window.addEventListener("orientationchange", stabilizeViewport);
       syncVisualPlayer();
       renderInterface();
       initializeProfiles();

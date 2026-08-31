@@ -27,6 +27,14 @@
 - Added safe migration for older saves whose truck position falls inside a newly proportioned town building.
 - Added deterministic layout regressions for street hierarchy, block count, entrance access, future lots, and save migration.
 
+### Phase 2 hotfix — mobile fullscreen
+
+- Restored the map renderer's claim-label color context, preventing the redraw exception that left only the green base layer after a fullscreen resize.
+- Fullscreen now expands the complete document instead of detaching the nested game surface on affected Android browsers.
+- Added an explicit fullscreen layout state so the HUD, controls, newspaper, and canvas remain mounted together.
+- Re-measures and redraws the map after fullscreen, resize, and orientation transitions instead of trusting a transient zero-size viewport.
+- Added a regression covering document-level fullscreen, HUD continuity, and a non-empty canvas viewport.
+
 ## Production baseline — Sites version 17
 
 - Marketplace sell offers with player-set prices and partial demand-based fills.

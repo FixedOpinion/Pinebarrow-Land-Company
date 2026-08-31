@@ -24,7 +24,7 @@ export default function GameEngineLoader() {
         document.body.appendChild(engineScript);
 
         const managementScript = document.createElement("script");
-        managementScript.src = "/pinebarrow-management.js";
+        managementScript.src = "/pinebarrow-management-v2.js";
         managementScript.async = false;
         managementScript.dataset.pinebarrowManagement = "true";
         document.body.appendChild(managementScript);

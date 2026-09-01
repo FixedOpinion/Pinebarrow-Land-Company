@@ -983,7 +983,7 @@ test("a fulfilled founding contract creates a Coming Soon business", async () =>
   assert.equal(game.element("pinebarrow-visible-menu-demo").dataset.townFutureLots, "3");
 });
 
-test("the large town uses a four-lane Main Street and twelve accessible blocks", async () => {
+test("the large town uses connected streets and twelve enclosed blocks", async () => {
   const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
   const game = createEngineHarness({
     version: 8,
@@ -1002,6 +1002,10 @@ test("the large town uses a four-lane Main Street and twelve accessible blocks",
   assert.equal(root.dataset.townSideStreetLanes, "2");
   assert.equal(root.dataset.townBlockCount, "12");
   assert.equal(root.dataset.townLayoutConflicts, "0");
+  assert.equal(root.dataset.townPerimeterStreets, "2");
+  assert.equal(root.dataset.townStreetDeadEnds, "0");
+  assert.equal(root.dataset.townBlockEnclosureConflicts, "0");
+  assert.equal(root.dataset.townFrontageConflicts, "0");
   assert.equal(root.dataset.townFutureLots, "4");
 });
 
@@ -1021,7 +1025,28 @@ test("an older save inside a relocated town building moves safely to its entranc
 
   game.element("pb7-save-now").click();
   const saved = game.saved();
-  assert.deepEqual(saved.player, { x: 38, y: 141 });
-  assert.deepEqual(saved.selected, { type: "road", x: 38, y: 141 });
+  assert.deepEqual(saved.player, { x: 37, y: 141 });
+  assert.deepEqual(saved.selected, { type: "road", x: 37, y: 141 });
   assert.equal(saved.location, "road");
+});
+
+test("an older save at a town service follows that building to its aligned frontage", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const game = createEngineHarness({
+    version: 8,
+    day: 1,
+    minutes: 480,
+    cash: 160,
+    player: { x: 15, y: 142 },
+    selected: { type: "building", x: 3, y: 130, buildingId: "market" },
+    location: "market",
+    cleared: [],
+    townBusinesses: {},
+  }, engineSource);
+
+  game.element("pb7-save-now").click();
+  const saved = game.saved();
+  assert.deepEqual(saved.player, { x: 8, y: 141 });
+  assert.deepEqual(saved.selected, { type: "building", x: 5, y: 132, buildingId: "market" });
+  assert.equal(saved.location, "market");
 });

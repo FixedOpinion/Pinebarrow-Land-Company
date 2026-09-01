@@ -24,12 +24,13 @@
       const MAIN_STREET_TOP = 142;
       const MAIN_STREET_BOTTOM = 146;
       const TOWN_SIDE_STREET_WIDTH = 2;
-      const TOWN_SIDE_STREET_XS = [14, 29, 44, 59, 74];
+      const TOWN_SIDE_STREET_XS = [1, 14, 29, 44, 59, 74, 87];
+      const TOWN_PERIMETER_STREET_YS = [TOWN_TOP, TOWN_BOTTOM - TOWN_SIDE_STREET_WIDTH];
       const TOWN_BLOCK_COLUMNS = [
-        { x: 1, w: 12 }, { x: 17, w: 11 }, { x: 32, w: 11 },
-        { x: 47, w: 11 }, { x: 62, w: 11 }, { x: 77, w: 12 }
+        { x: 4, w: 9 }, { x: 17, w: 11 }, { x: 32, w: 11 },
+        { x: 47, w: 11 }, { x: 62, w: 11 }, { x: 77, w: 9 }
       ];
-      const TOWN_BLOCK_ROWS = [{ y: 126, h: 15 }, { y: 147, h: 19 }];
+      const TOWN_BLOCK_ROWS = [{ y: 128, h: 13 }, { y: 147, h: 17 }];
       const TOWN_BLOCKS = [];
       TOWN_BLOCK_ROWS.forEach(function (row) {
         TOWN_BLOCK_COLUMNS.forEach(function (column) {
@@ -94,18 +95,18 @@
       };
 
       const buildings = [
-        { id: "townhall", label: "Town Hall", x: 34, y: 130, w: 9, h: 9, doorX: 38, doorY: 141 },
-        { id: "market", label: "Market", x: 3, y: 130, w: 9, h: 9, doorX: 7, doorY: 141 },
-        { id: "garage", label: "Garage", x: 63, y: 130, w: 9, h: 9, doorX: 67, doorY: 141 },
-        { id: "newsstand", label: "News", x: 19, y: 150, w: 5, h: 5, doorX: 21, doorY: 146 },
-        { id: "rental", label: "Rental Shop", x: 49, y: 150, w: 8, h: 7, doorX: 53, doorY: 146 }
+        { id: "townhall", label: "Town Hall", x: 33, y: 130, w: 9, h: 9, doorX: 37, doorY: 141 },
+        { id: "market", label: "Market", x: 5, y: 132, w: 7, h: 7, doorX: 8, doorY: 141 },
+        { id: "garage", label: "Garage", x: 64, y: 131, w: 7, h: 8, doorX: 67, doorY: 141 },
+        { id: "newsstand", label: "News", x: 20, y: 150, w: 5, h: 5, doorX: 22, doorY: 146 },
+        { id: "rental", label: "Rental Shop", x: 49, y: 150, w: 7, h: 7, doorX: 52, doorY: 146 }
       ];
 
       const businessLots = [
-        { id: "foundry", label: "Pinebarrow Foundry", material: "coal", x: 3, y: 150, w: 9, h: 9, doorX: 7, doorY: 146, sign: "FOUNDRY" },
-        { id: "railworks", label: "Rail Works", material: "iron", x: 19, y: 130, w: 8, h: 9, doorX: 23, doorY: 141, sign: "RAIL" },
-        { id: "glassworks", label: "Glassworks", material: "quartz", x: 49, y: 130, w: 8, h: 9, doorX: 53, doorY: 141, sign: "GLASS" },
-        { id: "cannery", label: "Main Street Cannery", material: "tin", x: 78, y: 150, w: 9, h: 9, doorX: 82, doorY: 146, sign: "CANNERY" }
+        { id: "foundry", label: "Pinebarrow Foundry", material: "coal", x: 5, y: 150, w: 7, h: 9, doorX: 8, doorY: 146, sign: "FOUNDRY" },
+        { id: "railworks", label: "Rail Works", material: "iron", x: 19, y: 132, w: 7, h: 7, doorX: 22, doorY: 141, sign: "RAIL" },
+        { id: "glassworks", label: "Glassworks", material: "quartz", x: 49, y: 132, w: 7, h: 7, doorX: 52, doorY: 141, sign: "GLASS" },
+        { id: "cannery", label: "Main Street Cannery", material: "tin", x: 78, y: 150, w: 7, h: 9, doorX: 81, doorY: 146, sign: "CANNERY" }
       ];
 
       const basePrices = Object.freeze({
@@ -1965,10 +1966,20 @@
         return insideTown(x, y) && y >= MAIN_STREET_TOP && y < MAIN_STREET_BOTTOM;
       }
 
-      function isTownSideStreet(x, y) {
+      function isTownPerimeterStreet(x, y) {
+        return insideTown(x, y) && TOWN_PERIMETER_STREET_YS.some(function (streetY) {
+          return y >= streetY && y < streetY + TOWN_SIDE_STREET_WIDTH;
+        });
+      }
+
+      function isTownVerticalStreet(x, y) {
         return insideTown(x, y) && TOWN_SIDE_STREET_XS.some(function (streetX) {
           return x >= streetX && x < streetX + TOWN_SIDE_STREET_WIDTH;
         });
+      }
+
+      function isTownSideStreet(x, y) {
+        return isTownPerimeterStreet(x, y) || isTownVerticalStreet(x, y);
       }
 
       function isTownRoad(x, y) {
@@ -1977,9 +1988,11 @@
 
       function isTownSidewalk(x, y) {
         if (!insideTown(x, y) || isTownRoad(x, y)) return false;
-        if (y === MAIN_STREET_TOP - 1 || y === MAIN_STREET_BOTTOM) return true;
-        return TOWN_SIDE_STREET_XS.some(function (streetX) {
-          return x === streetX - 1 || x === streetX + TOWN_SIDE_STREET_WIDTH;
+        return [
+          { x: x - 1, y: y }, { x: x + 1, y: y },
+          { x: x, y: y - 1 }, { x: x, y: y + 1 }
+        ].some(function (neighbor) {
+          return insideTown(neighbor.x, neighbor.y) && isTownRoad(neighbor.x, neighbor.y);
         });
       }
 
@@ -2009,7 +2022,51 @@
         return conflicts;
       }
 
+      function townBlockEnclosureConflictCount() {
+        let conflicts = 0;
+        TOWN_BLOCKS.forEach(function (block) {
+          for (let x = block.x; x < block.x + block.w; x += 1) {
+            if (!isTownSidewalk(x, block.y - 1) || !isTownSidewalk(x, block.y + block.h)) conflicts += 1;
+          }
+          for (let y = block.y; y < block.y + block.h; y += 1) {
+            if (!isTownSidewalk(block.x - 1, y) || !isTownSidewalk(block.x + block.w, y)) conflicts += 1;
+          }
+        });
+        return conflicts;
+      }
+
+      function townStreetDeadEndCount() {
+        let deadEnds = 0;
+        TOWN_SIDE_STREET_XS.forEach(function (streetX) {
+          if (!isTownPerimeterStreet(streetX, TOWN_TOP)) deadEnds += 1;
+          if (!isTownPerimeterStreet(streetX, TOWN_BOTTOM - 1)) deadEnds += 1;
+        });
+        TOWN_PERIMETER_STREET_YS.forEach(function (streetY) {
+          if (!isTownVerticalStreet(TOWN_LEFT + 1, streetY)) deadEnds += 1;
+          if (!isTownVerticalStreet(TOWN_RIGHT - 2, streetY)) deadEnds += 1;
+        });
+        return deadEnds;
+      }
+
+      function townFrontageConflictCount() {
+        return buildings.concat(businessLots).filter(function (building) {
+          const facesMainStreet = building.doorY === MAIN_STREET_TOP - 1 || building.doorY === MAIN_STREET_BOTTOM;
+          const doorCentered = building.doorX >= building.x && building.doorX < building.x + building.w;
+          return !facesMainStreet || !doorCentered;
+        }).length;
+      }
+
+      function townBuildingById(buildingId) {
+        return buildings.concat(businessLots).find(function (building) { return building.id === buildingId; }) || null;
+      }
+
       function relocatePlayerFromTownBuilding() {
+        const savedLocationBuilding = townBuildingById(state.location);
+        if (savedLocationBuilding) {
+          state.player = { x: savedLocationBuilding.doorX, y: savedLocationBuilding.doorY };
+          state.selected = { type: "building", x: savedLocationBuilding.x, y: savedLocationBuilding.y, buildingId: savedLocationBuilding.id };
+          return true;
+        }
         const occupied = buildingAt(state.player.x, state.player.y);
         if (!occupied) return false;
         state.player = { x: occupied.doorX, y: occupied.doorY };
@@ -4306,6 +4363,10 @@
         root.dataset.townSideStreetLanes = String(TOWN_SIDE_STREET_WIDTH);
         root.dataset.townBlockCount = String(TOWN_BLOCKS.length);
         root.dataset.townLayoutConflicts = String(townLayoutConflictCount());
+        root.dataset.townBlockEnclosureConflicts = String(townBlockEnclosureConflictCount());
+        root.dataset.townStreetDeadEnds = String(townStreetDeadEndCount());
+        root.dataset.townFrontageConflicts = String(townFrontageConflictCount());
+        root.dataset.townPerimeterStreets = String(TOWN_PERIMETER_STREET_YS.length);
         root.dataset.townFutureLots = String(businessLots.filter(function (business) { return !state.townBusinesses[business.id]; }).length);
         el.time.textContent = "Day " + state.day + " · " + formatTime();
         el.contextTitle.textContent = state.contextTitle;
@@ -5446,38 +5507,69 @@
         }
       }
 
-      function drawTownBlocksAndLots() {
+      function townBlockForStructure(structure) {
+        const centerX = structure.x + structure.w / 2;
+        const centerY = structure.y + structure.h / 2;
+        return TOWN_BLOCKS.find(function (block) {
+          return centerX >= block.x && centerX < block.x + block.w && centerY >= block.y && centerY < block.y + block.h;
+        }) || null;
+      }
+
+      function drawTownBlocksAndLots(colors) {
         ctx.save();
-        ctx.strokeStyle = "rgba(65,89,82,.24)";
-        ctx.lineWidth = Math.max(1, drawView.scale * .055);
-        TOWN_BLOCKS.forEach(function (block) {
+        TOWN_BLOCKS.forEach(function (block, index) {
           const point = screenPoint(block.x, block.y);
-          roundedPath(point.x, point.y, block.w * drawView.scale, block.h * drawView.scale, Math.max(2, drawView.scale * .3));
+          ctx.fillStyle = index % 2 ? "rgba(255,255,255,.055)" : "rgba(45,114,78,.035)";
+          ctx.strokeStyle = "rgba(65,89,82,.28)";
+          ctx.lineWidth = Math.max(1, drawView.scale * .055);
+          roundedPath(point.x, point.y, block.w * drawView.scale, block.h * drawView.scale, Math.max(2, drawView.scale * .24));
+          ctx.fill();
           ctx.stroke();
         });
 
         buildings.concat(businessLots).forEach(function (building) {
-          const point = screenPoint(building.x - .65, building.y - .65);
-          const width = (building.w + 1.3) * drawView.scale;
-          const height = (building.h + 1.3) * drawView.scale;
-          ctx.fillStyle = building.id === "townhall" ? "rgba(247,239,213,.72)" : "rgba(213,211,196,.68)";
-          ctx.strokeStyle = building.id === "townhall" ? "rgba(119,104,67,.5)" : "rgba(91,101,104,.42)";
-          roundedPath(point.x, point.y, width, height, Math.max(2, drawView.scale * .3));
+          const block = townBlockForStructure(building);
+          if (!block) return;
+          const facesNorth = building.doorY < building.y;
+          const buildingFaceY = facesNorth ? building.y : building.y + building.h;
+          const apronTop = Math.min(buildingFaceY, building.doorY + (facesNorth ? .45 : 0));
+          const apronBottom = Math.max(buildingFaceY, building.doorY + (facesNorth ? .45 : 0));
+          const apron = screenPoint(building.x - .35, apronTop);
+          const apronWidth = (building.w + .7) * drawView.scale;
+          const apronHeight = Math.max(drawView.scale * .7, (apronBottom - apronTop) * drawView.scale);
+          ctx.fillStyle = building.id === "townhall" ? "rgba(247,239,213,.78)" : "rgba(205,207,198,.78)";
+          ctx.strokeStyle = building.id === "townhall" ? "rgba(119,104,67,.45)" : "rgba(91,101,104,.34)";
+          ctx.lineWidth = Math.max(1, drawView.scale * .045);
+          roundedPath(apron.x, apron.y, apronWidth, apronHeight, Math.max(2, drawView.scale * .18));
           ctx.fill();
           ctx.stroke();
 
-          if (drawView.scale >= 4 && building.id !== "townhall") {
-            ctx.strokeStyle = "rgba(255,255,255,.72)";
+          const point = screenPoint(building.x - .48, building.y - .48);
+          const width = (building.w + .96) * drawView.scale;
+          const height = (building.h + .96) * drawView.scale;
+          ctx.fillStyle = building.id === "townhall" ? "rgba(247,239,213,.72)" : "rgba(213,211,196,.68)";
+          ctx.strokeStyle = building.id === "townhall" ? "rgba(119,104,67,.5)" : "rgba(91,101,104,.42)";
+          roundedPath(point.x, point.y, width, height, Math.max(2, drawView.scale * .22));
+          ctx.fill();
+          ctx.stroke();
+
+          if (drawView.scale >= 4) {
+            ctx.strokeStyle = building.id === "townhall" ? "rgba(119,104,67,.52)" : "rgba(255,255,255,.78)";
             ctx.lineWidth = Math.max(.7, drawView.scale * .045);
-            const parkingY = point.y + height - drawView.scale * .35;
-            const spaces = Math.max(2, Math.min(6, Math.floor(building.w / 2)));
+            const spaces = Math.max(2, Math.min(5, Math.floor(building.w / 1.6)));
             for (let space = 1; space < spaces; space += 1) {
-              const parkingX = point.x + width * space / spaces;
+              const parkingX = apron.x + apronWidth * space / spaces;
               ctx.beginPath();
-              ctx.moveTo(parkingX, parkingY - drawView.scale * .3);
-              ctx.lineTo(parkingX, parkingY + drawView.scale * .24);
+              ctx.moveTo(parkingX, apron.y + drawView.scale * .18);
+              ctx.lineTo(parkingX, apron.y + apronHeight - drawView.scale * .18);
               ctx.stroke();
             }
+
+            const walkway = screenPoint(building.doorX + .16, Math.min(building.doorY + .18, buildingFaceY));
+            ctx.fillStyle = colors.curb;
+            ctx.globalAlpha = .92;
+            ctx.fillRect(walkway.x, walkway.y, Math.max(1.5, drawView.scale * .68), Math.max(1.5, Math.abs(buildingFaceY - building.doorY) * drawView.scale));
+            ctx.globalAlpha = 1;
           }
         });
         ctx.restore();
@@ -5513,74 +5605,72 @@
 
       function drawTownStreetDetails(colors) {
         const scale = drawView.scale;
-        const mainLeft = screenPoint(TOWN_LEFT, MAIN_STREET_TOP);
-        const mainRight = screenPoint(TOWN_RIGHT, MAIN_STREET_TOP);
-        const centerY = screenPoint(TOWN_LEFT, MAIN_STREET_TOP + 2).y;
+        const roadIntervals = TOWN_SIDE_STREET_XS.map(function (streetX) {
+          return { start: streetX, end: streetX + TOWN_SIDE_STREET_WIDTH };
+        });
+        const horizontalSegments = [];
+        let segmentStart = TOWN_LEFT;
+        roadIntervals.forEach(function (interval) {
+          if (interval.start > segmentStart) horizontalSegments.push({ start: segmentStart, end: interval.start });
+          segmentStart = Math.max(segmentStart, interval.end);
+        });
+        if (segmentStart < TOWN_RIGHT) horizontalSegments.push({ start: segmentStart, end: TOWN_RIGHT });
+
+        function strokeHorizontalSegments(y, style, width, dashed, alpha) {
+          ctx.strokeStyle = style;
+          ctx.lineWidth = width;
+          ctx.globalAlpha = alpha;
+          ctx.setLineDash(dashed || []);
+          horizontalSegments.forEach(function (segment) {
+            const left = screenPoint(segment.start, y);
+            const right = screenPoint(segment.end, y);
+            ctx.beginPath();
+            ctx.moveTo(left.x, left.y);
+            ctx.lineTo(right.x, right.y);
+            ctx.stroke();
+          });
+        }
+
+        function strokeVerticalSegment(x, startY, endY, style, width, dashed, alpha) {
+          const top = screenPoint(x, startY);
+          const bottom = screenPoint(x, endY);
+          ctx.strokeStyle = style;
+          ctx.lineWidth = width;
+          ctx.globalAlpha = alpha;
+          ctx.setLineDash(dashed || []);
+          ctx.beginPath();
+          ctx.moveTo(top.x, top.y);
+          ctx.lineTo(bottom.x, bottom.y);
+          ctx.stroke();
+        }
+
+        const dash = [Math.max(3, scale * .48), Math.max(3, scale * .44)];
         ctx.save();
         ctx.lineCap = "butt";
 
-        ctx.strokeStyle = colors.curb;
-        ctx.globalAlpha = .94;
-        ctx.lineWidth = Math.max(1, scale * .11);
         [MAIN_STREET_TOP, MAIN_STREET_BOTTOM].forEach(function (roadY) {
-          const edge = screenPoint(TOWN_LEFT, roadY);
-          ctx.beginPath();
-          ctx.moveTo(edge.x, edge.y);
-          ctx.lineTo(mainRight.x, edge.y);
-          ctx.stroke();
+          strokeHorizontalSegments(roadY, colors.curb, Math.max(1, scale * .11), [], .94);
         });
-
-        ctx.strokeStyle = colors.roadLine;
-        ctx.lineWidth = Math.max(1.2, scale * .09);
-        ctx.setLineDash([]);
         [-.09, .09].forEach(function (offset) {
-          ctx.beginPath();
-          ctx.moveTo(mainLeft.x, centerY + scale * offset);
-          ctx.lineTo(mainRight.x, centerY + scale * offset);
-          ctx.stroke();
+          strokeHorizontalSegments(MAIN_STREET_TOP + 2 + offset, colors.roadLine, Math.max(1.2, scale * .09), [], 1);
+        });
+        [MAIN_STREET_TOP + 1, MAIN_STREET_TOP + 3].forEach(function (laneY) {
+          strokeHorizontalSegments(laneY, colors.roadWhite, Math.max(1, scale * .065), dash, .76);
         });
 
-        ctx.strokeStyle = colors.roadWhite;
-        ctx.globalAlpha = .76;
-        ctx.lineWidth = Math.max(1, scale * .065);
-        ctx.setLineDash([Math.max(3, scale * .52), Math.max(3, scale * .48)]);
-        [MAIN_STREET_TOP + 1, MAIN_STREET_TOP + 3].forEach(function (laneY) {
-          const lane = screenPoint(TOWN_LEFT, laneY);
-          ctx.beginPath();
-          ctx.moveTo(lane.x, lane.y);
-          ctx.lineTo(mainRight.x, lane.y);
-          ctx.stroke();
+        TOWN_PERIMETER_STREET_YS.forEach(function (streetY) {
+          strokeHorizontalSegments(streetY, colors.curb, Math.max(1, scale * .09), [], .9);
+          strokeHorizontalSegments(streetY + TOWN_SIDE_STREET_WIDTH, colors.curb, Math.max(1, scale * .09), [], .9);
+          strokeHorizontalSegments(streetY + TOWN_SIDE_STREET_WIDTH / 2, colors.roadLine, Math.max(1, scale * .055), dash, .7);
         });
 
         TOWN_SIDE_STREET_XS.forEach(function (streetX) {
-          const centerX = screenPoint(streetX + TOWN_SIDE_STREET_WIDTH / 2, TOWN_TOP).x;
-          const townTop = screenPoint(streetX, TOWN_TOP).y;
-          const mainTop = screenPoint(streetX, MAIN_STREET_TOP).y;
-          const mainBottom = screenPoint(streetX, MAIN_STREET_BOTTOM).y;
-          const townBottom = screenPoint(streetX, TOWN_BOTTOM).y;
-
-          ctx.strokeStyle = colors.curb;
-          ctx.globalAlpha = .88;
-          ctx.lineWidth = Math.max(1, scale * .08);
-          ctx.setLineDash([]);
           [streetX, streetX + TOWN_SIDE_STREET_WIDTH].forEach(function (edgeX) {
-            const edge = screenPoint(edgeX, TOWN_TOP);
-            ctx.beginPath();
-            ctx.moveTo(edge.x, townTop);
-            ctx.lineTo(edge.x, townBottom);
-            ctx.stroke();
+            strokeVerticalSegment(edgeX, TOWN_TOP + TOWN_SIDE_STREET_WIDTH, MAIN_STREET_TOP, colors.curb, Math.max(1, scale * .08), [], .88);
+            strokeVerticalSegment(edgeX, MAIN_STREET_BOTTOM, TOWN_BOTTOM - TOWN_SIDE_STREET_WIDTH, colors.curb, Math.max(1, scale * .08), [], .88);
           });
-
-          ctx.strokeStyle = colors.roadLine;
-          ctx.globalAlpha = .68;
-          ctx.lineWidth = Math.max(1, scale * .055);
-          ctx.setLineDash([Math.max(2, scale * .38), Math.max(3, scale * .42)]);
-          [[townTop, mainTop], [mainBottom, townBottom]].forEach(function (segment) {
-            ctx.beginPath();
-            ctx.moveTo(centerX, segment[0]);
-            ctx.lineTo(centerX, segment[1]);
-            ctx.stroke();
-          });
+          strokeVerticalSegment(streetX + TOWN_SIDE_STREET_WIDTH / 2, TOWN_TOP + TOWN_SIDE_STREET_WIDTH, MAIN_STREET_TOP, colors.roadLine, Math.max(1, scale * .055), dash, .68);
+          strokeVerticalSegment(streetX + TOWN_SIDE_STREET_WIDTH / 2, MAIN_STREET_BOTTOM, TOWN_BOTTOM - TOWN_SIDE_STREET_WIDTH, colors.roadLine, Math.max(1, scale * .055), dash, .68);
 
           ctx.fillStyle = colors.roadWhite;
           ctx.globalAlpha = .78;
@@ -5591,6 +5681,11 @@
             const southStripe = screenPoint(streetX + .14 + stripe * .47, MAIN_STREET_BOTTOM);
             ctx.fillRect(southStripe.x, southStripe.y - scale * .36, stripeWidth, Math.max(1, scale * .3));
           }
+
+          const northStop = screenPoint(streetX + .08, MAIN_STREET_TOP - .28);
+          const southStop = screenPoint(streetX + .08, MAIN_STREET_BOTTOM + .18);
+          ctx.fillRect(northStop.x, northStop.y, Math.max(1, scale * 1.84), Math.max(1, scale * .1));
+          ctx.fillRect(southStop.x, southStop.y, Math.max(1, scale * 1.84), Math.max(1, scale * .1));
         });
 
         if (scale >= 6) {
@@ -5603,6 +5698,10 @@
             const label = screenPoint(roadX, MAIN_STREET_TOP + 2);
             ctx.fillText("MAIN ST", label.x, label.y);
           });
+          const northLabel = screenPoint(37.5, TOWN_TOP + 1);
+          const southLabel = screenPoint(67.5, TOWN_BOTTOM - 1);
+          ctx.fillText("PINE AVE", northLabel.x, northLabel.y);
+          ctx.fillText("MILL AVE", southLabel.x, southLabel.y);
         }
         ctx.restore();
       }
@@ -5723,7 +5822,7 @@
         ctx.strokeRect(townPoint.x, townPoint.y, (TOWN_RIGHT - TOWN_LEFT) * drawView.scale, TOWN_HEIGHT * drawView.scale);
         ctx.globalAlpha = 1;
 
-        drawTownBlocksAndLots();
+        drawTownBlocksAndLots(colors);
         drawRoadAccents(colors);
         drawRoadSurvey(colors);
         drawActiveGateLabels(colors);

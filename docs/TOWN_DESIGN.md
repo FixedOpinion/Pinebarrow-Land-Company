@@ -8,7 +8,7 @@ Do not shrink the overall town footprint. Empty blocks and open lots are future-
 
 ### Phase 2 implementation
 
-The current town keeps its original 90-by-42 footprint. A four-lane east-west Main Street crosses five two-lane north-south streets, forming twelve blocks with continuous sidewalks, curbs, marked intersections, and crosswalks. Civic, commercial, service, and future-industry buildings occupy distinct lots within those blocks. Contract-linked future industries continue to progress from vacant lot to Coming Soon construction and then an operating business.
+The current town keeps its original 90-by-42 footprint. A four-lane east-west Main Street crosses seven two-lane north-south streets. Two east-west perimeter streets close that network into twelve complete blocks, so every street reaches another street rather than ending at the claim wall. Continuous sidewalks, curbs, marked intersections, and crosswalks establish the street hierarchy. Civic, commercial, service, and future-industry buildings occupy aligned lots with entrances, walkways, and parking aprons facing Main Street. Contract-linked future industries continue to progress from vacant lot to Coming Soon construction and then an operating business.
 
 ### Main Street
 
@@ -16,7 +16,7 @@ Main Street is a four-lane primary artery with clear lane markings and major int
 
 ### Side streets
 
-Side streets are two lanes and visibly narrower. They branch from Main Street to create recognizable blocks and give buildings frontages, driveways, loading access, parking, and alleys.
+Side streets are two lanes and visibly narrower. North and south perimeter streets connect their ends, creating recognizable closed blocks and giving buildings frontages, driveways, loading access, parking, and alleys.
 
 Town streets are structural city infrastructure. Player-built industrial roads remain a gameplay system for access, truck speed, hauling, and expansion. The redundant road-tile counter/display can be removed without removing road mechanics.
 

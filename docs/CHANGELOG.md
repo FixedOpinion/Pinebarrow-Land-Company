@@ -35,6 +35,16 @@
 - Re-measures and redraws the map after fullscreen, resize, and orientation transitions instead of trusting a transient zero-size viewport.
 - Added a regression covering document-level fullscreen, HUD continuity, and a non-empty canvas viewport.
 
+### Phase 2 correction — complete town grid
+
+- Added north and south two-lane perimeter streets so the town's blocks are fully enclosed instead of open-ended lawns.
+- Connected seven north-south streets to the perimeter streets and Main Street, eliminating streets that visually terminate at the claim wall.
+- Preserved twelve complete development blocks within the original 90-by-42 town footprint.
+- Snapped every civic, commercial, service, and future-industry building to a defined block with a consistent Main Street frontage.
+- Reoriented parking aprons, walkways, and entrances toward Main Street instead of leaving buildings floating inside oversized grass lots.
+- Extended old-save migration so a player saved at a relocated town service follows that service to its new entrance.
+- Added deterministic regressions for block enclosure, street connectivity, frontage alignment, and service-location migration.
+
 ## Production baseline — Sites version 17
 
 - Marketplace sell offers with player-set prices and partial demand-based fills.

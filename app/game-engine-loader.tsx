@@ -12,20 +12,29 @@ export default function GameEngineLoader() {
     engineScript.async = true;
     engineScript.dataset.pinebarrowEngine = "true";
 
-    const loadMineManagement = () => {
-      if (document.querySelector("script[data-pinebarrow-mine-management='true']")) return;
-      const managementScript = document.createElement("script");
-      managementScript.src = "/pinebarrow-mine-management.js";
-      managementScript.async = true;
-      managementScript.dataset.pinebarrowMineManagement = "true";
-      document.body.appendChild(managementScript);
+    const loadManagement = () => {
+      if (!document.querySelector("script[data-pinebarrow-mine-management='true']")) {
+        const mineScript = document.createElement("script");
+        mineScript.src = "/pinebarrow-mine-management.js";
+        mineScript.async = true;
+        mineScript.dataset.pinebarrowMineManagement = "true";
+        document.body.appendChild(mineScript);
+      }
+
+      if (!document.querySelector("script[data-pinebarrow-operations-management='true']")) {
+        const operationsScript = document.createElement("script");
+        operationsScript.src = "/pinebarrow-operations-management.js";
+        operationsScript.async = true;
+        operationsScript.dataset.pinebarrowOperationsManagement = "true";
+        document.body.appendChild(operationsScript);
+      }
     };
 
-    engineScript.addEventListener("load", loadMineManagement, { once: true });
+    engineScript.addEventListener("load", loadManagement, { once: true });
     document.body.appendChild(engineScript);
 
     return () => {
-      engineScript.removeEventListener("load", loadMineManagement);
+      engineScript.removeEventListener("load", loadManagement);
     };
   }, []);
 

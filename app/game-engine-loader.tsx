@@ -1,40 +1,56 @@
 "use client";
 
 import { useEffect } from "react";
+import { applyWorkforceEnginePatches } from "./workforce-engine-patches";
 
 export default function GameEngineLoader() {
   useEffect(() => {
     const root = document.getElementById("pinebarrow-visible-menu-demo");
     if (!root || root.dataset.engineLoaded === "true") return;
 
-    const engineScript = document.createElement("script");
-    engineScript.src = "/pinebarrow-engine.js";
-    engineScript.async = true;
-    engineScript.dataset.pinebarrowEngine = "true";
+    let cancelled = false;
+    let engineScript: HTMLScriptElement | null = null;
+
+    const loadScriptOnce = (src: string, dataAttribute: string) => {
+      if (document.querySelector(`script[${dataAttribute}='true']`)) return;
+      const script = document.createElement("script");
+      script.src = src;
+      script.async = true;
+      script.setAttribute(dataAttribute, "true");
+      document.body.appendChild(script);
+    };
 
     const loadManagement = () => {
-      if (!document.querySelector("script[data-pinebarrow-mine-management='true']")) {
-        const mineScript = document.createElement("script");
-        mineScript.src = "/pinebarrow-mine-management.js";
-        mineScript.async = true;
-        mineScript.dataset.pinebarrowMineManagement = "true";
-        document.body.appendChild(mineScript);
-      }
+      loadScriptOnce("/pinebarrow-mine-management.js", "data-pinebarrow-mine-management");
+      loadScriptOnce("/pinebarrow-operations-management.js", "data-pinebarrow-operations-management");
+      loadScriptOnce("/pinebarrow-workforce-management.js", "data-pinebarrow-workforce-management");
+    };
 
-      if (!document.querySelector("script[data-pinebarrow-operations-management='true']")) {
-        const operationsScript = document.createElement("script");
-        operationsScript.src = "/pinebarrow-operations-management.js";
-        operationsScript.async = true;
-        operationsScript.dataset.pinebarrowOperationsManagement = "true";
-        document.body.appendChild(operationsScript);
+    const boot = async () => {
+      try {
+        const response = await fetch("/pinebarrow-engine.js", { cache: "no-store" });
+        if (!response.ok) throw new Error(`Engine request failed: ${response.status}`);
+        const originalSource = await response.text();
+        const patchedSource = applyWorkforceEnginePatches(originalSource);
+        if (cancelled) return;
+
+        engineScript = document.createElement("script");
+        engineScript.text = `${patchedSource}\n//# sourceURL=pinebarrow-engine.workforce-patched.js`;
+        engineScript.dataset.pinebarrowEngine = "true";
+        document.body.appendChild(engineScript);
+        loadManagement();
+      } catch (error) {
+        console.error("Pinebarrow engine failed to initialize", error);
+        const mapTip = document.getElementById("pb7-map-tip");
+        if (mapTip) mapTip.textContent = "Game engine could not start. Refresh to retry.";
       }
     };
 
-    engineScript.addEventListener("load", loadManagement, { once: true });
-    document.body.appendChild(engineScript);
+    void boot();
 
     return () => {
-      engineScript.removeEventListener("load", loadManagement);
+      cancelled = true;
+      if (engineScript && engineScript.parentNode) engineScript.parentNode.removeChild(engineScript);
     };
   }, []);
 

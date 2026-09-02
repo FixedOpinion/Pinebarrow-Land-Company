@@ -7,7 +7,7 @@ const SAVE_KEY = "pinebarrow-land-company-save-v1";
 const PROFILE_KEY = "pinebarrow-land-company-profile-v1-1";
 const ACTION_BUTTON_IDS = [
   "pb7-hire", "pb7-hire-worker", "pb7-hauler-xs", "pb7-hauler-s", "pb7-hauler-m", "pb7-hauler-l",
-  "pb7-marketplace", "pb7-contracts", "pb7-sell", "pb7-buy-saw", "pb7-rent-saw", "pb7-shaker", "pb7-upgrade-truck-size",
+  "pb7-marketplace", "pb7-contracts", "pb7-company-management", "pb7-sell", "pb7-buy-saw", "pb7-rent-saw", "pb7-shaker", "pb7-upgrade-truck-size",
   "pb7-upgrade-truck-speed", "pb7-road-plan", "pb7-road-submit", "pb7-road-accept", "pb7-road-cancel", "pb7-read-news", "pb7-prospect", "pb7-lease",
   "pb7-unlock-gate",
   "pb7-buy-land", "pb7-buy-warehouse-land", "pb7-build-mine", "pb7-load-mine", "pb7-upgrade-mine",
@@ -671,9 +671,10 @@ test("the Market assigns a repeating business-contract truck to a matching mine"
 
   const game = createEngineHarness(save, engineSource);
   game.element("pb7-contracts").click();
-  assert.equal(game.element("pb7-market-screen").hidden, false);
-  assert.equal(game.element("pb7-contract-panel").hidden, false);
-  const board = game.element("pb7-contract-board");
+  assert.equal(game.element("pb7-market-screen").hidden, true);
+  assert.equal(game.element("pb7-management-screen").hidden, false);
+  assert.equal(game.element("pb7-contract-management-panel").hidden, false);
+  const board = game.element("pb7-management-contract-board");
   board.querySelector = () => ({ value: mines[0].id });
   const acceptButton = { dataset: { acceptContract: "development-foundry" } };
   board.listeners.get("click")[0]({ target: { closest: () => acceptButton } });
@@ -682,13 +683,119 @@ test("the Market assigns a repeating business-contract truck to a matching mine"
   assert.equal(game.saved().companyContracts[0].material, "coal");
   assert.equal(game.saved().companyContracts[0].status, "active");
 
-  game.element("pb7-market-close").click();
+  assert.match(board.innerHTML, /Total reward/);
+  assert.match(board.innerHTML, /Assigned mine/);
+  assert.match(board.innerHTML, /Truck cycle/);
+  game.element("pb7-management-close").click();
   game.element("pb7-menu-close").click();
   game.frame(1000);
   game.frame(2000);
   game.element("pb7-save-now").click();
   assert.ok(game.saved().companyContracts[0].inTransit);
   assert.equal(game.saved().companyContracts[0].truckSize, "s");
+});
+
+test("Mine Management reports every site and exposes production bottlenecks", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const mines = [
+    {
+      id: "mine-1", parcelId: "claim-1", x: 76, y: 170, w: 2, h: 2, doorX: 75, doorY: 170,
+      level: 1, baseMaterial: "stone", material: "stone", depth: 3, ratio: 0.2,
+      stockMaterial: 5, stockDirt: 1,
+    },
+    {
+      id: "mine-2", parcelId: "claim-2", x: 78, y: 180, w: 2, h: 2, doorX: 77, doorY: 180,
+      level: 2, baseMaterial: "iron", material: "iron", depth: 64, ratio: 0.1,
+      stockMaterial: 1, stockDirt: 0,
+    },
+  ];
+  const warehouse = {
+    id: "warehouse-1", parcelId: "warehouse-land-1", x: 80, y: 180, w: 2, h: 2,
+    level: 1, storage: { stone: 8 }, doorX: 79, doorY: 180,
+  };
+  const game = createEngineHarness({
+    version: 8,
+    day: 9,
+    minutes: 480,
+    cash: 1200,
+    player: { x: 37, y: 141 },
+    selected: { type: "building", id: "townhall", x: 37, y: 141 },
+    location: "townhall",
+    cleared: [],
+    workers: 2,
+    mineParcels: [
+      { id: "claim-1", x: 76, y: 170, w: 2, h: 2, status: "owned", mineId: "mine-1" },
+      { id: "claim-2", x: 78, y: 180, w: 2, h: 2, status: "owned", mineId: "mine-2" },
+    ],
+    warehouseParcels: [
+      { id: "warehouse-land-1", x: 80, y: 180, w: 2, h: 2, status: "owned", warehouseId: "warehouse-1", mineParcelId: "claim-2" },
+    ],
+    mines,
+    warehouses: [warehouse],
+    selectedMineId: mines[0].id,
+    selectedWarehouseId: warehouse.id,
+    hauls: [],
+  }, engineSource);
+
+  game.element("pb7-company-management").click();
+  assert.equal(game.element("pb7-management-screen").hidden, false);
+  assert.equal(game.element("pb7-mine-management-panel").hidden, false);
+  const board = game.element("pb7-mine-management-board");
+  assert.match(board.innerHTML, /MINE 1/);
+  assert.match(board.innerHTML, /MINE 2/);
+  assert.match(board.innerHTML, /MINE STORAGE FULL/);
+  assert.match(board.innerHTML, /WAREHOUSE FULL/);
+  assert.match(board.innerHTML, /Production/);
+  assert.match(board.innerHTML, /Output storage/);
+  assert.match(board.innerHTML, /Assigned warehouse/);
+  assert.match(board.innerHTML, /Hauling status/);
+  assert.match(board.innerHTML, /Upgrade status/);
+  assert.equal(game.element("pinebarrow-visible-menu-demo").dataset.managementMineCount, "2");
+  assert.equal(game.element("pinebarrow-visible-menu-demo").dataset.managementWarehouseCount, "1");
+  assert.equal(game.element("pinebarrow-visible-menu-demo").dataset.managementBottlenecks, "2");
+});
+
+test("Warehouse Management opens from a warehouse and shows its connected network", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const mine = {
+    id: "mine-1", parcelId: "claim-1", x: 76, y: 170, w: 2, h: 2, doorX: 75, doorY: 170,
+    level: 2, baseMaterial: "coal", material: "coal", depth: 31, ratio: 0.15,
+    stockMaterial: 2, stockDirt: 0.4,
+  };
+  const warehouse = {
+    id: "warehouse-1", parcelId: "warehouse-land-1", x: 78, y: 170, w: 2, h: 2,
+    level: 2, storage: { coal: 4, stone: 1 }, doorX: 77, doorY: 170,
+  };
+  const game = createEngineHarness({
+    version: 8,
+    day: 9,
+    minutes: 480,
+    cash: 1000,
+    player: { x: warehouse.doorX, y: warehouse.doorY },
+    selected: { type: "warehouse", x: warehouse.x, y: warehouse.y },
+    location: "warehouse",
+    cleared: [],
+    workers: 1,
+    mineParcels: [{ id: "claim-1", x: mine.x, y: mine.y, w: 2, h: 2, status: "owned", mineId: mine.id }],
+    warehouseParcels: [{ id: warehouse.parcelId, x: warehouse.x, y: warehouse.y, w: 2, h: 2, status: "owned", warehouseId: warehouse.id, mineParcelId: "claim-1" }],
+    mines: [mine],
+    warehouses: [warehouse],
+    selectedMineId: mine.id,
+    selectedWarehouseId: warehouse.id,
+    hauls: [],
+  }, engineSource);
+
+  game.element("pb7-company-management").click();
+  assert.equal(game.element("pb7-management-screen").hidden, false);
+  assert.equal(game.element("pb7-warehouse-management-panel").hidden, false);
+  assert.equal(game.element("pb7-mine-management-panel").hidden, true);
+  const board = game.element("pb7-warehouse-management-board");
+  assert.match(board.innerHTML, /WAREHOUSE 1/);
+  assert.match(board.innerHTML, /Inventory/);
+  assert.match(board.innerHTML, /Connected mine/);
+  assert.match(board.innerHTML, /Free capacity/);
+  assert.match(board.innerHTML, /Hauling status/);
+  assert.match(board.innerHTML, /Upgrade status/);
 });
 
 test("selecting a warehouse opens its own detail and upgrade menu", async () => {

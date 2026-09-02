@@ -328,6 +328,7 @@
         upgradeTruckSpeed: root.querySelector("#pb7-upgrade-truck-speed"),
         marketplace: root.querySelector("#pb7-marketplace"),
         contracts: root.querySelector("#pb7-contracts"),
+        companyManagement: root.querySelector("#pb7-company-management"),
         roadPlan: root.querySelector("#pb7-road-plan"),
         roadSubmit: root.querySelector("#pb7-road-submit"),
         roadAccept: root.querySelector("#pb7-road-accept"),
@@ -363,7 +364,6 @@
         marketTabExchange: root.querySelector("#pb7-market-tab-exchange"),
         marketTabContracts: root.querySelector("#pb7-market-tab-contracts"),
         exchangePanel: root.querySelector("#pb7-exchange-panel"),
-        contractPanel: root.querySelector("#pb7-contract-panel"),
         exchangeBoard: root.querySelector("#pb7-exchange-board"),
         exchangeMaterial: root.querySelector("#pb7-exchange-material"),
         exchangeQuantity: root.querySelector("#pb7-exchange-quantity"),
@@ -371,7 +371,18 @@
         exchangeOffer: root.querySelector("#pb7-exchange-offer"),
         exchangeHint: root.querySelector("#pb7-exchange-hint"),
         exchangeOrders: root.querySelector("#pb7-exchange-orders"),
-        contractBoard: root.querySelector("#pb7-contract-board")
+        managementScreen: root.querySelector("#pb7-management-screen"),
+        managementClose: root.querySelector("#pb7-management-close"),
+        managementSummary: root.querySelector("#pb7-management-summary"),
+        managementTabMines: root.querySelector("#pb7-management-tab-mines"),
+        managementTabWarehouses: root.querySelector("#pb7-management-tab-warehouses"),
+        managementTabContracts: root.querySelector("#pb7-management-tab-contracts"),
+        mineManagementPanel: root.querySelector("#pb7-mine-management-panel"),
+        warehouseManagementPanel: root.querySelector("#pb7-warehouse-management-panel"),
+        contractManagementPanel: root.querySelector("#pb7-contract-management-panel"),
+        mineManagementBoard: root.querySelector("#pb7-mine-management-board"),
+        warehouseManagementBoard: root.querySelector("#pb7-warehouse-management-board"),
+        managementContractBoard: root.querySelector("#pb7-management-contract-board")
       };
 
       let viewport = { width: 0, height: 0, dpr: 1 };
@@ -414,6 +425,8 @@
       let newsReaderOpen = false;
       let marketScreenOpen = false;
       let marketScreenTab = "exchange";
+      let managementScreenOpen = false;
+      let managementScreenTab = "mines";
       let touchDriveDirection = null;
       let touchDrivePointerId = null;
       const truckSprite = new Image();
@@ -632,6 +645,13 @@
       }
 
       function visibleMenuActions() {
+        if (managementScreenOpen) {
+          const fixed = [el.managementTabMines, el.managementTabWarehouses, el.managementTabContracts, el.managementClose];
+          const dynamic = el.managementScreen && typeof el.managementScreen.querySelectorAll === "function"
+            ? Array.from(el.managementScreen.querySelectorAll("button:not([disabled])"))
+            : [];
+          return Array.from(new Set(fixed.concat(dynamic))).filter(function (button) { return button && !button.hidden && !button.disabled; });
+        }
         if (marketScreenOpen) {
           const fixed = marketScreenTab === "exchange"
             ? [el.marketTabExchange, el.marketTabContracts, el.exchangeOffer, el.marketClose]
@@ -709,6 +729,7 @@
           state.menuOpen = false;
           newsReaderOpen = false;
           marketScreenOpen = false;
+          managementScreenOpen = false;
         }
         renderInterface();
         if (fastTravelOpen && el.destination) el.destination.focus({ preventScroll: true });
@@ -729,6 +750,7 @@
         state.menuOpen = false;
         newsReaderOpen = false;
         marketScreenOpen = false;
+        managementScreenOpen = false;
         closeFastTravel();
         systemMenuOpen = true;
         renderInterface();
@@ -742,6 +764,7 @@
         closeFastTravel();
         newsReaderOpen = false;
         marketScreenOpen = false;
+        managementScreenOpen = false;
         state.menuOpen = true;
         state.path = [];
         state.pendingArrival = null;
@@ -1300,6 +1323,7 @@
           systemMenuOpen = false;
           fastTravelOpen = false;
           marketScreenOpen = false;
+          managementScreenOpen = false;
           return true;
         } catch {
           return false;
@@ -2282,6 +2306,7 @@
         state.menuOpen = false;
         newsReaderOpen = false;
         marketScreenOpen = false;
+        managementScreenOpen = false;
         renderInterface();
         if (el.touchInteract) el.touchInteract.focus({ preventScroll: true });
       }
@@ -2998,12 +3023,20 @@
         setContext(mineOwnershipName(), materialNames[newMine.material] + " production has begun at depth " + newMine.depth + ". You now operate " + state.mines.length + " of " + mineSlotLimit() + " available mine slots.");
       }
 
+      function mineCapacityFor(mine) {
+        return mine ? CONFIG.mineStorageByLevel[mine.level] : 0;
+      }
+
       function mineCapacity() {
-        return state.mine ? CONFIG.mineStorageByLevel[state.mine.level] : 0;
+        return mineCapacityFor(state.mine);
+      }
+
+      function mineStockUsedFor(mine) {
+        return mine ? mine.stockMaterial + mine.stockDirt : 0;
       }
 
       function mineStockUsed() {
-        return state.mine ? state.mine.stockMaterial + state.mine.stockDirt : 0;
+        return mineStockUsedFor(state.mine);
       }
 
       function mineStatusText() {
@@ -3131,8 +3164,12 @@
         setContext("Owned Warehouse " + state.warehouses.length + " · Lv1", "Storage capacity is " + warehouseCapacity() + " tons. You can build one warehouse for every owned mine parcel.");
       }
 
+      function warehouseCapacityFor(warehouse) {
+        return warehouse ? CONFIG.warehouseCapacityByLevel[warehouse.level] : 0;
+      }
+
       function warehouseCapacity() {
-        return state.warehouse ? CONFIG.warehouseCapacityByLevel[state.warehouse.level] : 0;
+        return warehouseCapacityFor(state.warehouse);
       }
 
       function warehouseStatusText() {
@@ -3302,9 +3339,14 @@
 
       function openMarketScreen(tab) {
         if (state.location !== "market") return;
+        if (tab === "contracts") {
+          openManagementScreen("contracts");
+          return;
+        }
         marketScreenOpen = true;
-        marketScreenTab = tab === "contracts" ? "contracts" : "exchange";
+        marketScreenTab = "exchange";
         newsReaderOpen = false;
+        managementScreenOpen = false;
         state.menuOpen = true;
         renderInterface();
       }
@@ -3313,6 +3355,32 @@
         marketScreenOpen = false;
         renderInterface();
         if (el.marketplace && !el.marketplace.hidden) el.marketplace.focus({ preventScroll: true });
+      }
+
+      function managementAccessAvailable() {
+        return ["townhall", "market", "mine", "warehouse"].includes(state.location);
+      }
+
+      function openManagementScreen(tab) {
+        if (!managementAccessAvailable()) return;
+        managementScreenTab = ["mines", "warehouses", "contracts"].includes(tab) ? tab : "mines";
+        managementScreenOpen = true;
+        marketScreenOpen = false;
+        newsReaderOpen = false;
+        systemMenuOpen = false;
+        state.menuOpen = true;
+        renderInterface();
+        requestAnimationFrame(function () {
+          const tabButton = managementScreenTab === "warehouses" ? el.managementTabWarehouses : managementScreenTab === "contracts" ? el.managementTabContracts : el.managementTabMines;
+          if (tabButton) tabButton.focus({ preventScroll: true });
+        });
+      }
+
+      function closeManagementScreen() {
+        managementScreenOpen = false;
+        renderInterface();
+        const returnButton = state.location === "market" ? el.contracts : el.companyManagement;
+        if (returnButton && !returnButton.hidden) returnButton.focus({ preventScroll: true });
       }
 
       function marketableCargoMaterials() {
@@ -3519,9 +3587,10 @@
           nextTripAt: now,
           inTransit: null
         });
+        marketScreenOpen = false;
+        managementScreenOpen = true;
+        managementScreenTab = "contracts";
         setContext("Company contract accepted", offer.buyer + " ordered " + offer.quantity + " t of " + materialNames[offer.material].toLowerCase() + " at $" + offer.unitPrice + "/t. The " + offer.truckSize.toUpperCase() + " truck will keep returning to Mine " + (state.mines.indexOf(mine) + 1) + " until fulfillment.", "success");
-        marketScreenOpen = true;
-        marketScreenTab = "contracts";
       }
 
       function announceBusiness(businessId) {
@@ -3588,26 +3657,176 @@
         });
       }
 
-      function renderContractTerminal() {
-        if (!el.contractBoard) return;
-        const active = state.companyContracts.filter(function (contract) { return contract.status === "active" || contract.status === "complete"; }).slice().reverse();
-        const activeMarkup = active.length ? '<section class="active-contracts"><h3>Company ledger</h3>' + active.map(function (contract) {
-          const mine = state.mines.find(function (item) { return item.id === contract.mineId; });
-          const percent = Math.min(100, Math.round(contract.delivered / contract.quantity * 100));
-          const status = contract.status === "complete" ? "FULFILLED" : contract.inTransit ? "TRUCK EN ROUTE" : mine && mine.material !== contract.material ? "MINE SEAM CHANGED" : "WAITING AT MINE";
-          return '<article class="active-contract-card"><div><span>' + detailText(marketSymbols[contract.material]) + '</span><p><strong>' + detailText(contract.buyer) + '</strong><small>Mine ' + (state.mines.indexOf(mine) + 1) + ' · ' + contract.truckSize.toUpperCase() + ' repeating truck · $' + contract.unitPrice + '/t</small></p><b>' + status + '</b></div><div class="order-meter"><i style="width:' + percent + '%"></i></div><small>' + round1(contract.delivered).toFixed(1) + ' / ' + contract.quantity + ' t delivered</small></article>';
-        }).join("") + '</section>' : '';
+      function linkedWarehouseForMine(mine) {
+        const mineParcel = parcelForMine(mine);
+        if (!mineParcel) return null;
+        const warehouseParcel = state.warehouseParcels.find(function (parcel) { return parcel.mineParcelId === mineParcel.id; });
+        return warehouseParcel ? state.warehouses.find(function (warehouse) { return warehouse.parcelId === warehouseParcel.id; }) || null : null;
+      }
 
+      function linkedMineForWarehouse(warehouse) {
+        const warehouseParcel = parcelForWarehouse(warehouse);
+        return warehouseParcel ? state.mines.find(function (mine) { return mine.parcelId === warehouseParcel.mineParcelId; }) || null : null;
+      }
+
+      function mineCleanOutputPerCycle(mine) {
+        if (!mine) return 0;
+        const raw = CONFIG.mineOutputByLevel[mine.level] * CONFIG.workerOutputMultiplierByCount[state.workers];
+        return raw * (1 - mine.ratio);
+      }
+
+      function mineManagementStatus(mine) {
+        const stock = mineStockUsedFor(mine);
+        const capacity = mineCapacityFor(mine);
+        const warehouse = linkedWarehouseForMine(mine);
+        const contract = activeCompanyContractForMine(mine);
+        const haul = activeHaulForMine(mine);
+        if (stock >= capacity - .01) return { key: "mine-full", label: "MINE STORAGE FULL", tone: "danger" };
+        if (warehouse && usedStore(warehouse.storage) >= warehouseCapacityFor(warehouse) - .01) return { key: "warehouse-full", label: "WAREHOUSE FULL", tone: "danger" };
+        if (contract && mine.material !== contract.material) return { key: "seam-blocked", label: "CONTRACT BLOCKED", tone: "danger" };
+        if ((contract && contract.inTransit) || haul) return { key: "hauling", label: "HAULING", tone: "success" };
+        if (stock > .01) return { key: "waiting", label: "WAITING FOR TRUCK", tone: "warning" };
+        return { key: "producing", label: "PRODUCING", tone: "success" };
+      }
+
+      function mineUpgradeSummary(mine) {
+        if (mine.level >= CONFIG.maxMineLevel) return "Maximum drill level reached";
+        const parcel = parcelForMine(mine);
+        const nextMaterial = mineMaterialForLevel(mine, mine.level + 1);
+        const contract = activeCompanyContractForMine(mine);
+        if (mine.level >= 3 && (!parcel || parcel.status !== "owned")) return "Ownership required for Level " + (mine.level + 1);
+        if (contract && nextMaterial !== mine.material) return "Finish contract before changing seam";
+        const seamText = nextMaterial !== mine.material ? " · unlocks " + materialNames[nextMaterial] : " · higher output";
+        return "Level " + (mine.level + 1) + seamText + " · $" + CONFIG.mineUpgradeCosts[mine.level];
+      }
+
+      function renderManagementSummary() {
+        if (!el.managementSummary) return;
+        const mineStock = state.mines.reduce(function (sum, mine) { return sum + mineStockUsedFor(mine); }, 0);
+        const mineCapacityTotal = state.mines.reduce(function (sum, mine) { return sum + mineCapacityFor(mine); }, 0);
+        const warehouseStock = state.warehouses.reduce(function (sum, warehouse) { return sum + usedStore(warehouse.storage); }, 0);
+        const warehouseCapacityTotal = state.warehouses.reduce(function (sum, warehouse) { return sum + warehouseCapacityFor(warehouse); }, 0);
+        const activeContracts = state.companyContracts.filter(function (contract) { return contract.status === "active"; }).length;
+        const bottlenecks = state.mines.filter(function (mine) { return mineManagementStatus(mine).tone === "danger" || mineManagementStatus(mine).tone === "warning"; }).length;
+        el.managementSummary.innerHTML = [
+          ["Mines", state.mines.length + " / " + mineSlotLimit()],
+          ["Mine stock", round1(mineStock).toFixed(1) + " / " + round1(mineCapacityTotal).toFixed(1) + " t"],
+          ["Warehouses", state.warehouses.length + " · " + round1(warehouseStock).toFixed(1) + " / " + round1(warehouseCapacityTotal).toFixed(1) + " t"],
+          ["Contracts", activeContracts + " / " + CONFIG.maxCompanyContracts + " active"],
+          ["Bottlenecks", bottlenecks ? bottlenecks + " need attention" : "None detected"]
+        ].map(function (fact) {
+          return '<span><small>' + detailText(fact[0]) + '</small><strong>' + detailText(fact[1]) + '</strong></span>';
+        }).join("");
+      }
+
+      function renderMineManagement() {
+        if (!el.mineManagementBoard) return;
+        if (!state.mines.length) {
+          el.mineManagementBoard.innerHTML = '<p class="empty-management-state">No mines are operating. Prospect a 2×2 claim, secure it at Town Hall, clear the parcel, and build the first mine.</p>';
+          return;
+        }
+        el.mineManagementBoard.innerHTML = state.mines.map(function (mine, index) {
+          const status = mineManagementStatus(mine);
+          const warehouse = linkedWarehouseForMine(mine);
+          const contract = activeCompanyContractForMine(mine);
+          const haul = activeHaulForMine(mine);
+          const stock = mineStockUsedFor(mine);
+          const capacity = mineCapacityFor(mine);
+          const cleanOutput = mineCleanOutputPerCycle(mine);
+          const hauling = contract ? contract.inTransit ? contract.truckSize.toUpperCase() + " truck en route · " + haulMinutesRemaining(contract.inTransit) + " min" : contract.buyer + " · repeating route" : haul ? CONFIG.haulers[haul.size].label + " spot haul · " + haulMinutesRemaining(haul) + " min" : "No truck assigned";
+          const warehouseLabel = warehouse ? "Warehouse " + (state.warehouses.indexOf(warehouse) + 1) + " · " + round1(usedStore(warehouse.storage)).toFixed(1) + "/" + warehouseCapacityFor(warehouse).toFixed(1) + " t" : "No warehouse assigned";
+          return '<article class="management-card mine-management-card" data-tone="' + status.tone + '">' +
+            '<header><span class="management-icon">⛏</span><div><small>MINE ' + (index + 1) + ' · ' + detailText(mine.id.toUpperCase()) + '</small><h4>' + detailText(materialNames[mine.material]) + ' Mine · Level ' + mine.level + '</h4></div><b>' + status.label + '</b></header>' +
+            '<div class="management-metrics"><span><small>Production</small><strong>' + round1(cleanOutput).toFixed(1) + ' clean t/cycle</strong></span><span><small>Output storage</small><strong>' + round1(stock).toFixed(1) + ' / ' + capacity.toFixed(1) + ' t</strong></span><span><small>Waiting pickup</small><strong>' + round1(mine.stockMaterial).toFixed(1) + ' t ' + detailText(materialNames[mine.material]) + '</strong></span><span><small>Dirt</small><strong>' + round1(mine.stockDirt).toFixed(1) + ' t · ' + Math.round(mine.ratio * 100) + '% seam</strong></span></div>' +
+            '<dl class="management-facts"><div><dt>Worker status</dt><dd>' + (state.workers ? state.workers + ' hired · shared company crew' : 'No hired crew · base production') + '</dd></div><div><dt>Assigned warehouse</dt><dd>' + detailText(warehouseLabel) + '</dd></div><div><dt>Hauling status</dt><dd>' + detailText(hauling) + '</dd></div><div><dt>Upgrade status</dt><dd>' + detailText(mineUpgradeSummary(mine)) + '</dd></div></dl>' +
+            '<footer><span>Depth ' + mine.depth + ' · ' + detailText(mineBandForDepth(mine.depth).materials.map(function (material) { return materialNames[material]; }).join(" → ")) + '</span><button type="button" data-track-mine="' + detailText(mine.id) + '">Track &amp; drive</button></footer>' +
+          '</article>';
+        }).join("");
+      }
+
+      function warehouseManagementStatus(warehouse) {
+        const stored = usedStore(warehouse.storage);
+        const capacity = warehouseCapacityFor(warehouse);
+        if (stored >= capacity - .01) return { label: "WAREHOUSE FULL", tone: "danger" };
+        if (!linkedMineForWarehouse(warehouse)) return { label: "NO MINE LINK", tone: "warning" };
+        if (stored <= .01) return { label: "EMPTY · READY", tone: "neutral" };
+        return { label: "STORING", tone: "success" };
+      }
+
+      function renderWarehouseManagement() {
+        if (!el.warehouseManagementBoard) return;
+        if (!state.warehouses.length) {
+          el.warehouseManagementBoard.innerHTML = '<p class="empty-management-state">No warehouses are built. Purchase the prepared parcel beside an owned mine, clear its 2×2 footprint, and build from the outside edge.</p>';
+          return;
+        }
+        el.warehouseManagementBoard.innerHTML = state.warehouses.map(function (warehouse, index) {
+          const status = warehouseManagementStatus(warehouse);
+          const stored = usedStore(warehouse.storage);
+          const capacity = warehouseCapacityFor(warehouse);
+          const mine = linkedMineForWarehouse(warehouse);
+          const contract = activeCompanyContractForMine(mine);
+          const haul = activeHaulForMine(mine);
+          const transfer = contract && contract.inTransit ? contract.truckSize.toUpperCase() + " contract truck en route" : haul ? CONFIG.haulers[haul.size].label + " spot haul en route" : "Company truck loading at building";
+          const upgrade = warehouse.level >= CONFIG.maxWarehouseLevel ? "Maximum storage level reached" : "Level " + (warehouse.level + 1) + " · " + CONFIG.warehouseCapacityByLevel[warehouse.level + 1] + " t · $" + CONFIG.warehouseUpgradeCosts[warehouse.level];
+          return '<article class="management-card warehouse-management-card" data-tone="' + status.tone + '">' +
+            '<header><span class="management-icon">▤</span><div><small>WAREHOUSE ' + (index + 1) + ' · ' + detailText(warehouse.id.toUpperCase()) + '</small><h4>Storage Building · Level ' + warehouse.level + '</h4></div><b>' + status.label + '</b></header>' +
+            '<div class="management-metrics"><span><small>Stored</small><strong>' + round1(stored).toFixed(1) + ' / ' + capacity.toFixed(1) + ' t</strong></span><span><small>Free capacity</small><strong>' + round1(Math.max(0, capacity - stored)).toFixed(1) + ' t</strong></span><span><small>Connected mine</small><strong>' + (mine ? 'Mine ' + (state.mines.indexOf(mine) + 1) + ' · ' + detailText(materialNames[mine.material]) : 'None') + '</strong></span><span><small>Transfer mode</small><strong>Truck loading</strong></span></div>' +
+            '<dl class="management-facts"><div><dt>Inventory</dt><dd>' + detailText(cargoSummary(warehouse.storage)) + '</dd></div><div><dt>Worker status</dt><dd>Shared company crew · no dedicated assignment</dd></div><div><dt>Hauling status</dt><dd>' + detailText(transfer) + '</dd></div><div><dt>Upgrade status</dt><dd>' + detailText(upgrade) + '</dd></div></dl>' +
+            '<footer><span>Capacity upgrade does not change future logistics speed.</span><button type="button" data-track-warehouse="' + detailText(warehouse.id) + '">Track &amp; drive</button></footer>' +
+          '</article>';
+        }).join("");
+      }
+
+      function contractManagementStatus(contract, mine) {
+        if (contract.status === "complete") return { label: "FULFILLED", tone: "success" };
+        if (!mine) return { label: "NO ASSIGNED MINE", tone: "danger" };
+        if (mine.material !== contract.material) return { label: "MINE SEAM CHANGED", tone: "danger" };
+        if (contract.inTransit) return { label: "TRUCK EN ROUTE", tone: "success" };
+        if (mine.stockMaterial < .1) return { label: "WAITING FOR OUTPUT", tone: "warning" };
+        return { label: "READY TO DISPATCH", tone: "neutral" };
+      }
+
+      function contractCycleText(contract) {
+        if (contract.status === "complete") return "Closed on Day " + (contract.completedDay || state.day);
+        if (contract.inTransit) return haulMinutesRemaining(contract.inTransit) + " game min to delivery";
+        const remaining = Math.max(0, Math.ceil(contract.nextTripAt - absoluteGameMinutes()));
+        return remaining ? "Next truck in " + remaining + " game min" : "Dispatch cycle ready";
+      }
+
+      function renderContractTerminal() {
+        if (!el.managementContractBoard) return;
+        const active = state.companyContracts.filter(function (contract) { return contract.status === "active" || contract.status === "complete"; }).slice().reverse();
+        const activeMarkup = '<section class="active-contracts"><h3>Contract ledger</h3>' + (active.length ? active.map(function (contract) {
+          const mine = state.mines.find(function (item) { return item.id === contract.mineId; });
+          const warehouse = linkedWarehouseForMine(mine);
+          const percent = Math.min(100, Math.round(contract.delivered / contract.quantity * 100));
+          const remaining = Math.max(0, round1(contract.quantity - contract.delivered));
+          const status = contractManagementStatus(contract, mine);
+          const cleanOutput = mineCleanOutputPerCycle(mine);
+          const feasibility = !mine ? "Cannot fulfill without a mine" : mine.material !== contract.material ? "Blocked until the requested seam is restored" : remaining <= .01 ? "Complete" : "About " + Math.max(1, Math.ceil(remaining / Math.max(.1, cleanOutput))) + " production cycles at current output";
+          return '<article class="active-contract-card managed-contract" data-tone="' + status.tone + '"><div><span>' + detailText(marketSymbols[contract.material]) + '</span><p><strong>' + detailText(contract.buyer) + '</strong><small>' + detailText(materialNames[contract.material]) + ' · ' + contract.truckSize.toUpperCase() + ' repeating truck · $' + contract.unitPrice + '/t</small></p><b>' + status.label + '</b></div><div class="order-meter"><i style="width:' + percent + '%"></i></div><div class="contract-progress-copy"><strong>' + round1(contract.delivered).toFixed(1) + ' / ' + contract.quantity + ' t delivered</strong><span>' + remaining.toFixed(1) + ' t remaining</span></div><div class="managed-contract-facts"><span><small>Total reward</small><strong>$' + Math.round(contract.quantity * contract.unitPrice) + '</strong></span><span><small>Earned</small><strong>$' + Math.round(contract.delivered * contract.unitPrice) + '</strong></span><span><small>Assigned mine</small><strong>' + (mine ? 'Mine ' + (state.mines.indexOf(mine) + 1) + ' · Lv' + mine.level : 'Missing') + '</strong></span><span><small>Assigned warehouse</small><strong>' + (warehouse ? 'Warehouse ' + (state.warehouses.indexOf(warehouse) + 1) : 'Direct mine route') + '</strong></span><span><small>Truck cycle</small><strong>' + detailText(contractCycleText(contract)) + '</strong></span><span><small>Capacity check</small><strong>' + detailText(feasibility) + '</strong></span></div></article>';
+        }).join("") : '<p class="empty-management-state">No accepted company contracts. Visit the Market contract desk to review current commercial orders.</p>') + '</section>';
+
+        const canAcceptHere = state.location === "market";
         const offers = contractOffersForDay();
-        const offerMarkup = '<section class="contract-offers"><h3>Open orders · Day ' + state.day + '</h3>' + offers.map(function (offer) {
+        const offerMarkup = '<section class="contract-offers"><h3>Open orders · Day ' + state.day + (canAcceptHere ? ' · Market desk open' : ' · Visit Market to accept') + '</h3>' + offers.map(function (offer) {
           const matchingMines = state.mines.filter(function (mine) { return mine.material === offer.material; });
           const alreadyAccepted = companyContractByOfferId(offer.id);
           const options = matchingMines.length ? matchingMines.map(function (mine) {
             return '<option value="' + detailText(mine.id) + '">Mine ' + (state.mines.indexOf(mine) + 1) + ' · ' + detailText(materialNames[mine.material]) + ' · Lv' + mine.level + '</option>';
           }).join("") : '<option value="">No matching mine</option>';
-          return '<article class="contract-offer-card" data-development="' + (offer.developmentBusinessId ? "true" : "false") + '"><header><span>' + detailText(offer.developmentBusinessId ? "FOUNDING ORDER" : "COMMERCIAL ORDER") + '</span><b>' + detailText(offer.buyer) + '</b></header><div class="contract-terms"><strong>' + offer.quantity + ' t ' + detailText(materialNames[offer.material]) + '</strong><em>$' + offer.unitPrice + '/t</em><small>' + offer.truckSize.toUpperCase() + ' truck</small></div><p>' + detailText(offer.description) + '</p><label>Assign mine<select data-contract-mine="' + detailText(offer.id) + '">' + options + '</select></label><button type="button" data-accept-contract="' + detailText(offer.id) + '" ' + (!matchingMines.length || alreadyAccepted ? 'disabled' : '') + '>' + (alreadyAccepted ? "Already accepted" : matchingMines.length ? "Accept & dispatch" : "Upgrade or build a matching mine") + '</button></article>';
+          const disabled = !matchingMines.length || alreadyAccepted || !canAcceptHere;
+          const buttonText = alreadyAccepted ? "Already accepted" : !matchingMines.length ? "Build or upgrade a matching mine" : !canAcceptHere ? "Visit Market to accept" : "Accept & dispatch";
+          return '<article class="contract-offer-card" data-development="' + (offer.developmentBusinessId ? "true" : "false") + '"><header><span>' + detailText(offer.developmentBusinessId ? "FOUNDING ORDER" : "COMMERCIAL ORDER") + '</span><b>' + detailText(offer.buyer) + '</b></header><div class="contract-terms"><strong>' + offer.quantity + ' t ' + detailText(materialNames[offer.material]) + '</strong><em>$' + offer.unitPrice + '/t</em><small>' + offer.truckSize.toUpperCase() + ' truck</small></div><div class="offer-reward">Total contract value · $' + Math.round(offer.quantity * offer.unitPrice) + '</div><p>' + detailText(offer.description) + '</p><label>Assign mine<select data-contract-mine="' + detailText(offer.id) + '">' + options + '</select></label><button type="button" data-accept-contract="' + detailText(offer.id) + '" ' + (disabled ? 'disabled' : '') + '>' + buttonText + '</button></article>';
         }).join("") + '</section>';
-        el.contractBoard.innerHTML = activeMarkup + offerMarkup;
+        el.managementContractBoard.innerHTML = activeMarkup + offerMarkup;
+      }
+
+      function renderCompanyManagement() {
+        renderManagementSummary();
+        renderMineManagement();
+        renderWarehouseManagement();
+        renderContractTerminal();
       }
 
       function buyShaker() {
@@ -3797,6 +4016,7 @@
         state.roadApproval = null;
         state.menuOpen = false;
         marketScreenOpen = false;
+        managementScreenOpen = false;
         state.overview = true;
         setContext("Road survey active", "Tap a continuous route on open claim ground. Pinebarrow roads are automatically drawn two tiles wide and may turn. The first point must touch an existing paved road; tap a selected point again to undo.");
       }
@@ -4110,6 +4330,7 @@
         closeFastTravel();
         newsReaderOpen = true;
         marketScreenOpen = false;
+        managementScreenOpen = false;
         state.menuOpen = true;
         renderInterface();
         requestAnimationFrame(function () {
@@ -4132,6 +4353,7 @@
         }
         if (button === el.marketplace) return "The Marketplace is ready at the Market building.";
         if (button === el.contracts) return "The commercial contract desk is ready at the Market building.";
+        if (button === el.companyManagement) return "Company Operations is available through Town Hall, a mine, or a warehouse.";
         if (button.dataset && button.dataset.haulerSize) {
           const hauler = CONFIG.haulers[button.dataset.haulerSize];
           if (!state.mine) return "Build a mine before dispatching a contract hauler.";
@@ -4346,6 +4568,7 @@
         if (!state.menuOpen) {
           newsReaderOpen = false;
           marketScreenOpen = false;
+          managementScreenOpen = false;
         }
         const dailyBulletin = applyDailyMarket();
         refreshCompanyDestinationOptions();
@@ -4368,6 +4591,13 @@
         root.dataset.townFrontageConflicts = String(townFrontageConflictCount());
         root.dataset.townPerimeterStreets = String(TOWN_PERIMETER_STREET_YS.length);
         root.dataset.townFutureLots = String(businessLots.filter(function (business) { return !state.townBusinesses[business.id]; }).length);
+        root.dataset.managementMineCount = String(state.mines.length);
+        root.dataset.managementWarehouseCount = String(state.warehouses.length);
+        root.dataset.managementActiveContracts = String(state.companyContracts.filter(function (contract) { return contract.status === "active"; }).length);
+        root.dataset.managementBottlenecks = String(state.mines.filter(function (mine) {
+          const status = mineManagementStatus(mine);
+          return status.tone === "danger" || status.tone === "warning";
+        }).length);
         el.time.textContent = "Day " + state.day + " · " + formatTime();
         el.contextTitle.textContent = state.contextTitle;
         el.context.textContent = state.contextText;
@@ -4381,7 +4611,7 @@
         renderDailyBulletin(dailyBulletin);
         renderExpandedNewspaper(dailyBulletin);
         renderExchangeTerminal();
-        renderContractTerminal();
+        renderCompanyManagement();
 
         const selectedCleared = state.selected && state.selected.type === "cleared";
         const atSelected = selectedCleared && state.player.x === state.selected.x && state.player.y === state.selected.y;
@@ -4413,6 +4643,9 @@
         el.marketplace.disabled = false;
         el.contracts.hidden = state.location !== "market";
         el.contracts.disabled = false;
+        el.companyManagement.hidden = !["townhall", "mine", "warehouse"].includes(state.location);
+        el.companyManagement.disabled = false;
+        el.companyManagement.textContent = state.location === "mine" ? "Open Mine Management" : state.location === "warehouse" ? "Open Warehouse Management" : "Open Company Operations";
         el.haulers.forEach(function (button) {
           const sizeKey = button.dataset.haulerSize;
           const hauler = CONFIG.haulers[sizeKey];
@@ -4556,13 +4789,19 @@
         const panelTitle = panelTitles[state.location] || "Company controls";
         renderLocationDetails();
         el.menuLayer.hidden = !state.menuOpen;
-        el.buildingPanel.hidden = newsReaderOpen || marketScreenOpen;
+        el.buildingPanel.hidden = newsReaderOpen || marketScreenOpen || managementScreenOpen;
         el.newsReader.hidden = !newsReaderOpen;
         el.marketScreen.hidden = !marketScreenOpen;
-        el.exchangePanel.hidden = marketScreenTab !== "exchange";
-        el.contractPanel.hidden = marketScreenTab !== "contracts";
-        el.marketTabExchange.setAttribute("aria-pressed", marketScreenTab === "exchange" ? "true" : "false");
-        el.marketTabContracts.setAttribute("aria-pressed", marketScreenTab === "contracts" ? "true" : "false");
+        el.exchangePanel.hidden = false;
+        el.marketTabExchange.setAttribute("aria-pressed", "true");
+        el.marketTabContracts.setAttribute("aria-pressed", "false");
+        el.managementScreen.hidden = !managementScreenOpen;
+        el.mineManagementPanel.hidden = managementScreenTab !== "mines";
+        el.warehouseManagementPanel.hidden = managementScreenTab !== "warehouses";
+        el.contractManagementPanel.hidden = managementScreenTab !== "contracts";
+        el.managementTabMines.setAttribute("aria-pressed", managementScreenTab === "mines" ? "true" : "false");
+        el.managementTabWarehouses.setAttribute("aria-pressed", managementScreenTab === "warehouses" ? "true" : "false");
+        el.managementTabContracts.setAttribute("aria-pressed", managementScreenTab === "contracts" ? "true" : "false");
         el.buildingPanelTitle.textContent = panelTitle;
         el.noActions.hidden = hasVisibleService;
         el.actionHint.textContent = firstEnabledService
@@ -6039,7 +6278,10 @@
       el.upgradeTruckSize.addEventListener("click", upgradeTruckSize);
       el.upgradeTruckSpeed.addEventListener("click", upgradeTruckSpeed);
       el.marketplace.addEventListener("click", function () { openMarketScreen("exchange"); });
-      el.contracts.addEventListener("click", function () { openMarketScreen("contracts"); });
+      el.contracts.addEventListener("click", function () { openManagementScreen("contracts"); });
+      el.companyManagement.addEventListener("click", function () {
+        openManagementScreen(state.location === "warehouse" ? "warehouses" : "mines");
+      });
       el.roadPlan.addEventListener("click", startRoadSurvey);
       el.roadSubmit.addEventListener("click", submitRoadSurvey);
       el.roadAccept.addEventListener("click", acceptRoadContract);
@@ -6090,7 +6332,11 @@
       el.startEffects.addEventListener("click", function () { toggleAudioChannel("effectsSoundEnabled"); });
       el.marketClose.addEventListener("click", closeMarketScreen);
       el.marketTabExchange.addEventListener("click", function () { marketScreenTab = "exchange"; renderInterface(); });
-      el.marketTabContracts.addEventListener("click", function () { marketScreenTab = "contracts"; renderInterface(); });
+      el.marketTabContracts.addEventListener("click", function () { openManagementScreen("contracts"); });
+      el.managementClose.addEventListener("click", closeManagementScreen);
+      el.managementTabMines.addEventListener("click", function () { managementScreenTab = "mines"; renderInterface(); });
+      el.managementTabWarehouses.addEventListener("click", function () { managementScreenTab = "warehouses"; renderInterface(); });
+      el.managementTabContracts.addEventListener("click", function () { managementScreenTab = "contracts"; renderInterface(); });
       el.exchangeMaterial.addEventListener("change", function () {
         const material = el.exchangeMaterial.value;
         if (material) {
@@ -6119,12 +6365,30 @@
         const button = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-cancel-order]") : null;
         if (button) cancelExchangeOrder(button.dataset.cancelOrder);
       });
-      el.contractBoard.addEventListener("click", function (event) {
+      el.managementContractBoard.addEventListener("click", function (event) {
         const button = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-accept-contract]") : null;
         if (!button) return;
         const offerId = button.dataset.acceptContract;
-        const select = el.contractBoard.querySelector('[data-contract-mine="' + offerId + '"]');
+        const select = el.managementContractBoard.querySelector('[data-contract-mine="' + offerId + '"]');
         acceptCompanyContract(offerId, select ? select.value : "");
+      });
+      el.mineManagementBoard.addEventListener("click", function (event) {
+        const button = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-track-mine]") : null;
+        if (!button) return;
+        const mine = state.mines.find(function (item) { return item.id === button.dataset.trackMine; });
+        if (!mine) return;
+        managementScreenOpen = false;
+        state.menuOpen = false;
+        selectMine(mine);
+      });
+      el.warehouseManagementBoard.addEventListener("click", function (event) {
+        const button = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-track-warehouse]") : null;
+        if (!button) return;
+        const warehouse = state.warehouses.find(function (item) { return item.id === button.dataset.trackWarehouse; });
+        if (!warehouse) return;
+        managementScreenOpen = false;
+        state.menuOpen = false;
+        selectWarehouse(warehouse);
       });
       root.addEventListener("pointerdown", ensureAudio, { passive: true });
       document.addEventListener("fullscreenchange", function () {

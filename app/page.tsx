@@ -262,6 +262,7 @@ export default function Home() {
               <button id="pb7-hire-worker" type="button">Hire permanent mine worker</button>
               <button id="pb7-marketplace" type="button">Open marketplace</button>
               <button id="pb7-contracts" type="button">Open company contracts</button>
+              <button id="pb7-company-management" type="button">Open company operations</button>
               <button id="pb7-buy-saw" type="button">Buy saw · $90</button>
               <button id="pb7-rent-saw" type="button">Rent saw · $18/day</button>
               <button id="pb7-shaker" type="button">Buy shaker · $350</button>
@@ -366,14 +367,14 @@ export default function Home() {
               <div>
                 <p className="eyebrow">Pinebarrow mercantile exchange</p>
                 <h2 id="pb7-market-title">Market</h2>
-                <p>List your own asking price, or put a mine truck on a long-term business order.</p>
+                <p>List truck cargo at your own asking price. Company orders are tracked separately in Contract Management.</p>
               </div>
               <button id="pb7-market-close" className="newspaper-close" type="button" aria-label="Return to Market services">×</button>
             </header>
 
             <nav className="market-tabs" aria-label="Market sections">
               <button id="pb7-market-tab-exchange" type="button" aria-pressed="true">Marketplace</button>
-              <button id="pb7-market-tab-contracts" type="button" aria-pressed="false">Company contracts</button>
+              <button id="pb7-market-tab-contracts" type="button" aria-pressed="false">Contract management</button>
             </nav>
 
             <section id="pb7-exchange-panel" className="market-panel" aria-labelledby="pb7-exchange-title">
@@ -395,15 +396,64 @@ export default function Home() {
               <div id="pb7-exchange-orders" className="exchange-order-list" />
             </section>
 
-            <section id="pb7-contract-panel" className="market-panel" aria-labelledby="pb7-contract-title" hidden>
-              <div className="market-panel-heading">
-                <div>
-                  <span>Commercial dispatch desk</span>
-                  <h3 id="pb7-contract-title">Business contracts</h3>
-                </div>
-                <small>Assign one matching mine. Its hired truck repeats until the order is complete.</small>
+          </article>
+
+          <article
+            id="pb7-management-screen"
+            className="operations-terminal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pb7-management-title"
+            hidden
+          >
+            <header className="operations-header">
+              <div>
+                <p className="eyebrow">Pinebarrow company ledger</p>
+                <h2 id="pb7-management-title">Company Operations</h2>
+                <p>See every site, shipment, bottleneck, and commercial obligation without searching the map.</p>
               </div>
-              <div id="pb7-contract-board" className="contract-board" />
+              <button id="pb7-management-close" className="newspaper-close" type="button" aria-label="Return to building services">×</button>
+            </header>
+
+            <div id="pb7-management-summary" className="operations-summary" aria-label="Company operations summary" />
+
+            <nav className="operations-tabs" aria-label="Company management sections">
+              <button id="pb7-management-tab-mines" type="button" aria-pressed="true"><span aria-hidden="true">⛏</span> Mines</button>
+              <button id="pb7-management-tab-warehouses" type="button" aria-pressed="false"><span aria-hidden="true">▤</span> Warehouses</button>
+              <button id="pb7-management-tab-contracts" type="button" aria-pressed="false"><span aria-hidden="true">◆</span> Contracts</button>
+            </nav>
+
+            <section id="pb7-mine-management-panel" className="operations-panel" aria-labelledby="pb7-mine-management-title">
+              <div className="operations-panel-heading">
+                <div>
+                  <span>Extraction network</span>
+                  <h3 id="pb7-mine-management-title">Mine Management</h3>
+                </div>
+                <small>Production, storage, crews, assigned warehouses, hauling, and upgrade bottlenecks.</small>
+              </div>
+              <div id="pb7-mine-management-board" className="management-card-grid" />
+            </section>
+
+            <section id="pb7-warehouse-management-panel" className="operations-panel" aria-labelledby="pb7-warehouse-management-title" hidden>
+              <div className="operations-panel-heading">
+                <div>
+                  <span>Storage network</span>
+                  <h3 id="pb7-warehouse-management-title">Warehouse Management</h3>
+                </div>
+                <small>Capacity, inventory, connected mines, and transfer readiness.</small>
+              </div>
+              <div id="pb7-warehouse-management-board" className="management-card-grid" />
+            </section>
+
+            <section id="pb7-contract-management-panel" className="operations-panel" aria-labelledby="pb7-contract-management-title" hidden>
+              <div className="operations-panel-heading">
+                <div>
+                  <span>Commercial dispatch</span>
+                  <h3 id="pb7-contract-management-title">Contract Management</h3>
+                </div>
+                <small>Track delivery, remaining tonnage, total reward, assigned mine, warehouse, and next truck cycle.</small>
+              </div>
+              <div id="pb7-management-contract-board" className="contract-board management-contract-board" />
             </section>
           </article>
         </div>

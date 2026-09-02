@@ -45,6 +45,18 @@
 - Extended old-save migration so a player saved at a relocated town service follows that service to its new entrance.
 - Added deterministic regressions for block enclosure, street connectivity, frontage alignment, and service-location migration.
 
+### Phase 3 — company management
+
+- Added one live Company Operations screen with dedicated Mine, Warehouse, and Contract Management sections.
+- Kept management access inside the buildings that own those services: Town Hall provides the company overview, mines open Mine Management, warehouses open Warehouse Management, and the Market opens Contract Management.
+- Mine Management now lists every mine's material, level, clean production, output stock and capacity, dirt, shared crew status, assigned warehouse, hauling state, depth progression, and next upgrade.
+- Added prominent `MINE STORAGE FULL`, `WAREHOUSE FULL`, `CONTRACT BLOCKED`, `HAULING`, `WAITING FOR TRUCK`, and `PRODUCING` states.
+- Warehouse Management now lists capacity, free space, inventory, connected mine, hauling state, crew state, and next storage upgrade for every warehouse.
+- Contract Management now separates commercial obligations from Marketplace sell offers and shows customer, material, delivered and remaining tonnage, total reward, earned value, assigned mine and warehouse, truck cycle, and a current-output capacity estimate.
+- Added direct Track & Drive actions for managed mines and warehouses without changing save data or production rules.
+- Rejected the earlier detached read-only overlays because they could select the newest profile instead of the active profile and lag behind live game state; management now reads directly from the running profile.
+- Added regression coverage for building-owned management access, multiple-mine bottlenecks, linked warehouses, contract assignment, and management details.
+
 ## Production baseline — Sites version 17
 
 - Marketplace sell offers with player-set prices and partial demand-based fills.

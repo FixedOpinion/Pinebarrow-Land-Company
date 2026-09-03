@@ -248,11 +248,11 @@ function createEngineHarness(savedState, engineSource, options = {}) {
   };
 }
 
-test("old saves receive two usable surveys, including a next-day reset", async () => {
+test("two independent prospects survive save/reload and neither replaces the other", async () => {
   const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
   const firstTile = { x: 76, y: 169 };
-  const secondTile = { x: 77, y: 169 };
-  const nextDayTile = { x: 78, y: 169 };
+  const secondTile = { x: 78, y: 169 };
+  const nextDayTile = { x: 80, y: 169 };
   const oldSave = {
     version: 4,
     day: 3,
@@ -268,7 +268,7 @@ test("old saves receive two usable surveys, including a next-day reset", async (
   };
 
   const migrated = createEngineHarness(oldSave, engineSource);
-  assert.equal(migrated.saved().version, 8);
+  assert.equal(migrated.saved().version, 9);
   assert.equal(migrated.saved().prospectsUsedToday, 0);
   assert.equal(migrated.element("pb7-prospect").disabled, false);
 
@@ -276,7 +276,9 @@ test("old saves receive two usable surveys, including a next-day reset", async (
   const afterFirst = migrated.saved();
   assert.equal(afterFirst.prospectsUsedToday, 1);
   assert.equal(afterFirst.surveyParcel.status, "surveyed");
-  assert.match(afterFirst.contextText, /Survey one of two is complete/);
+  assert.equal(afterFirst.surveyParcels.length, 1);
+  assert.match(afterFirst.contextText, /Prospect 1 is preserved/);
+  const firstProspect = structuredClone(afterFirst.surveyParcels[0]);
 
   const secondSave = {
     ...afterFirst,
@@ -290,20 +292,100 @@ test("old saves receive two usable surveys, including a next-day reset", async (
   const afterSecond = second.saved();
   assert.equal(afterSecond.prospectsUsedToday, 2);
   assert.equal(afterSecond.surveyParcel.x, secondTile.x);
-  assert.match(afterSecond.contextText, /two surveys are used for today/i);
+  assert.equal(afterSecond.surveyParcels.length, 2);
+  assert.notEqual(afterSecond.surveyParcels[0].id, afterSecond.surveyParcels[1].id);
+  assert.deepEqual(afterSecond.surveyParcels.find((parcel) => parcel.id === firstProspect.id), firstProspect);
+  assert.match(afterSecond.contextText, /Prospect 1 and Prospect 2 are both preserved/);
+
+  const reloaded = createEngineHarness(afterSecond, engineSource);
+  const afterReload = reloaded.saved();
+  assert.equal(afterReload.surveyParcels.length, 2);
+  assert.deepEqual(afterReload.surveyParcels.find((parcel) => parcel.id === firstProspect.id), firstProspect);
 
   const nextDaySave = {
-    ...afterSecond,
+    ...afterReload,
     day: 4,
     player: nextDayTile,
     selected: { type: "cleared", ...nextDayTile },
     location: "cleared",
   };
   const nextDay = createEngineHarness(nextDaySave, engineSource);
-  assert.equal(nextDay.element("pb7-prospect").disabled, false);
+  assert.equal(nextDay.element("pb7-prospect").disabled, true);
   nextDay.element("pb7-prospect").click();
-  assert.equal(nextDay.saved().prospectorDay, 4);
-  assert.equal(nextDay.saved().prospectsUsedToday, 1);
+  assert.equal(nextDay.saved().surveyParcels.length, 2);
+  assert.match(nextDay.saved().contextText, /Prospect 1 and Prospect 2 are both preserved/);
+});
+
+test("legacy singular prospect migrates once without losing the selected mine", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const legacySurvey = {
+    id: "survey-legacy",
+    x: 76,
+    y: 168,
+    w: 2,
+    h: 2,
+    status: "surveyed",
+    material: "stone",
+    ratio: 0.4,
+    depth: 1,
+    leaseCredit: 0,
+    lastLeaseDay: 0,
+  };
+  const mineParcel = {
+    id: "claim-existing",
+    x: 80,
+    y: 168,
+    w: 2,
+    h: 2,
+    status: "owned",
+    material: "coal",
+    ratio: 0.3,
+    depth: 1,
+    leaseCredit: 420,
+    mineId: "mine-existing",
+  };
+  const mine = {
+    id: "mine-existing",
+    parcelId: mineParcel.id,
+    x: mineParcel.x,
+    y: mineParcel.y,
+    w: 2,
+    h: 2,
+    level: 1,
+    baseMaterial: "coal",
+    material: "coal",
+    depth: 1,
+    ratio: 0.3,
+    stockMaterial: 0,
+    stockDirt: 0,
+    doorX: 82,
+    doorY: 168,
+  };
+  const game = createEngineHarness({
+    version: 8,
+    day: 5,
+    minutes: 480,
+    cash: 1000,
+    player: { x: 82, y: 168 },
+    selected: { type: "mine", x: mine.x, y: mine.y },
+    location: "mine",
+    prospectorHired: true,
+    prospectorDay: 5,
+    prospectsUsedToday: 1,
+    surveyParcel: legacySurvey,
+    mineParcel: legacySurvey,
+    mineParcels: [mineParcel],
+    mines: [mine],
+    selectedMineId: mine.id,
+    selectedMineParcelId: mineParcel.id,
+    nextSiteId: 1,
+  }, engineSource);
+
+  const migrated = game.saved();
+  assert.equal(migrated.surveyParcels.length, 1);
+  assert.equal(migrated.surveyParcels[0].id, legacySurvey.id);
+  assert.equal(migrated.surveyParcel.id, legacySurvey.id);
+  assert.equal(migrated.selectedMineParcelId, mineParcel.id);
 });
 
 test("leasing a survey immediately frees the prospector for another mine claim", async () => {
@@ -333,6 +415,7 @@ test("leasing a survey immediately frees the prospector for another mine claim",
   hall.element("pb7-lease").click();
   const leased = hall.saved();
   assert.equal(leased.surveyParcel, null);
+  assert.equal(leased.surveyParcels.length, 0);
   assert.equal(leased.mineParcels.length, 1);
   assert.equal(leased.mineParcels[0].status, "leased");
 

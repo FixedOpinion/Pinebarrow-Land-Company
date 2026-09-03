@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Checkpoint A — independent mining prospects
+
+- Added a capped collection of two persistent survey parcels so Prospect 1 and Prospect 2 retain separate IDs, locations, seams, dirt ratios, and lease state.
+- Migrated legacy singular `surveyParcel` saves into the collection without duplicating records or discarding an existing mine selection.
+- Kept the legacy active-prospect field as a compatibility mirror until Town Hall prospect management replaces it in Checkpoint B.
+- Added save version 9 and regressions for independent creation, save/reload persistence, leasing one prospect, and retaining the other.
+
 ### Source protection
 
 - Established `FixedOpinion/Pinebarrow-Land-Company` as the permanent source repository.

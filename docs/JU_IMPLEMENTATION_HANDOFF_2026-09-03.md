@@ -9,6 +9,8 @@ This document gives Ju the current approved design state before the next impleme
 
 > **CRITICAL USAGE / RECOVERY RULE FOR JU:** Never implement the entire roadmap in one run. Implement only the explicitly assigned checkpoint. Make a recoverable GitHub commit as soon as that checkpoint is coherent, verify only what is needed for that checkpoint, report the commit SHA, and **STOP**. Do not begin the next checkpoint until the user explicitly authorizes it.
 
+> **GARDEN RULE:** Ju must never consume the whole garden in one work session. One explicitly authorized slice only: inspect narrowly -> change narrowly -> commit early -> focused verify -> report SHA -> STOP. A roadmap item is context, not permission.
+
 ## 1. Core development philosophy — APPROVED
 
 Pinebarrow is both a game and a systems testbed for the larger Roblox project.
@@ -152,21 +154,37 @@ Warehouse reserves still protect stock from downstream movement. Market-accessib
 
 **Unresolved:** whether truck-held material can be sold directly while physically at the Marketplace or must first be deposited into Town Market Storage.
 
-## 8. Mining prospects — HIGH-PRIORITY BUG + ARCHITECTURE
+## 8. Mining prospects — CHECKPOINT A COMPLETE + ARCHITECTURE
 
-Current observed bug: using the second prospect eliminates/replaces the first prospect.
+Checkpoint A was implemented on current `main` by commit:
 
-**Required behavior:** there are at most two active mining prospects, but they are independent persistent records. Creating/using Prospect 2 must never erase Prospect 1.
+`3fa021c5ff223f8f9fddeb4ece943ff5a25ac6e1` — `fix: preserve two independent mining prospects`
 
-Each prospect should have its own stable ID and preserve its own location, survey/prospect result, cost/state as applicable, and approval/purchase status.
+Current behavior now preserves up to two independent active mining prospects. Creating Prospect 2 does not erase Prospect 1. The daily allowance and the open-slot limit both remain two, so unresolved prospects occupy the available slots across day changes until one is acted upon.
+
+Each prospect should continue to have its own stable ID and preserve its own location, survey/prospect result, cost/state as applicable, and approval/purchase status.
 
 Conceptually:
 
 `Mining Prospects -> Prospect 1 + Prospect 2 -> Town Hall Review -> Approve/Purchase -> Mine Development`
 
-The architecture should not rely on one replaceable `currentProspect` value. Use a small collection/list of independent records with a configured maximum of 2.
+### Important current-code finding — survey vs mine footprint
 
-This is both a current bug fix and a foundation for the reusable proposal system below.
+The existing runtime still conflates the geological survey and the proposed mine footprint:
+
+- the player selects/surveys one tile;
+- the code immediately creates a 2×2 survey parcel;
+- the selected tile anchors that 2×2 footprint rather than remaining purely a one-tile geological observation;
+- the resulting mine copies `material`, `ratio`, and depth from the survey parcel into the entire mine record;
+- the other cells covered by the 2×2 footprint are not independently contributing geology to the mine model.
+
+**Future approved direction:** separate `SurveyResult` from `DevelopmentProposal`/mine footprint. A 1×1 geological survey describes the ground sampled. A later mine-site proposal chooses the actual building footprint and may use one or more survey results. Do not retrofit this separation during Checkpoint B.
+
+### Important current-code finding — warehouse placement
+
+The current runtime automatically searches adjacent 2×2 positions for a warehouse parcel associated with a mine, starting with locations around that mine. This is useful prototype scaffolding but does not match the long-term planning model.
+
+**Future approved direction:** a warehouse should become its own planned/approved development with a player-selected valid site/access and explicit Mine -> Warehouse assignment. A warehouse may eventually serve multiple mines. Do not change warehouse placement as part of Checkpoint B.
 
 ## 9. Town Hall development proposals — APPROVED DIRECTION
 
@@ -194,6 +212,19 @@ This should connect to the already-approved visible town progression:
 
 Mining, residential, and industrial proposals may share a reusable proposal-record/service pattern while retaining type-specific rules.
 
+### Separation of responsibilities — APPROVED
+
+Town Hall approval is **permission**, not construction capability.
+
+- Town Hall approves land/use/development rights.
+- Building definitions describe what structures exist and their requirements.
+- Builder level/qualifications determine who is capable of building a chosen design.
+- Construction contracts determine who agrees to execute the work.
+- Procurement contracts determine who supplies the required materials.
+- Construction state tracks delivery/progress/completion.
+
+Do not put all of these rules inside Town Hall code.
+
 ## 10. Residential development — APPROVED DIRECTION
 
 Residential development is not simply placement of worker generators.
@@ -211,7 +242,130 @@ Long-term economic loop:
 
 Related loops include `Population -> Food Demand -> Farming`, `Population -> Education Demand -> Schools`, and `Industry -> Material Demand -> Commodity Market`.
 
-## 11. Reusable-system philosophy — ARCHITECTURAL DIRECTION
+## 11. Construction, builders, bidding, procurement — APPROVED ARCHITECTURE
+
+Buildings should cost **real resources plus labor/time**, not only cash. Construction should become an economic system that creates demand for other systems.
+
+### Building selection occurs before builder selection
+
+Approved sequence:
+
+`Town Hall approves lot/use -> player selects building design/level -> ConstructionProject snapshots requirements -> eligible builders bid -> construction contract awarded -> procurement contracts created/fulfilled -> construction progresses -> completed building`
+
+A player may select a building that the player's own builder is not qualified to construct. That is valid. Crowe or another qualified builder may win the construction contract while the player still participates economically by supplying materials.
+
+### BuildingDefinitions — source of truth
+
+Building requirements belong in a central configuration/data definition, not duplicated inside Town Hall, individual builders, or UI code.
+
+Conceptual data:
+
+```js
+BuildingDefinitions = {
+  warehouse: {
+    levels: {
+      1: {
+        requiredBuilderLevel: 1,
+        footprint: [2, 2],
+        resources: { lumber: 20, stone: 15 },
+        labor: 2,
+        buildTime: 2
+      }
+    }
+  }
+};
+```
+
+Exact numbers above are examples only and **not balance-locked** unless separately approved.
+
+### ConstructionProject snapshots requirements
+
+Once a building design/level is selected and the project is created, copy/snapshot that project's resource/labor/time requirements into the project record. Do not make active projects continuously read mutable global balance values; later balance changes must not silently alter an already-awarded construction job.
+
+Conceptual responsibilities:
+
+- `BuildingDefinitions` = template/rules.
+- `BuilderProfiles` = builder level, skill, reputation, workload, qualifications.
+- `DevelopmentProposals` = lot/use/Town Hall permission.
+- `ConstructionProjects` = chosen building plus locked requirement snapshot and progress.
+- `ConstructionBids` = builder, price, duration/terms.
+- `ProcurementContracts` = material, quantity, deadline, price/reward, delivery progress.
+
+### Construction contract and procurement contracts are distinct
+
+Do not collapse these into one record type merely because both are called contracts.
+
+- **Construction Contract:** “Build Warehouse #77.”
+- **Procurement Contract:** “Supply 35 t Stone by Day X.”
+
+They may share common contract infrastructure such as ID, bidder/party, deadline, status, reputation impact, and settlement rules while retaining type-specific fields/behavior.
+
+### Material bidding — APPROVED
+
+Even if Crowe wins the construction contract, the player can bid on material/procurement contracts created for that project. Losing the construction contract must not remove the player's ability to profit as a supplier/logistics operator.
+
+Possible economic roles in one development project:
+
+- property developer/owner;
+- builder/construction contractor;
+- material supplier;
+- transporter/logistics provider;
+- warehouse/storage provider.
+
+This is intentional: a rival's successful development may create profitable demand for the player.
+
+### Procurement default / emergency delivery — APPROVED DIRECTION
+
+A procurement contract becomes a real obligation once awarded. If the awarded supplier fails to deliver the required amount by the deadline:
+
+1. construction should not remain frozen forever;
+2. the game may automatically source the missing material through emergency procurement;
+3. emergency procurement occurs at a premium;
+4. the responsible supplier/player bears the defined extra cost/penalty;
+5. supplier/company reputation/reliability takes a hit.
+
+Exact premium formula, reputation loss, partial-delivery settlement, and whether a performance bond is mandatory are **UNRESOLVED**. Do not invent them during foundational implementation.
+
+Performance bonds/deposits are an approved future possibility but not yet a locked formula.
+
+### Feedback loops — intentional design goal
+
+`Town Development -> Construction Projects -> Material Demand -> Procurement Contracts -> Commodity Demand/Prices -> Mining/Logging/Industry -> Jobs/Wages -> Population/Housing -> More Development`
+
+Also:
+
+`More Construction -> Builder Demand -> Builder Revenue/Experience -> Higher Builder Capability -> More Advanced Buildings -> More Development`
+
+These loops are desired, not accidental side effects.
+
+## 12. Current runtime review — WHAT WORKS VS WHAT MUST EVOLVE
+
+The current `public/pinebarrow-engine.js` already contains useful foundations that should be preserved where practical:
+
+### Works / reusable foundations
+
+- A centralized `CONFIG` object already holds many tunable costs, capacities, limits, upgrade curves, timing values, and market limits. This supports the future principle of data-driven definitions.
+- Persistent game-state save/load already preserves mines, warehouses, exchange orders, company contracts, town businesses, and now multiple survey parcels.
+- Stable IDs are already used for many records and are the right direction for proposals/projects/contracts.
+- `companyContracts` already exist as persistent records with buyer/material/quantity/delivered/mine/status concepts.
+- A Contract Management UI/ledger already reads active/completed company contracts and mine/warehouse status.
+- Town business “founding” orders already create a primitive feedback loop where completing a material order starts town-business construction/development.
+- Mine/warehouse management already exposes bottlenecks, stock/capacity and operational status.
+- Commodity prices and day-based business/news demand already exist and can later respond to real construction demand rather than only scripted events.
+
+### Prototype scaffolding that must eventually evolve
+
+- `workers` is currently one global integer. The same worker count multiplier affects mine production broadly rather than individual worker/person/job assignments. This conflicts with the approved population/career architecture and must be reconciled later, not patched piecemeal now.
+- Mine and warehouse construction currently spend fixed cash (`mineBuildCost`, `warehouseBuildCost`) rather than consuming resource requirements through ConstructionProjects.
+- Mine construction is currently immediate once cash/site/clearing conditions pass; it does not use builders, bids, procurement, delivery, or staged construction.
+- Warehouse construction is likewise an immediate cash purchase once its automatically generated parcel is owned and cleared.
+- Existing `companyContracts` are primarily repeating mine-to-buyer material delivery contracts tied directly to a mine. Preserve them as a working contract pattern, but do not assume their exact schema is sufficient for future construction/procurement bidding.
+- Existing town-business founding orders are useful proof of concept, but they are not yet the general ConstructionProject/ProcurementContract architecture.
+- Prospect records currently represent 2×2 survey parcels even though the desired future geology model is 1×1 survey information separated from development footprint.
+
+**Migration rule:** preserve working behavior until an explicitly authorized checkpoint replaces it. Do not perform a giant rewrite merely because a future architecture is now documented.
+
+## 13. Reusable-system philosophy — ARCHITECTURAL DIRECTION
 
 Prefer common systems with type/config data rather than one-off implementations:
 
@@ -219,18 +373,22 @@ Prefer common systems with type/config data rather than one-off implementations:
 - Commodity system -> Stone / Iron / Coal / Logs / Copper / etc.
 - Order system -> Buy / Sell
 - Population/person system -> residents who can become different jobs/careers
+- Building definition system -> warehouse / mine / house / school / factory / market / etc.
+- Construction project system -> shared project lifecycle with type/config-driven building requirements
+- Contract infrastructure -> shared IDs/status/deadlines/parties while keeping construction and procurement contracts type-specific
 
 Do not over-generalize prematurely if doing so expands a checkpoint. Preserve the ability to generalize while keeping each implementation slice small.
 
-## 12. Existing warehouse/logistics principles still apply
+## 14. Existing warehouse/logistics principles still apply
 
 - Warehouse storage capacity and logistics/throughput remain separate upgrade concepts.
 - Warehouse reserves protect a configured minimum from downstream movement.
 - Mine-side Loading Logistics remains distinct from warehouse-side Collection Throughput.
 - Material transfers and market reservations must be atomic/conservative: no duplication or silent loss.
 - Market Link extends warehouse progression; it does not bypass logistics rules.
+- Future procurement delivery must use real material movement/access rules; a contract must not magically consume inaccessible company inventory.
 
-## 13. Prototype/source-of-truth organization
+## 15. Prototype/source-of-truth organization
 
 Use GitHub `main` as the source of truth for approved design artifacts.
 
@@ -252,51 +410,87 @@ Route commit:
 
 The hosted `fixedopinion.chatgpt.site` deployment was not verified to have deployed that route. Do not assume a GitHub commit automatically publishes the hosted site.
 
-## 14. STRICT IMPLEMENTATION CHECKPOINTS FOR JU
+## 16. STRICT IMPLEMENTATION CHECKPOINTS FOR JU
 
 The roadmap is context, **not permission to implement everything**.
 
 When the user assigns a checkpoint, Ju must:
 
-1. inspect current `main` and relevant existing code;
+1. inspect current `main` and only the directly relevant code;
 2. implement **only** the assigned checkpoint;
-3. avoid unrelated refactors/features;
+3. avoid unrelated refactors/features and do not opportunistically begin a future system;
 4. create a recoverable GitHub commit as soon as the checkpoint is coherent;
-5. run only the focused verification needed, plus required safety/build checks where practical;
-6. report exactly what changed, verification performed, and the commit SHA;
-7. **STOP** — do not start the next checkpoint.
+5. run focused tests for the changed behavior plus only the minimum safety/build verification practical;
+6. do **not** spend the remaining work window exploring or implementing the next checkpoint after the current one passes;
+7. report exactly what changed, what was verified, and the commit SHA;
+8. **STOP** — await explicit authorization.
+
+If the work proves larger than expected, reduce scope and commit the smallest coherent safe slice rather than continuing until usage is exhausted.
 
 ### Town/prospect checkpoint sequence
 
-**Checkpoint A — Prospect persistence bug ONLY**
+**Checkpoint A — Prospect persistence bug ONLY — COMPLETE**
 
-- Convert current mining prospect state as needed so Prospect 1 and Prospect 2 coexist independently.
-- Maximum active prospects remains 2.
-- Preserve/save both records.
-- Verify creating Prospect 2 does not erase Prospect 1.
-- Do not implement residential/industrial development.
-- Commit, report SHA, STOP.
+Completed on `main` at:
 
-**Checkpoint B — Town Hall prospect display ONLY**
+`3fa021c5ff223f8f9fddeb4ece943ff5a25ac6e1`
+
+Do not redo or broaden Checkpoint A unless a regression is found.
+
+**Checkpoint B — Town Hall prospect display ONLY — NEXT ELIGIBLE CHECKPOINT**
 
 - Town Hall reads/displays Prospect 1 and Prospect 2 independently.
 - Existing approval/purchase behavior addresses the selected prospect by stable ID.
-- No residential system yet.
-- Commit, report SHA, STOP.
+- Preserve existing 2×2 survey/mine behavior for this checkpoint even though the future survey/site split is documented.
+- Do not redesign mine footprints.
+- Do not redesign warehouse placement.
+- Do not add residential proposals.
+- Do not add construction bidding.
+- Commit, focused verify, report SHA, STOP.
 
 **Checkpoint C — Generic proposal data foundation ONLY**
 
 - Introduce the smallest reusable proposal structure capable of later representing mining/residential/industrial proposals.
-- Do not build houses, population, or industries.
+- Preserve existing gameplay while adding only the data foundation.
+- Do not build houses, population, construction bidding, or industries.
 - Commit, report SHA, STOP.
 
 **Checkpoint D — Residential proposal UI ONLY**
 
 - Town Hall can display multiple independent residential proposals using configured limits.
 - No population/happiness simulation yet.
+- No construction bidding yet.
 - Commit, report SHA, STOP.
 
-Do not proceed from A to B, B to C, or C to D without a new explicit user instruction.
+Do not proceed from B to C, C to D, or any later checkpoint without a new explicit user instruction.
+
+### Future survey/site-planning checkpoint sequence — NOT YET AUTHORIZED
+
+These are intentionally separate from B-D so Ju cannot swallow multiple architectural changes in one run.
+
+- **S1:** Introduce a pure 1×1 geological `SurveyResult` representation without changing mine construction behavior.
+- **S2:** Introduce a separate mine-site proposal/footprint record that can reference survey result(s); no new geology averaging yet.
+- **S3:** Add player choice of valid mine footprint/site from approved/surveyed information.
+- **S4:** Define how multiple footprint cells/surveys contribute geology/output; only after formula is explicitly approved.
+- **S5:** Replace automatic warehouse parcel generation with a separate warehouse-site planning/proposal step.
+- **S6:** Add explicit Mine -> Warehouse assignment and only then consider multi-mine warehouse service.
+
+Do not implement any S checkpoint without explicit authorization.
+
+### Future construction/bidding checkpoint sequence — NOT YET AUTHORIZED
+
+- **CB1:** Add data-only `BuildingDefinitions` foundation with no runtime construction behavior change.
+- **CB2:** Add data-only BuilderProfile/capability foundation; do not replace workforce yet.
+- **CB3:** Add data-only ConstructionProject records that snapshot a chosen building definition; no bidding/consumption yet.
+- **CB4:** Add construction bid records/eligibility evaluation only.
+- **CB5:** Add awarding one construction contract only; no procurement automation yet.
+- **CB6:** Add procurement-contract records generated from one awarded construction project; no default penalties yet.
+- **CB7:** Add real material reservation/delivery accounting with conservation tests.
+- **CB8:** Add procurement deadline/default state only.
+- **CB9:** Add emergency procurement settlement only after premium/cost/reputation formulas are explicitly approved.
+- **CB10:** Integrate staged visual construction/progress only after the economic state machine is stable.
+
+Every CB checkpoint requires its own explicit authorization, recoverable commit, focused verification, SHA report, and STOP.
 
 ### Marketplace checkpoint sequence
 
@@ -309,7 +503,7 @@ Do not proceed from A to B, B to C, or C to D without a new explicit user instru
 
 Do not bundle Marketplace checkpoints together unless the user explicitly changes this rule.
 
-## 15. Important unresolved decisions — DO NOT INVENT
+## 17. Important unresolved decisions — DO NOT INVENT
 
 - Exact population/household/housing/wage formulas.
 - Exact house tiers, costs, family capacities, happiness values, and productivity multipliers.
@@ -317,6 +511,17 @@ Do not bundle Marketplace checkpoints together unless the user explicitly change
 - Exact career/qualification progression rates.
 - Exact residential/industrial proposal generation rules and costs.
 - Whether four residential proposals remains the long-term limit; architecture must keep this configurable.
+- Exact building resource/labor/time requirements and building-level balance.
+- Exact builder levels/skills/qualification thresholds and progression.
+- Construction bid generation, scoring/selection rules, builder workload effects, reliability modifiers, and bid pricing formulas.
+- Procurement bid generation/selection rules.
+- Procurement deadlines and partial-fill settlement behavior.
+- Emergency procurement premium formula and who pays which portion.
+- Exact reputation/reliability penalties and rewards.
+- Whether performance bonds/deposits are mandatory, and their formulas.
+- How many survey cells/results determine a mine's resource/grade/dirt ratio.
+- How a multi-cell mine footprint combines different geology.
+- Exact rules for selecting/approving warehouse sites and multi-mine warehouse assignments.
 - Market Link warehouse unlock level and cost.
 - Town Market Warehouse purchase vs lease terms and capacity/upgrades.
 - Whether truck-held material can be sold directly at the Marketplace.
@@ -327,16 +532,20 @@ Do not bundle Marketplace checkpoints together unless the user explicitly change
 - Dirt Processor probability/recovery formula, costs, batches, and tables.
 - Whether company contracts may consume warehouse reserve stock.
 
-## 16. Current implementation priority
+## 18. Current implementation priority
 
-Unless the user explicitly assigns another checkpoint, the highest-priority narrow code correction identified in this design session is:
+Unless the user explicitly assigns another checkpoint, **do not implement anything automatically**.
 
-**Checkpoint A — Prospect persistence bug ONLY.**
+The next eligible narrow code checkpoint in the existing Town/prospect sequence is:
 
-Do not infer from this document that all population, Marketplace, residential, industrial, or proposal systems should now be implemented.
+**Checkpoint B — Town Hall prospect display ONLY.**
+
+Checkpoint A is already complete at `3fa021c5ff223f8f9fddeb4ece943ff5a25ac6e1`.
+
+The survey/site-planning architecture and the construction/bidding architecture are now approved design direction, but their implementation checkpoints are **NOT AUTHORIZED** merely because they appear in this handoff.
 
 ## Instruction to Ju
 
-Treat this file as the current implementation handoff. When it conflicts with `docs/CHAT_HANDOFF_2026-09-02.md`, this file controls only where it records a later explicit user decision, especially population/housing, Marketplace/warehouse linkage, independent prospect records, and Town Hall development proposals. Preserve all non-conflicting older requirements.
+Treat this file as the current implementation handoff. When it conflicts with `docs/CHAT_HANDOFF_2026-09-02.md`, this file controls only where it records a later explicit user decision, especially population/housing, Marketplace/warehouse linkage, independent prospect records, Town Hall development proposals, survey-vs-site separation, construction requirements, builder capability, contract bidding, procurement, and default/reputation direction. Preserve all non-conflicting older requirements.
 
-**Most important execution rule:** one authorized checkpoint -> commit -> verify -> report SHA -> **STOP**.
+**Most important execution rule:** one explicitly authorized checkpoint -> commit early -> focused verify -> report SHA -> **STOP**.

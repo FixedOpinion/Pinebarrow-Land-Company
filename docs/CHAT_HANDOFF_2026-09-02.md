@@ -1,6 +1,7 @@
 # Pinebarrow Land Company — Chat Handoff
 
-**Date:** 2026-09-02  
+**Original date:** 2026-09-02  
+**Reconciled:** 2026-09-03  
 **Purpose:** Pass the current design decisions and implementation priorities to the main development chat without losing the decisions made while that chat was unavailable.
 
 ## 1. Current project direction
@@ -193,7 +194,7 @@ The previously documented blueprint had Workforce -> Warehouse Logistics -> Play
 5. **Phase 7 — Warehouse Logistics**
 6. **Phase 8 — Dirt Processing / Tailings Recovery**
 7. **Phase 9 — Player Market**
-8. **Phase 10 — Town Growth Expansion**
+8. **Phase 10 — Town Growth, Property, and Visible Crowe Wealth**
 
 Reason for putting Mine Architecture before automated warehouse logistics: establish the intended mine output/storage/loading model first so logistics is not built around a generic Mine Level that will immediately need replacement.
 
@@ -248,6 +249,159 @@ Do not silently decide these during implementation:
 - Exact rare/endgame recovery tables.
 - Whether company contracts may consume warehouse reserve stock.
 - Final interaction between mine-side Loading Logistics and warehouse-side Collection Throughput.
+
+## 13. Repository reconciliation — 2026-09-03
+
+The repository was rechecked before this update.
+
+- Current `main` is `6e62e45e64ca3fe3f91a9f05ef3d0377def29772`; this handoff is the only change after the integrated Phase 3 management build `f36a8aa5611998066bf19bf02ba735d3dad08044`.
+- Draft PR #4 / `phase-5-workforce` remains valuable reference evidence, but it was built from an older engine/page state and must not be merged wholesale.
+- `phase-4b-mine-foundation` contains a checkpoint-planning document created before this handoff was discovered. Its mine design is retained, renumbered into Phase 6, and deferred until Workforce is reconciled.
+- The next code branch must be created from the then-current `main` and named `phase-5r-workforce-reconciliation`.
+- The detailed, usage-efficient implementation schedule is maintained in [DEVELOPMENT_CADENCE.md](DEVELOPMENT_CADENCE.md).
+
+This resolves the apparent conflict between “mine separation next” and “Workforce reconciliation next”: Workforce reconciliation remains next; the mine-separation design follows as Phase 6.
+
+## 14. Implementation strategy by phase
+
+### Canonical integration strategy
+
+The current integrated project, not an older feature branch, controls architecture:
+
+- `public/pinebarrow-engine.js` remains the canonical runtime/save/simulation engine until a separately approved refactor.
+- `app/page.tsx` owns persistent page and modal markup.
+- `app/globals.css` owns presentation and responsive layout.
+- Company Operations must continue reading the active running profile directly.
+- Port specific Workforce behavior from PR #4; do not replace current engine, page, CSS, or management integration with the older branch copies.
+- Avoid long-term runtime monkey-patching. Integrate stable behavior through named engine functions and existing state-normalization/render/update paths.
+- Balance values belong in configuration tables, not scattered event handlers.
+- New systems communicate through stable IDs and explicit assignments; they do not mutate unrelated systems indirectly.
+
+### Phase 5R — Workforce reconciliation
+
+1. Record a file/function conflict map between current `main` and PR #4.
+2. Port only workforce schema normalization and legacy worker migration.
+3. Add worker assignment APIs with validated building IDs.
+4. Gate mine production with the explicit `NO WORKER` state.
+5. Integrate the workforce panel into current Company Operations.
+6. Run the complete compatibility gate and stop before physical Worker House placement.
+
+Save strategy: Workforce uses the next monotonic save version. Migration must be idempotent and preserve every existing mine, warehouse, worker count, contract, and profile.
+
+### Phase 5B — Physical Worker Houses
+
+1. Add the 2×2 building record and placement validator.
+2. Reuse existing owned-land, blocked-cell, wall, road, tree, ore, and building-overlap rules.
+3. Add the build interaction and top-down map rendering.
+4. Derive worker capacity from completed houses: one completed house equals exactly one worker.
+5. Persist stable house IDs and coordinates.
+6. Verify touch, mouse, keyboard, controller, save, and reload behavior.
+
+Cost and appearance tiers must be configuration-driven. Placement work must not also add warehouse automation.
+
+### Phase 5C — Workforce completion
+
+1. Complete assignment, reassignment, and unassignment controls.
+2. Prevent orphan assignments when a building/house becomes invalid.
+3. Apply staffing requirements to warehouses while leaving automated collection for Phase 7.
+4. Surface capacity, assigned, available, and blocked worker counts in Company Operations.
+5. Complete full migration/regression/build/lint checks before merging Workforce.
+
+### Phase 6 — Mine Architecture and Efficiency
+
+Implement in this dependency order:
+
+1. **Data model:** separate Excavation, Active Seam, Shaker Efficiency, Stockpile Capacity, and Loading Logistics.
+2. **Migration:** translate the generic legacy mine level without losing the current material, output, or upgrade value.
+3. **Excavation:** control raw production capability and the list of seams reachable within the mine's depth band.
+4. **Active Seam:** retain the current material until the player explicitly selects another unlocked seam.
+5. **Shaker:** apply the locked dirt-removal table while leaving useful ore output unchanged.
+6. **Stockpile:** give local capacity its own upgrade/cost path.
+7. **Management:** show each track, next effect, price, and bottleneck separately.
+
+Track per-mine totals for dirt generated, removed, hauled, processed, and discarded. Those totals become the factual input to later Crowe and efficiency systems.
+
+Do not implement Active Seam switching until setup duration and mixed-stock/active-contract behavior are resolved. Excavation must never silently relabel existing stock or contracts.
+
+### Phase 7 — Warehouse Logistics
+
+Use a deterministic timed transfer service rather than a per-frame loop:
+
+1. Assign mines to warehouses by stable IDs.
+2. Compute a bounded transfer from mine output using mine Loading Logistics, warehouse Collection Throughput, vehicle capacity where applicable, and warehouse free capacity.
+3. Commit the transfer atomically so material cannot be duplicated or lost.
+4. Separate warehouse Capacity and Logistics upgrades.
+5. Add per-material reserves using `available = max(0, inventory - reserve)`.
+6. Expose `NO WORKER`, `MINE STORAGE FULL`, `WAREHOUSE FULL`, `WAREHOUSE LOGISTICS BACKLOG`, and `RESERVE PROTECTED`.
+
+Contracts consuming reserves remains unresolved and must not be silently decided.
+
+### Phase 8 — Dirt Processing and Crowe foundation
+
+Begin with a balance specification/simulation, not runtime odds:
+
+1. Lock batch sizes, operating costs, recovery tables, and expected value.
+2. Add the Dirt Processor as a separate costly industrial facility.
+3. Run processing as explicit saved jobs so closing/reloading cannot reroll results.
+4. Use seeded/configurable recovery tables for deterministic tests.
+5. Connect real tailings/disposal activity to Crowe's acquisition fund and news progression.
+
+A weak Shaker creates more tailings and operational cost. It must never improve the player's recovery odds. Strong Shaker plus strong Processor remains the best recovery combination.
+
+### Phase 9 — Player Market
+
+1. Add the 2×6 owned-land building and one-worker requirement.
+2. Pull only reserve-eligible warehouse material.
+3. Use a configured throughput and local capacity.
+4. Route sales through the existing town price/demand/offer algorithm.
+5. Keep throughput, capacity, handled-material count, and appearance as independent upgrades.
+
+The Player Market automates distribution; it does not create a second guaranteed-price economy.
+
+### Phase 10 — Town Growth, property, and visible Crowe wealth
+
+Approved direction:
+
+- Add substantially more Future Industry lots inside complete road-fronted city blocks.
+- Crowe gradually purchases eligible lots using a recorded acquisition fund.
+- The player can also purchase eligible lots and earn configurable passive rent.
+- One town block can become Crowe's house/estate.
+- Gold storage beside the estate grows visually from his actual recorded wealth.
+- Industries continue to progress through Empty Lot, Coming Soon, Construction, and Completed states.
+- New industries continue affecting contracts, demand, prices, and newspaper stories.
+
+Implementation order:
+
+1. Create one canonical lot registry with stable lot IDs, block/frontage data, state, owner, purchase price, rent rule, and industry eligibility.
+2. Make town development and ownership state coexist instead of overwriting one another.
+3. Add player and Crowe purchase transactions through one validated ownership service.
+4. Derive passive rent and Crowe wealth from real ledger events.
+5. Render Crowe's estate/gold growth from wealth thresholds stored in configuration.
+6. Connect acquisitions and openings to the newspaper and market-demand systems.
+
+Unresolved before property implementation:
+
+- purchase priority when both player and Crowe qualify;
+- whether a player-owned Future Industry lot can still develop an industry;
+- exact rent cadence and values;
+- the exact legal/economic route by which Crowe profits from player tailings;
+- whether Crowe can buy a lot the player has actively reserved but not purchased.
+
+## 15. Verification strategy
+
+Each micro-phase must prove the layer it changes:
+
+| Layer | Required evidence |
+|---|---|
+| Save/data | Legacy fixture, current fixture, idempotent reload |
+| Simulation | Deterministic state-transition assertions |
+| Economy | Conservation checks: no material/cash duplication or silent loss |
+| UI | Active-profile data, reachable controls, explicit blocked reason |
+| Input | Touch/mouse plus existing keyboard/controller paths |
+| Integration | Full regression suite, lint, production build |
+| Release | Exact merged `main` SHA deployed and live smoke-tested |
+
+Focused checks run at every micro-commit. The expensive full suite runs at the phase integration gate. If the required runner is unavailable, commit only clearly identified recovery/reference work and report the missing verification; never label it tested.
 
 ## Handoff instruction
 

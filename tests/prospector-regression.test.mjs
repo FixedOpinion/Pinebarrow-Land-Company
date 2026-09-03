@@ -248,11 +248,11 @@ function createEngineHarness(savedState, engineSource, options = {}) {
   };
 }
 
-test("old saves receive two usable surveys, including a next-day reset", async () => {
+test("two independent prospects survive save/reload and neither replaces the other", async () => {
   const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
   const firstTile = { x: 76, y: 169 };
-  const secondTile = { x: 77, y: 169 };
-  const nextDayTile = { x: 78, y: 169 };
+  const secondTile = { x: 78, y: 169 };
+  const nextDayTile = { x: 80, y: 169 };
   const oldSave = {
     version: 4,
     day: 3,
@@ -276,7 +276,9 @@ test("old saves receive two usable surveys, including a next-day reset", async (
   const afterFirst = migrated.saved();
   assert.equal(afterFirst.prospectsUsedToday, 1);
   assert.equal(afterFirst.surveyParcel.status, "surveyed");
-  assert.match(afterFirst.contextText, /Survey one of two is complete/);
+  assert.equal(afterFirst.surveyParcels.length, 1);
+  assert.match(afterFirst.contextText, /Prospect 1 is preserved/);
+  const firstProspect = structuredClone(afterFirst.surveyParcels[0]);
 
   const secondSave = {
     ...afterFirst,
@@ -290,20 +292,28 @@ test("old saves receive two usable surveys, including a next-day reset", async (
   const afterSecond = second.saved();
   assert.equal(afterSecond.prospectsUsedToday, 2);
   assert.equal(afterSecond.surveyParcel.x, secondTile.x);
-  assert.match(afterSecond.contextText, /two surveys are used for today/i);
+  assert.equal(afterSecond.surveyParcels.length, 2);
+  assert.notEqual(afterSecond.surveyParcels[0].id, afterSecond.surveyParcels[1].id);
+  assert.deepEqual(afterSecond.surveyParcels.find((parcel) => parcel.id === firstProspect.id), firstProspect);
+  assert.match(afterSecond.contextText, /Prospect 1 and Prospect 2 are both preserved/);
+
+  const reloaded = createEngineHarness(afterSecond, engineSource);
+  const afterReload = reloaded.saved();
+  assert.equal(afterReload.surveyParcels.length, 2);
+  assert.deepEqual(afterReload.surveyParcels.find((parcel) => parcel.id === firstProspect.id), firstProspect);
 
   const nextDaySave = {
-    ...afterSecond,
+    ...afterReload,
     day: 4,
     player: nextDayTile,
     selected: { type: "cleared", ...nextDayTile },
     location: "cleared",
   };
   const nextDay = createEngineHarness(nextDaySave, engineSource);
-  assert.equal(nextDay.element("pb7-prospect").disabled, false);
+  assert.equal(nextDay.element("pb7-prospect").disabled, true);
   nextDay.element("pb7-prospect").click();
-  assert.equal(nextDay.saved().prospectorDay, 4);
-  assert.equal(nextDay.saved().prospectsUsedToday, 1);
+  assert.equal(nextDay.saved().surveyParcels.length, 2);
+  assert.match(nextDay.saved().contextText, /Prospect 1 and Prospect 2 are both preserved/);
 });
 
 test("leasing a survey immediately frees the prospector for another mine claim", async () => {
@@ -333,6 +343,7 @@ test("leasing a survey immediately frees the prospector for another mine claim",
   hall.element("pb7-lease").click();
   const leased = hall.saved();
   assert.equal(leased.surveyParcel, null);
+  assert.equal(leased.surveyParcels.length, 0);
   assert.equal(leased.mineParcels.length, 1);
   assert.equal(leased.mineParcels[0].status, "leased");
 

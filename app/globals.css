@@ -778,6 +778,14 @@ select {
   box-shadow: 0 4px 0 #2f3fb4;
 }
 
+.action-grid button[id="pb7-select-prospect-1"],
+.action-grid button[id="pb7-select-prospect-2"] {
+  color: #3444be;
+  border-color: #d6dcff;
+  background: linear-gradient(145deg, #f5f6ff, #e9ecff);
+  box-shadow: 0 4px 0 #c6cffc;
+}
+
 .action-grid button[data-hauler-size][data-profit="gain"]:not(:disabled) {
   color: #205f50;
   border-color: #a9e3d1;
@@ -3905,6 +3913,127 @@ body {
   line-height: 1.22;
 }
 
+.townhall-prospect-board {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(179, 190, 218, 0.72);
+}
+
+.townhall-prospect-board > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--foreground);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.townhall-prospect-board > header strong {
+  color: var(--muted-foreground);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+}
+
+.townhall-prospect-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 7px;
+}
+
+.townhall-prospect-card {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid #cdd5ea;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.townhall-prospect-card[data-selected="true"] {
+  border-color: #6877eb;
+  background: linear-gradient(145deg, rgba(238, 241, 255, 0.98), rgba(231, 250, 245, 0.9));
+  box-shadow: 0 0 0 2px rgba(91, 108, 248, 0.12);
+}
+
+.townhall-prospect-card[data-empty="true"] {
+  border-style: dashed;
+  color: var(--muted-foreground);
+  background: rgba(249, 250, 253, 0.58);
+}
+
+.townhall-prospect-card > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.townhall-prospect-card > header strong {
+  color: var(--foreground);
+  font-size: 9px;
+  letter-spacing: 0.07em;
+}
+
+.townhall-prospect-card > header span {
+  color: #5263cd;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-align: right;
+}
+
+.townhall-prospect-card[data-empty="true"] > header span {
+  color: var(--muted-foreground);
+}
+
+.townhall-prospect-card p {
+  margin: 7px 0 1px;
+  color: var(--muted-foreground);
+  font-size: 8px;
+  line-height: 1.35;
+}
+
+.townhall-prospect-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.townhall-prospect-meta span {
+  min-width: 0;
+  padding: 5px 6px;
+  border: 1px solid rgba(216, 223, 239, 0.84);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.townhall-prospect-meta small,
+.townhall-prospect-meta b {
+  display: block;
+}
+
+.townhall-prospect-meta small {
+  margin-bottom: 2px;
+  color: var(--muted-foreground);
+  font-size: 6px;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+}
+
+.townhall-prospect-meta b {
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 8px;
+  font-weight: 900;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (hover: hover) and (pointer: fine) {
   .touch-dpad {
     opacity: 0.2;
@@ -3933,6 +4062,10 @@ body {
 
   .location-detail-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .townhall-prospect-grid {
+    grid-template-columns: 1fr;
   }
 }
 

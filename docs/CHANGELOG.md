@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Checkpoint B — Town Hall prospect review
+
+- Added a Town Hall prospect board that keeps Prospect 1 and Prospect 2 visible as separate records with stable IDs, material, depth, and dirt ratio.
+- Added Town Hall review buttons that select an individual prospect without replacing the other active survey.
+- Updated lease approval to target the selected prospect ID, then preserve and select the remaining prospect after a lease.
+- Added persistent prospect selection/slot migration and save version 10 while retaining the legacy `surveyParcel` compatibility mirror.
+
 ### Checkpoint A — independent mining prospects
 
 - Added a capped collection of two persistent survey parcels so Prospect 1 and Prospect 2 retain separate IDs, locations, seams, dirt ratios, and lease state.

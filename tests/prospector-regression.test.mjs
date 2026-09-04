@@ -8,7 +8,7 @@ const PROFILE_KEY = "pinebarrow-land-company-profile-v1-1";
 const ACTION_BUTTON_IDS = [
   "pb7-hire", "pb7-hire-worker", "pb7-hauler-xs", "pb7-hauler-s", "pb7-hauler-m", "pb7-hauler-l",
   "pb7-marketplace", "pb7-contracts", "pb7-company-management", "pb7-sell", "pb7-buy-saw", "pb7-rent-saw", "pb7-shaker", "pb7-upgrade-truck-size",
-  "pb7-upgrade-truck-speed", "pb7-road-plan", "pb7-road-submit", "pb7-road-accept", "pb7-road-cancel", "pb7-read-news", "pb7-prospect", "pb7-lease",
+  "pb7-upgrade-truck-speed", "pb7-road-plan", "pb7-road-submit", "pb7-road-accept", "pb7-road-cancel", "pb7-read-news", "pb7-prospect", "pb7-select-prospect-1", "pb7-select-prospect-2", "pb7-lease",
   "pb7-unlock-gate",
   "pb7-buy-land", "pb7-buy-warehouse-land", "pb7-build-mine", "pb7-load-mine", "pb7-upgrade-mine",
   "pb7-build-warehouse", "pb7-unload-warehouse", "pb7-load-warehouse", "pb7-upgrade-warehouse",
@@ -268,7 +268,7 @@ test("two independent prospects survive save/reload and neither replaces the oth
   };
 
   const migrated = createEngineHarness(oldSave, engineSource);
-  assert.equal(migrated.saved().version, 8);
+  assert.equal(migrated.saved().version, 11);
   assert.equal(migrated.saved().prospectsUsedToday, 0);
   assert.equal(migrated.element("pb7-prospect").disabled, false);
 
@@ -314,6 +314,184 @@ test("two independent prospects survive save/reload and neither replaces the oth
   nextDay.element("pb7-prospect").click();
   assert.equal(nextDay.saved().surveyParcels.length, 2);
   assert.match(nextDay.saved().contextText, /Prospect 1 and Prospect 2 are both preserved/);
+});
+
+test("legacy singular prospect migrates once without losing the selected mine", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const legacySurvey = {
+    id: "survey-legacy",
+    x: 76,
+    y: 168,
+    w: 2,
+    h: 2,
+    status: "surveyed",
+    material: "stone",
+    ratio: 0.4,
+    depth: 1,
+    leaseCredit: 0,
+    lastLeaseDay: 0,
+  };
+  const mineParcel = {
+    id: "claim-existing",
+    x: 80,
+    y: 168,
+    w: 2,
+    h: 2,
+    status: "owned",
+    material: "coal",
+    ratio: 0.3,
+    depth: 1,
+    leaseCredit: 420,
+    mineId: "mine-existing",
+  };
+  const mine = {
+    id: "mine-existing",
+    parcelId: mineParcel.id,
+    x: mineParcel.x,
+    y: mineParcel.y,
+    w: 2,
+    h: 2,
+    level: 1,
+    baseMaterial: "coal",
+    material: "coal",
+    depth: 1,
+    ratio: 0.3,
+    stockMaterial: 0,
+    stockDirt: 0,
+    doorX: 82,
+    doorY: 168,
+  };
+  const game = createEngineHarness({
+    version: 8,
+    day: 5,
+    minutes: 480,
+    cash: 1000,
+    player: { x: 82, y: 168 },
+    selected: { type: "mine", x: mine.x, y: mine.y },
+    location: "mine",
+    prospectorHired: true,
+    prospectorDay: 5,
+    prospectsUsedToday: 1,
+    surveyParcel: legacySurvey,
+    mineParcel: legacySurvey,
+    mineParcels: [mineParcel],
+    mines: [mine],
+    selectedMineId: mine.id,
+    selectedMineParcelId: mineParcel.id,
+    nextSiteId: 1,
+  }, engineSource);
+
+  const migrated = game.saved();
+  assert.equal(migrated.surveyParcels.length, 1);
+  assert.equal(migrated.surveyParcels[0].id, legacySurvey.id);
+  assert.equal(migrated.surveyParcel.id, legacySurvey.id);
+  assert.equal(migrated.selectedMineParcelId, mineParcel.id);
+});
+
+test("Town Hall displays both prospects and leases the selected stable ID", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const first = { id: "survey-1", x: 76, y: 168, w: 2, h: 2, status: "surveyed", material: "stone", ratio: 0.4, depth: 1, leaseCredit: 0, lastLeaseDay: 0, prospectSlot: 1 };
+  const second = { id: "survey-2", x: 78, y: 168, w: 2, h: 2, status: "surveyed", material: "coal", ratio: 0.3, depth: 1, leaseCredit: 0, lastLeaseDay: 0, prospectSlot: 2 };
+  const game = createEngineHarness({
+    version: 9,
+    day: 5,
+    minutes: 480,
+    cash: 1000,
+    player: { x: 37, y: 141 },
+    selected: { type: "building", id: "townhall", x: 37, y: 141 },
+    location: "townhall",
+    prospectorHired: true,
+    prospectorDay: 5,
+    prospectsUsedToday: 2,
+    surveyParcels: [first, second],
+    surveyParcel: first,
+    selectedSurveyId: first.id,
+    mineParcels: [],
+    warehouseParcels: [],
+    mines: [],
+    warehouses: [],
+    nextSiteId: 3,
+  }, engineSource);
+
+  assert.equal(game.element("pb7-location-details").hidden, false);
+  assert.match(game.element("pb7-location-details").innerHTML, /PROSPECT 1/);
+  assert.match(game.element("pb7-location-details").innerHTML, /PROSPECT 2/);
+  assert.match(game.element("pb7-location-details").innerHTML, /survey-1/);
+  assert.match(game.element("pb7-location-details").innerHTML, /survey-2/);
+  assert.equal(game.element("pb7-select-prospect-1").hidden, false);
+  assert.equal(game.element("pb7-select-prospect-2").hidden, false);
+
+  game.element("pb7-select-prospect-2").click();
+  assert.equal(game.saved().selectedSurveyId, second.id);
+  assert.equal(game.saved().surveyParcel.id, second.id);
+
+  game.element("pb7-lease").click();
+  const leased = game.saved();
+  assert.equal(leased.mineParcels.length, 1);
+  assert.equal(leased.mineParcels[0].id, second.id);
+  assert.deepEqual(leased.surveyParcels.map((parcel) => parcel.id), [first.id]);
+  assert.equal(leased.selectedSurveyId, first.id);
+  assert.equal(leased.surveyParcel.id, first.id);
+});
+
+test("generic proposal records persist across save and reload without activating development", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const proposals = [
+    {
+      id: "proposal-mine-1",
+      type: "mining",
+      use: "mine",
+      lot: { x: 12, y: 130, w: 2, h: 2, blockId: "town-block-1" },
+      footprint: { w: 2, h: 2 },
+      cost: 600,
+      status: "approved",
+      owner: "player",
+      stage: "approved",
+    },
+    {
+      id: "proposal-home-1",
+      type: "residential",
+      use: "housing",
+      lot: { x: 26, y: 150, w: 4, h: 4, blockId: "town-block-2" },
+      footprint: { w: 4, h: 4 },
+      cost: null,
+      status: "draft",
+      owner: null,
+      stage: "unstarted",
+    },
+    {
+      id: "proposal-industry-1",
+      type: "industrial",
+      use: "foundry",
+      lot: { x: 50, y: 150, w: 7, h: 7, blockId: "town-block-3" },
+      footprint: { w: 7, h: 7 },
+      cost: 1200,
+      status: "construction",
+      owner: "town",
+      stage: "foundation",
+    },
+  ];
+  const game = createEngineHarness({
+    version: 10,
+    day: 6,
+    minutes: 480,
+    cash: 1000,
+    player: { x: 37, y: 141 },
+    selected: { type: "building", id: "townhall", x: 37, y: 141 },
+    location: "townhall",
+    proposals,
+    nextProposalId: 4,
+  }, engineSource);
+
+  const saved = game.saved();
+  assert.equal(saved.version, 11);
+  assert.equal(saved.proposals.length, 3);
+  assert.deepEqual(saved.proposals, proposals);
+  assert.equal(saved.nextProposalId, 4);
+
+  const reloaded = createEngineHarness(saved, engineSource).saved();
+  assert.deepEqual(reloaded.proposals, saved.proposals);
+  assert.equal(reloaded.nextProposalId, saved.nextProposalId);
 });
 
 test("leasing a survey immediately frees the prospector for another mine claim", async () => {

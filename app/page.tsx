@@ -275,6 +275,8 @@ export default function Home() {
               <button id="pb7-unlock-gate" type="button">Unlock claim section</button>
               <button id="pb7-read-news" type="button">Read market news</button>
               <button id="pb7-prospect" type="button">Prospect selected tile</button>
+              <button id="pb7-select-prospect-1" type="button" hidden>Review Prospect 1</button>
+              <button id="pb7-select-prospect-2" type="button" hidden>Review Prospect 2</button>
               <button id="pb7-lease" type="button">Lease mine land</button>
               <button id="pb7-buy-land" type="button">Buy mine land</button>
               <button id="pb7-buy-warehouse-land" type="button">Buy warehouse land</button>

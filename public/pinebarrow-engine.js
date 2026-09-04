@@ -21,6 +21,7 @@
       const STARTER_TREE = { x: PLAYER_ROAD_X + 2, y: SOUTH_TOP + 2 };
       const CLAIM_SECTION_DEPTHS = [0, 42, 84];
       const CLAIM_SECTION_ENDS = [41, 83, CLAIM_DEPTH - 1];
+      const SAVE_VERSION = 11;
       const MAIN_STREET_TOP = 142;
       const MAIN_STREET_BOTTOM = 146;
       const TOWN_SIDE_STREET_WIDTH = 2;
@@ -59,6 +60,8 @@
         sawPurchaseCost: 90,
         sawRentalCost: 18,
         shakerCost: 350,
+        maxActiveProspects: 2,
+        maxProposals: 64,
         maxMineLevel: 8,
         mineUpgradeCosts: { 1: 260, 2: 390, 3: 560, 4: 780, 5: 1060, 6: 1420, 7: 1880 },
         mineOutputByLevel: { 1: 1, 2: 1.18, 3: 1.38, 4: 1.6, 5: 1.82, 6: 2.02, 7: 2.22, 8: 2.4 },
@@ -225,6 +228,9 @@
           cleared: new Set(),
           surveyParcels: [],
           surveyParcel: null,
+          selectedSurveyId: null,
+          proposals: [],
+          nextProposalId: 1,
           mineParcel: null,
           warehouseParcel: null,
           mine: null,
@@ -338,6 +344,8 @@
         readNews: root.querySelector("#pb7-read-news"),
         clear: root.querySelector("#pb7-clear"),
         prospect: root.querySelector("#pb7-prospect"),
+        selectProspect1: root.querySelector("#pb7-select-prospect-1"),
+        selectProspect2: root.querySelector("#pb7-select-prospect-2"),
         lease: root.querySelector("#pb7-lease"),
         buyLand: root.querySelector("#pb7-buy-land"),
         buyWarehouseLand: root.querySelector("#pb7-buy-warehouse-land"),
@@ -1161,8 +1169,44 @@
         return record;
       }
 
+      function allocateProposalId() {
+        let id = "";
+        do {
+          id = "proposal-" + state.nextProposalId;
+          state.nextProposalId += 1;
+        } while (state.proposals.some(function (proposal) { return proposal && proposal.id === id; }));
+        return id;
+      }
+
+      function normalizeProposalRecord(record) {
+        if (!record || typeof record !== "object") return null;
+        const proposal = Object.assign({}, record);
+        if (typeof proposal.id !== "string" || !proposal.id) proposal.id = allocateProposalId();
+        proposal.type = typeof proposal.type === "string" && proposal.type.trim() ? proposal.type.trim() : "unspecified";
+        proposal.use = typeof proposal.use === "string" && proposal.use.trim() ? proposal.use.trim() : proposal.type;
+
+        const sourceLot = proposal.lot && typeof proposal.lot === "object" ? proposal.lot : proposal;
+        const lotX = Number.isFinite(sourceLot.x) ? Math.round(sourceLot.x) : null;
+        const lotY = Number.isFinite(sourceLot.y) ? Math.round(sourceLot.y) : null;
+        const lotW = Number.isFinite(sourceLot.w) && sourceLot.w > 0 ? Math.round(sourceLot.w) : null;
+        const lotH = Number.isFinite(sourceLot.h) && sourceLot.h > 0 ? Math.round(sourceLot.h) : null;
+        proposal.lot = lotX !== null && lotY !== null && lotW !== null && lotH !== null
+          ? { x: lotX, y: lotY, w: lotW, h: lotH, blockId: typeof sourceLot.blockId === "string" ? sourceLot.blockId : null }
+          : null;
+
+        const sourceFootprint = proposal.footprint && typeof proposal.footprint === "object" ? proposal.footprint : proposal;
+        const footprintW = Number.isFinite(sourceFootprint.w) && sourceFootprint.w > 0 ? Math.round(sourceFootprint.w) : proposal.lot ? proposal.lot.w : null;
+        const footprintH = Number.isFinite(sourceFootprint.h) && sourceFootprint.h > 0 ? Math.round(sourceFootprint.h) : proposal.lot ? proposal.lot.h : null;
+        proposal.footprint = footprintW !== null && footprintH !== null ? { w: footprintW, h: footprintH } : null;
+        proposal.cost = Number.isFinite(proposal.cost) && proposal.cost >= 0 ? proposal.cost : null;
+        proposal.status = typeof proposal.status === "string" && proposal.status.trim() ? proposal.status.trim() : "draft";
+        proposal.owner = typeof proposal.owner === "string" && proposal.owner.trim() ? proposal.owner.trim() : null;
+        proposal.stage = typeof proposal.stage === "string" && proposal.stage.trim() ? proposal.stage.trim() : "unstarted";
+        return proposal;
+      }
+
       function loadSavedState(saved) {
-        if (!saved || ![1, 2, 3, 4, 5, 6, 7, 8].includes(saved.version)) return false;
+        if (!saved || !Number.isInteger(saved.version) || saved.version < 1 || saved.version > SAVE_VERSION) return false;
         try {
           ["cash", "sawRentalDay", "pavedDepth", "unlockedClaimZones", "wasteToCrowe", "day", "minutes", "zoomIndex", "prospectorDay", "prospectsUsedToday", "workers", "truckSizeLevel", "truckSpeedLevel", "nextExchangeOrderId", "lastExchangeProcessAt", "nextCompanyContractId", "roadContractsCompleted"].forEach(function (key) {
             if (Number.isFinite(saved[key])) state[key] = saved[key];
@@ -1194,14 +1238,28 @@
           state.roadApproval = saved.roadApproval && typeof saved.roadApproval === "object" ? saved.roadApproval : null;
           state.roadMarketImpact = saved.roadMarketImpact && typeof saved.roadMarketImpact === "object" ? saved.roadMarketImpact : null;
           state.nextSiteId = Math.max(1, Math.round(saved.nextSiteId || 1));
+          state.nextProposalId = Math.max(1, Math.round(saved.nextProposalId || 1));
+          const savedProposals = Array.isArray(saved.proposals) ? saved.proposals : [];
+          state.proposals = [];
+          const proposalIds = new Set();
+          savedProposals.slice(0, CONFIG.maxProposals).forEach(function (record) {
+            const proposal = normalizeProposalRecord(record);
+            if (!proposal) return;
+            if (proposalIds.has(proposal.id)) proposal.id = allocateProposalId();
+            proposalIds.add(proposal.id);
+            state.proposals.push(proposal);
+          });
           state.mineParcels = Array.isArray(saved.mineParcels) ? saved.mineParcels.filter(Boolean) : [];
           state.warehouseParcels = Array.isArray(saved.warehouseParcels) ? saved.warehouseParcels.filter(Boolean) : [];
           state.mines = Array.isArray(saved.mines) ? saved.mines.filter(Boolean) : [];
           state.warehouses = Array.isArray(saved.warehouses) ? saved.warehouses.filter(Boolean) : [];
           state.surveyParcels = Array.isArray(saved.surveyParcels) ? saved.surveyParcels.filter(Boolean) : [];
 
-          const legacySurveyParcel = saved.surveyParcel || (saved.mineParcel && saved.mineParcel.status === "surveyed" && !saved.mine ? saved.mineParcel : null);
-          if (legacySurveyParcel) state.surveyParcels.push(legacySurveyParcel);
+          const legacySurveyParcels = [
+            saved.surveyParcel,
+            saved.mineParcel && saved.mineParcel.status === "surveyed" && !saved.mine ? saved.mineParcel : null
+          ].filter(Boolean);
+          state.surveyParcels.push.apply(state.surveyParcels, legacySurveyParcels);
 
           if (!state.mineParcels.length && saved.mineParcel && saved.mineParcel.status !== "surveyed") state.mineParcels.push(saved.mineParcel);
           if (!state.warehouseParcels.length && saved.warehouseParcel) state.warehouseParcels.push(saved.warehouseParcel);
@@ -1214,15 +1272,38 @@
           const surveyLocations = new Set();
           state.surveyParcels = state.surveyParcels.filter(function (parcel) {
             if (!parcel || typeof parcel !== "object") return false;
+            if (!parcel.status) parcel.status = "surveyed";
+            if (parcel.status !== "surveyed") return false;
             normalizeSiteId(parcel, "survey");
             const locationKey = [parcel.x, parcel.y, parcel.w, parcel.h].join(",");
             if (surveyIds.has(parcel.id) || surveyLocations.has(locationKey)) return false;
             surveyIds.add(parcel.id);
             surveyLocations.add(locationKey);
             return true;
-          }).slice(0, CONFIG.prospectsPerDay);
+          }).slice(0, CONFIG.maxActiveProspects);
+          const usedProspectSlots = new Set();
+          state.surveyParcels.forEach(function (parcel, index) {
+            const savedSlot = Number.isInteger(parcel.prospectSlot) && parcel.prospectSlot >= 1 && parcel.prospectSlot <= CONFIG.maxActiveProspects && !usedProspectSlots.has(parcel.prospectSlot)
+              ? parcel.prospectSlot
+              : null;
+            let slot = savedSlot;
+            if (!slot) {
+              for (let candidateSlot = 1; candidateSlot <= CONFIG.maxActiveProspects; candidateSlot += 1) {
+                if (!usedProspectSlots.has(candidateSlot)) {
+                  slot = candidateSlot;
+                  break;
+                }
+              }
+            }
+            parcel.prospectSlot = slot || index + 1;
+            usedProspectSlots.add(parcel.prospectSlot);
+          });
+          const savedSelectedSurveyId = typeof saved.selectedSurveyId === "string" ? saved.selectedSurveyId : null;
           const savedActiveSurveyId = saved.surveyParcel && typeof saved.surveyParcel.id === "string" ? saved.surveyParcel.id : null;
-          state.surveyParcel = state.surveyParcels.find(function (parcel) { return parcel.id === savedActiveSurveyId; }) || state.surveyParcels[state.surveyParcels.length - 1] || null;
+          state.surveyParcel = state.surveyParcels.find(function (parcel) { return parcel.id === savedSelectedSurveyId; }) ||
+            state.surveyParcels.find(function (parcel) { return parcel.id === savedActiveSurveyId; }) ||
+            state.surveyParcels[state.surveyParcels.length - 1] || null;
+          state.selectedSurveyId = state.surveyParcel ? state.surveyParcel.id : null;
           state.mines.forEach(function (mine, index) {
             normalizeSiteId(mine, "mine");
             if (!mine.parcelId && state.mineParcels[index]) mine.parcelId = state.mineParcels[index].id;
@@ -1314,9 +1395,13 @@
           state.selectedWarehouseId = typeof saved.selectedWarehouseId === "string" ? saved.selectedWarehouseId : null;
           state.selectedMineParcelId = typeof saved.selectedMineParcelId === "string" ? saved.selectedMineParcelId : null;
           state.selectedWarehouseParcelId = typeof saved.selectedWarehouseParcelId === "string" ? saved.selectedWarehouseParcelId : null;
-          const selectedSurveyParcel = state.surveyParcels.find(function (parcel) { return parcel.id === state.selectedMineParcelId; }) || null;
-          if (selectedSurveyParcel) state.surveyParcel = selectedSurveyParcel;
-          state.mineParcel = selectedSurveyParcel || state.surveyParcel || state.mineParcels.find(function (parcel) { return parcel.id === state.selectedMineParcelId; }) || null;
+          const selectedSurveyForMine = state.surveyParcels.find(function (parcel) { return parcel.id === state.selectedMineParcelId; }) || null;
+          const selectedMineParcel = state.mineParcels.find(function (parcel) { return parcel.id === state.selectedMineParcelId; }) || null;
+          if (!state.selectedSurveyId && selectedSurveyForMine) {
+            state.selectedSurveyId = selectedSurveyForMine.id;
+            state.surveyParcel = selectedSurveyForMine;
+          }
+          state.mineParcel = selectedMineParcel || selectedSurveyForMine || state.surveyParcel || state.mineParcels[0] || null;
           state.warehouseParcel = state.warehouseParcels.find(function (parcel) { return parcel.id === state.selectedWarehouseParcelId; }) || null;
           state.mine = state.mines.find(function (mine) { return mine.id === state.selectedMineId; }) || (!hasSavedMineSelection ? state.mines[0] : null) || null;
           state.warehouse = state.warehouses.find(function (warehouse) { return warehouse.id === state.selectedWarehouseId; }) || (!hasSavedWarehouseSelection ? state.warehouses[0] : null) || null;
@@ -1349,7 +1434,7 @@
 
       function serializedState() {
         return {
-          version: 8,
+          version: SAVE_VERSION,
           cash: state.cash,
           capacity: state.capacity,
           truckSizeLevel: state.truckSizeLevel,
@@ -1378,6 +1463,9 @@
           cleared: Array.from(state.cleared),
           surveyParcels: state.surveyParcels,
           surveyParcel: state.surveyParcel,
+          selectedSurveyId: state.selectedSurveyId,
+          proposals: state.proposals,
+          nextProposalId: state.nextProposalId,
           mineParcels: state.mineParcels,
           warehouseParcels: state.warehouseParcels,
           mines: state.mines,
@@ -2838,7 +2926,7 @@
       function prospectsRemaining() {
         if (!state.prospectorHired) return 0;
         const dailyRemaining = Math.max(0, CONFIG.prospectsPerDay - todaysProspectsUsed());
-        const openSlots = Math.max(0, CONFIG.prospectsPerDay - state.surveyParcels.length);
+        const openSlots = Math.max(0, CONFIG.maxActiveProspects - state.surveyParcels.length);
         return Math.min(dailyRemaining, openSlots);
       }
 
@@ -2854,6 +2942,44 @@
         return state.selected;
       }
 
+      function selectedSurveyParcel() {
+        const selected = state.surveyParcels.find(function (parcel) { return parcel.id === state.selectedSurveyId; });
+        if (selected) return selected;
+        if (state.surveyParcel) {
+          const active = state.surveyParcels.find(function (parcel) { return parcel.id === state.surveyParcel.id; });
+          if (active) return active;
+        }
+        return state.surveyParcels[state.surveyParcels.length - 1] || null;
+      }
+
+      function prospectAtSlot(slot) {
+        return state.surveyParcels.find(function (parcel, index) {
+          return (Number.isInteger(parcel.prospectSlot) ? parcel.prospectSlot : index + 1) === slot;
+        }) || null;
+      }
+
+      function nextProspectSlot() {
+        for (let slot = 1; slot <= CONFIG.maxActiveProspects; slot += 1) {
+          if (!prospectAtSlot(slot)) return slot;
+        }
+        return state.surveyParcels.length + 1;
+      }
+
+      function selectSurveyParcelById(id) {
+        if (state.location !== "townhall") return;
+        const parcel = state.surveyParcels.find(function (candidate) { return candidate.id === id; }) || null;
+        if (!parcel) {
+          setContext("Prospect unavailable", "That prospect is no longer active. Refresh the Town Hall ledger before reviewing a lease.", "danger");
+          return;
+        }
+        state.selectedSurveyId = parcel.id;
+        state.surveyParcel = parcel;
+        state.mineParcel = parcel;
+        state.selectedMineParcelId = parcel.id;
+        const prospectNumber = Number.isInteger(parcel.prospectSlot) ? parcel.prospectSlot : state.surveyParcels.indexOf(parcel) + 1;
+        setContext("Prospect " + prospectNumber + " selected", materialNames[parcel.material] + " · " + Math.round(parcel.ratio * 100) + "% dirt. This prospect is selected for Town Hall lease review.");
+      }
+
       function selectedTileMatchesCurrentSurvey() {
         const tile = selectedSurveyTile();
         return Boolean(tile && state.surveyParcels.some(function (parcel) {
@@ -2867,7 +2993,7 @@
           setContext("Prospector required", "Hire the permanent prospector at Town Hall before ordering a survey.");
           return;
         }
-        if (state.surveyParcels.length >= CONFIG.prospectsPerDay) {
+        if (state.surveyParcels.length >= CONFIG.maxActiveProspects) {
           setContext("Prospect slots full", "Prospect 1 and Prospect 2 are both preserved. Review and lease one at Town Hall before ordering another survey.");
           return;
         }
@@ -2907,17 +3033,20 @@
         }
         const resource = resourceAt(tile.x, tile.y);
         state.prospectsUsedToday = Math.min(CONFIG.prospectsPerDay, todaysProspectsUsed() + 1);
-        state.surveyParcel = Object.assign(candidate, {
+        const surveyParcel = Object.assign(candidate, {
           status: "surveyed",
+          prospectSlot: nextProspectSlot(),
           material: resource.material,
           ratio: resource.ratio,
           depth: Math.max(0, candidate.y - SOUTH_TOP),
           leaseCredit: 0,
           lastLeaseDay: 0
         });
-        state.surveyParcels.push(state.surveyParcel);
-        state.mineParcel = state.surveyParcel;
-        state.selectedMineParcelId = state.surveyParcel.id;
+        state.surveyParcels.push(surveyParcel);
+        state.surveyParcel = surveyParcel;
+        state.selectedSurveyId = surveyParcel.id;
+        state.mineParcel = surveyParcel;
+        state.selectedMineParcelId = surveyParcel.id;
         const remaining = prospectsRemaining();
         const prospectNumber = state.surveyParcels.length;
         setContext("Prospect " + prospectNumber + " recorded", materialNames[resource.material] + " · " + Math.round(resource.ratio * 100) + "% dirt. " + (remaining > 0
@@ -2949,7 +3078,11 @@
         const surveyText = state.prospectorHired
           ? "Your prospector is permanently employed with " + prospectsRemaining() + " of " + CONFIG.prospectsPerDay + " surveys left today. "
           : "Hire the permanent prospector here for $" + CONFIG.prospectorCost + ". ";
-        if (state.surveyParcel) return surveyText + state.surveyParcels.length + " surveyed mine parcel" + (state.surveyParcels.length === 1 ? " is" : "s are") + " preserved and awaiting review. The current parcel is ready for a $" + CONFIG.landLeasePerDay + " daily lease.";
+        const selected = selectedSurveyParcel();
+        if (state.surveyParcels.length) {
+          const selectedNumber = selected ? (Number.isInteger(selected.prospectSlot) ? selected.prospectSlot : state.surveyParcels.indexOf(selected) + 1) : 0;
+          return surveyText + state.surveyParcels.length + " surveyed mine parcel" + (state.surveyParcels.length === 1 ? " is" : "s are") + " preserved and awaiting review. " + (selected ? "Prospect " + selectedNumber + " is selected for a $" + CONFIG.landLeasePerDay + " daily lease." : "Select a prospect below for lease review.");
+        }
         if (!state.mineParcel) return surveyText + "Explore the open first extraction field, choose ground outside the road reserve, and survey a visible outcrop or soil patch.";
         if (state.mineParcel.status === "leased") return surveyText + "Lease payments count toward the $" + CONFIG.landPurchasePrice + " deed. Remaining buyout: $" + landBuyoutRemaining() + ".";
         if (state.mineParcel.status === "owned" && state.warehouseParcel && state.warehouseParcel.status === "available") return surveyText + "Your mine land is owned. The neighboring 2×2 warehouse parcel costs $" + CONFIG.warehouseLandPrice + ".";
@@ -2957,15 +3090,17 @@
       }
 
       function leaseMineLand() {
-        if (state.location !== "townhall" || !state.surveyParcel || state.cash < CONFIG.landLeasePerDay) return;
+        const parcel = selectedSurveyParcel();
+        if (state.location !== "townhall" || !parcel || state.cash < CONFIG.landLeasePerDay) return;
         state.cash -= CONFIG.landLeasePerDay;
-        const parcel = state.surveyParcel;
         parcel.status = "leased";
         parcel.leaseCredit += CONFIG.landLeasePerDay;
         parcel.lastLeaseDay = state.day;
         state.mineParcels.push(parcel);
         state.surveyParcels = state.surveyParcels.filter(function (survey) { return survey.id !== parcel.id; });
-        state.surveyParcel = state.surveyParcels[state.surveyParcels.length - 1] || null;
+        const nextSurvey = state.surveyParcels.length ? (prospectAtSlot(1) || prospectAtSlot(2) || state.surveyParcels[0]) : null;
+        state.selectedSurveyId = nextSurvey ? nextSurvey.id : null;
+        state.surveyParcel = nextSurvey;
         state.mineParcel = parcel;
         state.selectedMineParcelId = parcel.id;
         state.warehouseParcel = warehouseParcelForMineParcel(parcel);
@@ -4407,7 +4542,7 @@
         }
         if (button === el.prospect) {
           if (!state.prospectorHired) return "Hire the permanent prospector at Town Hall.";
-          if (state.surveyParcels.length >= CONFIG.prospectsPerDay) return "Prospect 1 and Prospect 2 are saved. Lease one at Town Hall before surveying more ground.";
+          if (state.surveyParcels.length >= CONFIG.maxActiveProspects) return "Prospect 1 and Prospect 2 are saved. Lease one at Town Hall before surveying more ground.";
           if (prospectsRemaining() <= 0) return "Today's two surveys are complete; the quota resets automatically tomorrow.";
           if (!selectedSurveyTile() || isPlayerClaimPath(state.selected.x, state.selected.y)) return "Select open ground outside the two-tile road reserve.";
           if (selectedTileMatchesCurrentSurvey()) return "Select different open ground for today's second survey.";
@@ -4443,6 +4578,33 @@
         return '<div class="location-detail-grid">' + facts.map(function (fact) {
           return '<span><small>' + detailText(fact[0]) + '</small><strong>' + detailText(fact[1]) + '</strong></span>';
         }).join("") + "</div>";
+      }
+
+      function townHallProspectBoardMarkup() {
+        const selected = selectedSurveyParcel();
+        const cards = [];
+        for (let index = 0; index < CONFIG.maxActiveProspects; index += 1) {
+          const prospectNumber = index + 1;
+          const parcel = prospectAtSlot(prospectNumber);
+          if (!parcel) {
+            cards.push('<article class="townhall-prospect-card" data-empty="true"><header><strong>PROSPECT ' + prospectNumber + '</strong><span>OPEN SLOT</span></header><p>Surveyed ground will appear here when the prospector records it.</p></article>');
+            continue;
+          }
+          const isSelected = Boolean(selected && selected.id === parcel.id);
+          const material = materialNames[parcel.material] || parcel.material || "Unknown seam";
+          const depth = Number.isFinite(parcel.depth) ? Math.round(parcel.depth) : 0;
+          const dirt = Number.isFinite(parcel.ratio) ? Math.round(parcel.ratio * 100) : 0;
+          cards.push('<article class="townhall-prospect-card" data-selected="' + (isSelected ? "true" : "false") + '">' +
+            '<header><strong>PROSPECT ' + prospectNumber + '</strong><span>' + detailText(isSelected ? "SELECTED FOR REVIEW" : "AWAITING REVIEW") + '</span></header>' +
+            '<div class="townhall-prospect-meta">' +
+              '<span><small>MATERIAL</small><b>' + detailText(material) + '</b></span>' +
+              '<span><small>DEPTH</small><b>' + depth + ' tiles</b></span>' +
+              '<span><small>DIRT RATIO</small><b>' + dirt + '%</b></span>' +
+              '<span><small>STABLE ID</small><b>' + detailText(parcel.id) + '</b></span>' +
+            '</div>' +
+          '</article>');
+        }
+        return '<section class="townhall-prospect-board" aria-label="Mining prospects"><header><span>Mining prospects</span><strong>' + state.surveyParcels.length + ' / ' + CONFIG.maxActiveProspects + ' active</strong></header><div class="townhall-prospect-grid">' + cards.join("") + '</div></section>';
       }
 
       function renderLocationDetails() {
@@ -4488,7 +4650,7 @@
             ["Stone market", "$" + prices.stone + "/t"],
             ["Approved stone", approval ? approval.stoneTons.toFixed(1) + " t · $" + approval.stoneCost : "None"],
             ["Contract total", approval ? "$" + approval.totalCost : "Not quoted"]
-          ]);
+          ]) + townHallProspectBoardMarkup();
           return;
         }
 
@@ -4648,7 +4810,7 @@
         const atProspectorDesk = state.location === "townhall";
         const atSurveyField = state.location === "cleared" && selectedCleared && !onPlannedRoad;
         const repeatsCurrentSurvey = selectedTileMatchesCurrentSurvey();
-        const prospectSlotsFull = state.surveyParcels.length >= CONFIG.prospectsPerDay;
+        const prospectSlotsFull = state.surveyParcels.length >= CONFIG.maxActiveProspects;
         const atConstructionEdge = state.location === "cleared" || state.location === "road" || state.location === "mine-site" || state.location === "warehouse-site";
         const minePermitted = state.mineParcel && (state.mineParcel.status === "leased" || state.mineParcel.status === "owned");
         const parcelMine = state.mineParcel && state.mines.find(function (mine) { return mine.parcelId === state.mineParcel.id; });
@@ -4751,7 +4913,24 @@
           el.prospect.textContent = (state.surveyParcel ? "Re-prospect this tile" : "Prospect this tile") + " · " + prospectsRemaining() + " left";
         }
 
-        el.lease.hidden = !(state.location === "townhall" && state.surveyParcel);
+        [el.selectProspect1, el.selectProspect2].forEach(function (button, index) {
+          if (!button) return;
+          const prospectNumber = index + 1;
+          const parcel = prospectAtSlot(prospectNumber);
+          const visible = state.location === "townhall" && Boolean(parcel);
+          button.hidden = !visible;
+          button.disabled = !parcel;
+          button.setAttribute("aria-pressed", parcel && state.selectedSurveyId === parcel.id ? "true" : "false");
+          if (!parcel) {
+            delete button.dataset.prospectId;
+            button.textContent = "Prospect " + prospectNumber + " unavailable";
+            return;
+          }
+          button.dataset.prospectId = parcel.id;
+          button.textContent = (state.selectedSurveyId === parcel.id ? "Selected " : "Review ") + "Prospect " + prospectNumber + " · " + (materialNames[parcel.material] || parcel.material || "Unknown seam");
+        });
+
+        el.lease.hidden = !(state.location === "townhall" && selectedSurveyParcel());
         el.lease.disabled = state.cash < CONFIG.landLeasePerDay;
         el.lease.textContent = "Lease mine land · $" + CONFIG.landLeasePerDay + "/day";
         el.buyLand.hidden = !(state.location === "townhall" && state.mineParcel && state.mineParcel.status === "leased");
@@ -6108,7 +6287,9 @@
           const occupied = state.mines.some(function (mine) { return mine.parcelId === parcel.id; });
           if (!occupied) drawParcel(parcel, colors, "Mine land " + (index + 1));
         });
-        state.surveyParcels.forEach(function (parcel, index) { drawParcel(parcel, colors, "Prospect " + (index + 1)); });
+        state.surveyParcels.forEach(function (parcel, index) {
+          drawParcel(parcel, colors, "Prospect " + (Number.isInteger(parcel.prospectSlot) ? parcel.prospectSlot : index + 1));
+        });
         state.warehouseParcels.forEach(function (parcel, index) {
           const occupied = state.warehouses.some(function (warehouse) { return warehouse.parcelId === parcel.id; });
           if (!occupied) drawParcel(parcel, colors, "Warehouse land " + (index + 1));
@@ -6322,6 +6503,8 @@
       el.readNews.addEventListener("click", readNews);
       el.clear.addEventListener("click", clearSelectedTree);
       el.prospect.addEventListener("click", prospectSelectedTile);
+      el.selectProspect1.addEventListener("click", function () { selectSurveyParcelById(el.selectProspect1.dataset.prospectId); });
+      el.selectProspect2.addEventListener("click", function () { selectSurveyParcelById(el.selectProspect2.dataset.prospectId); });
       el.lease.addEventListener("click", leaseMineLand);
       el.buyLand.addEventListener("click", buyMineLand);
       el.buyWarehouseLand.addEventListener("click", buyWarehouseLand);

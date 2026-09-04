@@ -21,7 +21,7 @@
       const STARTER_TREE = { x: PLAYER_ROAD_X + 2, y: SOUTH_TOP + 2 };
       const CLAIM_SECTION_DEPTHS = [0, 42, 84];
       const CLAIM_SECTION_ENDS = [41, 83, CLAIM_DEPTH - 1];
-      const SAVE_VERSION = 10;
+      const SAVE_VERSION = 11;
       const MAIN_STREET_TOP = 142;
       const MAIN_STREET_BOTTOM = 146;
       const TOWN_SIDE_STREET_WIDTH = 2;
@@ -61,6 +61,7 @@
         sawRentalCost: 18,
         shakerCost: 350,
         maxActiveProspects: 2,
+        maxProposals: 64,
         maxMineLevel: 8,
         mineUpgradeCosts: { 1: 260, 2: 390, 3: 560, 4: 780, 5: 1060, 6: 1420, 7: 1880 },
         mineOutputByLevel: { 1: 1, 2: 1.18, 3: 1.38, 4: 1.6, 5: 1.82, 6: 2.02, 7: 2.22, 8: 2.4 },
@@ -228,6 +229,8 @@
           surveyParcels: [],
           surveyParcel: null,
           selectedSurveyId: null,
+          proposals: [],
+          nextProposalId: 1,
           mineParcel: null,
           warehouseParcel: null,
           mine: null,
@@ -1166,6 +1169,42 @@
         return record;
       }
 
+      function allocateProposalId() {
+        let id = "";
+        do {
+          id = "proposal-" + state.nextProposalId;
+          state.nextProposalId += 1;
+        } while (state.proposals.some(function (proposal) { return proposal && proposal.id === id; }));
+        return id;
+      }
+
+      function normalizeProposalRecord(record) {
+        if (!record || typeof record !== "object") return null;
+        const proposal = Object.assign({}, record);
+        if (typeof proposal.id !== "string" || !proposal.id) proposal.id = allocateProposalId();
+        proposal.type = typeof proposal.type === "string" && proposal.type.trim() ? proposal.type.trim() : "unspecified";
+        proposal.use = typeof proposal.use === "string" && proposal.use.trim() ? proposal.use.trim() : proposal.type;
+
+        const sourceLot = proposal.lot && typeof proposal.lot === "object" ? proposal.lot : proposal;
+        const lotX = Number.isFinite(sourceLot.x) ? Math.round(sourceLot.x) : null;
+        const lotY = Number.isFinite(sourceLot.y) ? Math.round(sourceLot.y) : null;
+        const lotW = Number.isFinite(sourceLot.w) && sourceLot.w > 0 ? Math.round(sourceLot.w) : null;
+        const lotH = Number.isFinite(sourceLot.h) && sourceLot.h > 0 ? Math.round(sourceLot.h) : null;
+        proposal.lot = lotX !== null && lotY !== null && lotW !== null && lotH !== null
+          ? { x: lotX, y: lotY, w: lotW, h: lotH, blockId: typeof sourceLot.blockId === "string" ? sourceLot.blockId : null }
+          : null;
+
+        const sourceFootprint = proposal.footprint && typeof proposal.footprint === "object" ? proposal.footprint : proposal;
+        const footprintW = Number.isFinite(sourceFootprint.w) && sourceFootprint.w > 0 ? Math.round(sourceFootprint.w) : proposal.lot ? proposal.lot.w : null;
+        const footprintH = Number.isFinite(sourceFootprint.h) && sourceFootprint.h > 0 ? Math.round(sourceFootprint.h) : proposal.lot ? proposal.lot.h : null;
+        proposal.footprint = footprintW !== null && footprintH !== null ? { w: footprintW, h: footprintH } : null;
+        proposal.cost = Number.isFinite(proposal.cost) && proposal.cost >= 0 ? proposal.cost : null;
+        proposal.status = typeof proposal.status === "string" && proposal.status.trim() ? proposal.status.trim() : "draft";
+        proposal.owner = typeof proposal.owner === "string" && proposal.owner.trim() ? proposal.owner.trim() : null;
+        proposal.stage = typeof proposal.stage === "string" && proposal.stage.trim() ? proposal.stage.trim() : "unstarted";
+        return proposal;
+      }
+
       function loadSavedState(saved) {
         if (!saved || !Number.isInteger(saved.version) || saved.version < 1 || saved.version > SAVE_VERSION) return false;
         try {
@@ -1199,6 +1238,17 @@
           state.roadApproval = saved.roadApproval && typeof saved.roadApproval === "object" ? saved.roadApproval : null;
           state.roadMarketImpact = saved.roadMarketImpact && typeof saved.roadMarketImpact === "object" ? saved.roadMarketImpact : null;
           state.nextSiteId = Math.max(1, Math.round(saved.nextSiteId || 1));
+          state.nextProposalId = Math.max(1, Math.round(saved.nextProposalId || 1));
+          const savedProposals = Array.isArray(saved.proposals) ? saved.proposals : [];
+          state.proposals = [];
+          const proposalIds = new Set();
+          savedProposals.slice(0, CONFIG.maxProposals).forEach(function (record) {
+            const proposal = normalizeProposalRecord(record);
+            if (!proposal) return;
+            if (proposalIds.has(proposal.id)) proposal.id = allocateProposalId();
+            proposalIds.add(proposal.id);
+            state.proposals.push(proposal);
+          });
           state.mineParcels = Array.isArray(saved.mineParcels) ? saved.mineParcels.filter(Boolean) : [];
           state.warehouseParcels = Array.isArray(saved.warehouseParcels) ? saved.warehouseParcels.filter(Boolean) : [];
           state.mines = Array.isArray(saved.mines) ? saved.mines.filter(Boolean) : [];
@@ -1414,6 +1464,8 @@
           surveyParcels: state.surveyParcels,
           surveyParcel: state.surveyParcel,
           selectedSurveyId: state.selectedSurveyId,
+          proposals: state.proposals,
+          nextProposalId: state.nextProposalId,
           mineParcels: state.mineParcels,
           warehouseParcels: state.warehouseParcels,
           mines: state.mines,

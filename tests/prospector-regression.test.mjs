@@ -268,7 +268,7 @@ test("two independent prospects survive save/reload and neither replaces the oth
   };
 
   const migrated = createEngineHarness(oldSave, engineSource);
-  assert.equal(migrated.saved().version, 10);
+  assert.equal(migrated.saved().version, 11);
   assert.equal(migrated.saved().prospectsUsedToday, 0);
   assert.equal(migrated.element("pb7-prospect").disabled, false);
 
@@ -432,6 +432,66 @@ test("Town Hall displays both prospects and leases the selected stable ID", asyn
   assert.deepEqual(leased.surveyParcels.map((parcel) => parcel.id), [first.id]);
   assert.equal(leased.selectedSurveyId, first.id);
   assert.equal(leased.surveyParcel.id, first.id);
+});
+
+test("generic proposal records persist across save and reload without activating development", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const proposals = [
+    {
+      id: "proposal-mine-1",
+      type: "mining",
+      use: "mine",
+      lot: { x: 12, y: 130, w: 2, h: 2, blockId: "town-block-1" },
+      footprint: { w: 2, h: 2 },
+      cost: 600,
+      status: "approved",
+      owner: "player",
+      stage: "approved",
+    },
+    {
+      id: "proposal-home-1",
+      type: "residential",
+      use: "housing",
+      lot: { x: 26, y: 150, w: 4, h: 4, blockId: "town-block-2" },
+      footprint: { w: 4, h: 4 },
+      cost: null,
+      status: "draft",
+      owner: null,
+      stage: "unstarted",
+    },
+    {
+      id: "proposal-industry-1",
+      type: "industrial",
+      use: "foundry",
+      lot: { x: 50, y: 150, w: 7, h: 7, blockId: "town-block-3" },
+      footprint: { w: 7, h: 7 },
+      cost: 1200,
+      status: "construction",
+      owner: "town",
+      stage: "foundation",
+    },
+  ];
+  const game = createEngineHarness({
+    version: 10,
+    day: 6,
+    minutes: 480,
+    cash: 1000,
+    player: { x: 37, y: 141 },
+    selected: { type: "building", id: "townhall", x: 37, y: 141 },
+    location: "townhall",
+    proposals,
+    nextProposalId: 4,
+  }, engineSource);
+
+  const saved = game.saved();
+  assert.equal(saved.version, 11);
+  assert.equal(saved.proposals.length, 3);
+  assert.deepEqual(saved.proposals, proposals);
+  assert.equal(saved.nextProposalId, 4);
+
+  const reloaded = createEngineHarness(saved, engineSource).saved();
+  assert.deepEqual(reloaded.proposals, saved.proposals);
+  assert.equal(reloaded.nextProposalId, saved.nextProposalId);
 });
 
 test("leasing a survey immediately frees the prospector for another mine claim", async () => {

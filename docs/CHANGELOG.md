@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Checkpoint C — generic proposal data foundation
+
+- Added a persistent, versioned proposal collection that can represent mining, residential, and industrial records without creating any of those development systems yet.
+- Normalized each proposal around a stable ID, type/use, lot coordinates and block ID, footprint, optional cost, status, owner, and development stage.
+- Added bounded save loading, duplicate-ID recovery, deterministic ID allocation, and idempotent migration for older profiles.
+- Kept proposals data-only: no proposal generation, Town Hall proposal UI, housing, population, construction, builders, bidding, procurement, mine/geology, warehouse, or industry behavior was added.
+
 ### Checkpoint B — Town Hall prospect review
 
 - Added a Town Hall prospect board that keeps Prospect 1 and Prospect 2 visible as separate records with stable IDs, material, depth, and dirt ratio.

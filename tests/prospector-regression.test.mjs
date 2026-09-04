@@ -494,6 +494,53 @@ test("generic proposal records persist across save and reload without activating
   assert.equal(reloaded.nextProposalId, saved.nextProposalId);
 });
 
+test("Town Hall displays independent residential proposals up to the configured UI limit", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const proposals = Array.from({ length: 5 }, (_, index) => ({
+    id: `proposal-home-${index + 1}`,
+    type: "residential",
+    use: index % 2 === 0 ? "starter-housing" : "family-housing",
+    lot: { x: 4 + index * 10, y: 128, w: 4, h: 4, blockId: `town-block-${index + 1}` },
+    footprint: { w: 4, h: 4 },
+    cost: index < 2 ? 300 + index * 100 : null,
+    status: index === 0 ? "approved" : "draft",
+    owner: index === 0 ? "player" : null,
+    stage: index === 0 ? "approved" : "unstarted",
+  }));
+  proposals.push({
+    id: "proposal-industry-1",
+    type: "industrial",
+    use: "foundry",
+    lot: { x: 50, y: 150, w: 7, h: 7, blockId: "town-block-industry" },
+    footprint: { w: 7, h: 7 },
+    status: "draft",
+    stage: "unstarted",
+  });
+
+  const game = createEngineHarness({
+    version: 11,
+    day: 6,
+    minutes: 480,
+    cash: 1000,
+    player: { x: 37, y: 141 },
+    selected: { type: "building", id: "townhall", x: 37, y: 141 },
+    location: "townhall",
+    proposals,
+    nextProposalId: 7,
+  }, engineSource);
+
+  const markup = game.element("pb7-location-details").innerHTML;
+  assert.match(markup, /Residential proposals/);
+  assert.match(markup, /4 \/ 4 filed/);
+  assert.match(markup, /proposal-home-1/);
+  assert.match(markup, /proposal-home-4/);
+  assert.doesNotMatch(markup, /proposal-home-5/);
+  assert.doesNotMatch(markup, /proposal-industry-1/);
+  assert.match(markup, /1 additional saved proposal record is preserved/);
+  assert.equal(game.saved().proposals.length, proposals.length);
+  assert.equal(game.saved().workers, 0);
+});
+
 test("leasing a survey immediately frees the prospector for another mine claim", async () => {
   const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
   const firstTile = { x: 76, y: 169 };

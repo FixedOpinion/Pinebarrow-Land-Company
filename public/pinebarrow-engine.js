@@ -62,6 +62,7 @@
         shakerCost: 350,
         maxActiveProspects: 2,
         maxProposals: 64,
+        maxResidentialProposals: 4,
         maxMineLevel: 8,
         mineUpgradeCosts: { 1: 260, 2: 390, 3: 560, 4: 780, 5: 1060, 6: 1420, 7: 1880 },
         mineOutputByLevel: { 1: 1, 2: 1.18, 3: 1.38, 4: 1.6, 5: 1.82, 6: 2.02, 7: 2.22, 8: 2.4 },
@@ -4607,6 +4608,55 @@
         return '<section class="townhall-prospect-board" aria-label="Mining prospects"><header><span>Mining prospects</span><strong>' + state.surveyParcels.length + ' / ' + CONFIG.maxActiveProspects + ' active</strong></header><div class="townhall-prospect-grid">' + cards.join("") + '</div></section>';
       }
 
+      function proposalDisplayText(value, fallback) {
+        if (typeof value !== "string" || !value.trim()) return fallback;
+        return value.trim().replace(/[-_]+/g, " ").replace(/\b\w/g, function (character) { return character.toUpperCase(); });
+      }
+
+      function townHallResidentialBoardMarkup() {
+        const allResidential = state.proposals.filter(function (proposal) {
+          return proposal && typeof proposal.type === "string" && proposal.type.toLowerCase() === "residential";
+        });
+        const residential = allResidential.slice(0, CONFIG.maxResidentialProposals);
+        const cards = [];
+        for (let index = 0; index < CONFIG.maxResidentialProposals; index += 1) {
+          const proposalNumber = index + 1;
+          const proposal = residential[index];
+          if (!proposal) {
+            cards.push('<article class="townhall-prospect-card townhall-residential-card" data-empty="true"><header><strong>RESIDENTIAL ' + proposalNumber + '</strong><span>OPEN SLOT</span></header><p>No residential proposal is filed in this Town Hall slot.</p></article>');
+            continue;
+          }
+          const lot = proposal.lot;
+          const footprint = proposal.footprint;
+          const status = proposalDisplayText(proposal.status, "Draft");
+          const use = proposalDisplayText(proposal.use, "Housing");
+          const block = lot ? proposalDisplayText(lot.blockId, "Unassigned block") : "Unassigned block";
+          const lotPosition = lot ? lot.x + ", " + lot.y : "Not assigned";
+          const footprintText = footprint ? footprint.w + " × " + footprint.h + " tiles" : "Not assigned";
+          const cost = Number.isFinite(proposal.cost) ? "$" + Math.round(proposal.cost) : "Pending review";
+          const owner = proposalDisplayText(proposal.owner, "Unassigned");
+          const stage = proposalDisplayText(proposal.stage, "Unstarted");
+          cards.push('<article class="townhall-prospect-card townhall-residential-card" data-proposal-id="' + detailText(proposal.id) + '">' +
+            '<header><strong>RESIDENTIAL ' + proposalNumber + '</strong><span>' + detailText(status) + '</span></header>' +
+            '<div class="townhall-prospect-meta">' +
+              '<span><small>PLAN</small><b>' + detailText(use) + '</b></span>' +
+              '<span><small>BLOCK</small><b>' + detailText(block) + '</b></span>' +
+              '<span><small>LOT</small><b>' + detailText(lotPosition) + '</b></span>' +
+              '<span><small>FOOTPRINT</small><b>' + detailText(footprintText) + '</b></span>' +
+              '<span><small>COST</small><b>' + detailText(cost) + '</b></span>' +
+              '<span><small>STAGE</small><b>' + detailText(stage) + '</b></span>' +
+              '<span><small>OWNER</small><b>' + detailText(owner) + '</b></span>' +
+              '<span><small>STABLE ID</small><b>' + detailText(proposal.id) + '</b></span>' +
+            '</div>' +
+          '</article>');
+        }
+        const overflow = Math.max(0, allResidential.length - CONFIG.maxResidentialProposals);
+        return '<section class="townhall-prospect-board townhall-residential-board" aria-label="Residential proposals"><header><span>Residential proposals</span><strong>' + residential.length + ' / ' + CONFIG.maxResidentialProposals + ' filed</strong></header>' +
+          '<div class="townhall-prospect-grid">' + cards.join("") + '</div>' +
+          (overflow ? '<p class="townhall-proposal-overflow">' + overflow + ' additional saved proposal record' + (overflow === 1 ? ' is' : 's are') + ' preserved outside the current Town Hall limit.</p>' : '') +
+        '</section>';
+      }
+
       function renderLocationDetails() {
         if (!el.locationDetails || !el.locationKicker) return;
         el.locationDetails.hidden = true;
@@ -4650,7 +4700,7 @@
             ["Stone market", "$" + prices.stone + "/t"],
             ["Approved stone", approval ? approval.stoneTons.toFixed(1) + " t · $" + approval.stoneCost : "None"],
             ["Contract total", approval ? "$" + approval.totalCost : "Not quoted"]
-          ]) + townHallProspectBoardMarkup();
+          ]) + townHallProspectBoardMarkup() + townHallResidentialBoardMarkup();
           return;
         }
 

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Checkpoint D — Town Hall residential proposal display
+
+- Added a Town Hall residential-proposal board with four configured display slots rather than hard-coding proposal records into the interface.
+- Each filed proposal remains an independent stable-ID record and shows its plan, block, lot, footprint, cost, status, owner, and development stage.
+- Empty proposal slots remain visible, while any over-limit saved records are preserved and reported instead of being deleted.
+- Kept this checkpoint display-only: no proposal generation, approval/purchase action, construction, household, population, happiness, labor, or productivity behavior was added.
+
 ### Checkpoint C — generic proposal data foundation
 
 - Added a persistent, versioned proposal collection that can represent mining, residential, and industrial records without creating any of those development systems yet.

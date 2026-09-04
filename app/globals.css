@@ -3964,6 +3964,27 @@ body {
   background: rgba(249, 250, 253, 0.58);
 }
 
+.townhall-residential-board {
+  border-top-color: rgba(183, 151, 92, 0.62);
+}
+
+.townhall-residential-card {
+  border-color: rgba(187, 160, 105, 0.58);
+  background: linear-gradient(145deg, rgba(255, 252, 239, 0.88), rgba(246, 251, 243, 0.76));
+}
+
+.townhall-residential-card > header span {
+  color: #8a5d20;
+}
+
+.townhall-proposal-overflow {
+  margin: 7px 0 0;
+  color: var(--muted-foreground);
+  font-size: 8px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
 .townhall-prospect-card > header {
   display: flex;
   align-items: baseline;

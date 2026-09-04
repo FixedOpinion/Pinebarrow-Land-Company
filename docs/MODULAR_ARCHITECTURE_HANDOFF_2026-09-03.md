@@ -248,3 +248,106 @@ The modularization investment succeeds when:
 Modularity is an investment in future development efficiency, **not permission for a broad rewrite**.
 
 When uncertain: map first, extract second, redesign later under its own authorized checkpoint.
+
+## 13. Ju usage-protection protocol — APPROVED
+
+This protocol controls how Ru plans implementation work and how Ju spends the available implementation allowance. It supplements the architectural rules above.
+
+### 13.1 Usage transparency
+
+- Ju cannot directly see the user's exact remaining plan allowance or an exact per-task charge. Ju must not invent percentages, message counts, or claims that a task is “almost out” unless the product exposes that information.
+- Usage varies with the selected model, retained context, reasoning, tool calls, retrieved material, caching, and response size. Prompt length alone is not a reliable estimate.
+- The current source for the user's remaining allowance and reset time is the ChatGPT usage dashboard. Product-specific estimates change and must not be copied into this repository as fixed limits.
+- At the beginning of implementation, Ju should classify the checkpoint as **Small**, **Medium**, or **Too broad** and name the main cost drivers. A “Too broad” task must be split before runtime editing begins.
+- At completion, report concrete work performed—files inspected, files changed, tests/builds run, branch, and SHA—instead of pretending to know an exact credit cost.
+
+Official reference: https://learn.chatgpt.com/docs/pricing
+
+### 13.2 Required Ru -> Ju checkpoint packet
+
+Ru should hand Ju a short implementation packet with these fields:
+
+```text
+Checkpoint:
+Goal / user-visible behavior:
+Allowed systems or files:
+Dependencies that must be checked:
+Explicit non-goals:
+Acceptance tests:
+Starting commit:
+Working branch:
+Deployment authorized: yes/no
+Stop condition:
+```
+
+Do not paste the entire planning conversation when the approved decision already exists in GitHub. Link the exact handoff section and commit instead.
+
+### 13.3 Targeted source-inspection order
+
+Ju should inspect source in this order:
+
+1. Confirm the starting branch/commit and clean working state.
+2. Read the assigned handoff section and the target row in `docs/SYSTEM_MAP.md`.
+3. Use symbol search to locate entry points, callers, state keys, persistence fields, and related tests.
+4. Read narrow code windows around those symbols.
+5. Read only the dependency modules declared by the system map/header.
+6. Expand to a full file or repository-wide review only when the map is missing, contradictory, or a failing test proves the dependency boundary is incomplete.
+
+If step 6 is necessary, Ju should explain why and correct `SYSTEM_MAP.md` during the appropriate architecture checkpoint so the same discovery cost is not paid again.
+
+### 13.4 Cross-system safety without rereading the whole engine
+
+A full manual reread of `pinebarrow-engine.js` is not the default safety mechanism. Use explicit contracts and automated evidence:
+
+- record the state fields and public functions the target system reads and writes before editing;
+- search every renamed or moved symbol to identify callers;
+- preserve a compatibility facade while extracting a subsystem so existing callers do not all change at once;
+- add characterization tests before moving behavior whose current result is not already protected;
+- run save/load migration fixtures whenever persistent state changes;
+- test module boundaries where one system calls another;
+- run syntax checks and lint against changed code;
+- run focused behavior tests during iteration;
+- run the complete regression suite and production build once at the checkpoint boundary, rather than after every tiny edit;
+- repeat broad checks only when a failure or subsequent change makes the previous result stale.
+
+Tests do not eliminate the need to understand dependencies, and reading code does not eliminate the need for tests. The system map, module headers, searches, and layered tests work together.
+
+### 13.5 Safe modular extraction pattern
+
+Each extraction checkpoint moves one coherent subsystem and preserves behavior:
+
+```text
+characterize current behavior
+  -> define actual ownership/dependencies
+  -> add module with required header
+  -> keep a stable engine-facing facade
+  -> move one function family
+  -> focused tests
+  -> full checkpoint verification
+  -> commit and push branch
+```
+
+Do not combine a subsystem extraction with a gameplay redesign. Do not create empty modules for future systems. Configuration, state ownership, persistence, UI, and simulation responsibilities must remain explicit.
+
+### 13.6 Context and tool-output controls
+
+- Cap search, diff, test, and build output to the portion needed for a decision.
+- On success, retain a concise pass/fail summary instead of loading full logs into the conversation.
+- On failure, inspect the first actionable error and its dependency chain before requesting more output.
+- Do not reread unchanged large files in the same checkpoint.
+- Do not load generated assets, lockfiles, or build artifacts unless they are directly relevant.
+- Do not invoke browser QA, image generation, deployment, or unrelated connectors unless the checkpoint requires them.
+- Prefer one deliberate install/build/test sequence over repeated clean installs and duplicate full-suite runs.
+
+### 13.7 Stop-loss and recovery rules
+
+- If the discovered change crosses the handoff's allowed boundary, stop and return a proposed split instead of continuing.
+- If allowance pressure or interruption risk appears, stop opening new scope and preserve the current state immediately.
+- A coherent checkpoint receives a normal commit and pushed branch.
+- Incomplete but valuable work may receive a clearly labeled `WIP` commit only on a non-main branch, with failed/unrun checks documented. A WIP commit must never be merged as though it passed.
+- Report branch, SHA, changed files, checks passed/failed, and the exact remaining work.
+- Never leave the only copy of meaningful work in transient scratch storage.
+
+### 13.8 Merge and deployment boundaries
+
+Implementation, merge, and deployment are separate authorizations. Documentation and architecture checkpoints do not run Sites builds or replace the live game unless deployment is explicitly part of the checkpoint.

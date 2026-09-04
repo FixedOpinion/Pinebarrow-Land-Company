@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Checkpoint E — single-player world layout
+
+- Reoriented the campaign so the player's development frontier occupies the full area north of Pinebarrow, while the southern frontier is reserved for Crowe's later expansion.
+- Retired the obsolete six-player lane walls, section dividers, paid gates, and their on-map labels without granting southern construction, prospecting, or harvesting rights.
+- Added five modest irregular lakes outside town; water blocks trucks, roads, surveying, resources, trees, and structures while preserving the town and its connected street grid.
+- Regenerated forests, dirt, and ore as open natural patches across each frontier instead of repeating thirty-tile player lanes, while keeping all road cells free of surface ore.
+- Moved the starter truck, tree, road reserve, fast-travel frontier, road planning, and mine-depth calculations to the north-side orientation.
+- Added a versioned, idempotent world-layout migration that mirrors legacy P4 truck positions, cleared land, roads, prospects, mines, warehouses, doors, and construction parcels into the northern frontier without changing their stable IDs, stock, cargo, or upgrades.
+- Preserved the existing four-lane Main Street, two-lane side streets, twelve enclosed blocks, and geography capacity for sixteen planned town lots.
+- Added regressions for barrier-free travel, distinct traversal/build rights, lake exclusions, north/south campaign roles, legacy asset migration, both independent prospects, management screens, road purchasing, and existing save systems.
+
 ### Checkpoint D — Town Hall residential proposal display
 
 - Added a Town Hall residential-proposal board with four configured display slots rather than hard-coding proposal records into the interface.

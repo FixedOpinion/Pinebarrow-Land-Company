@@ -9,7 +9,6 @@ const ACTION_BUTTON_IDS = [
   "pb7-hire", "pb7-hire-worker", "pb7-hauler-xs", "pb7-hauler-s", "pb7-hauler-m", "pb7-hauler-l",
   "pb7-marketplace", "pb7-contracts", "pb7-company-management", "pb7-sell", "pb7-buy-saw", "pb7-rent-saw", "pb7-shaker", "pb7-upgrade-truck-size",
   "pb7-upgrade-truck-speed", "pb7-road-plan", "pb7-road-submit", "pb7-road-accept", "pb7-road-cancel", "pb7-read-news", "pb7-prospect", "pb7-select-prospect-1", "pb7-select-prospect-2", "pb7-lease",
-  "pb7-unlock-gate",
   "pb7-buy-land", "pb7-buy-warehouse-land", "pb7-build-mine", "pb7-load-mine", "pb7-upgrade-mine",
   "pb7-build-warehouse", "pb7-unload-warehouse", "pb7-load-warehouse", "pb7-upgrade-warehouse",
 ];
@@ -250,25 +249,28 @@ function createEngineHarness(savedState, engineSource, options = {}) {
 
 test("two independent prospects survive save/reload and neither replaces the other", async () => {
   const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
-  const firstTile = { x: 76, y: 169 };
-  const secondTile = { x: 78, y: 169 };
-  const nextDayTile = { x: 80, y: 169 };
+  const legacyFirstTile = { x: 76, y: 169 };
+  const firstTile = { x: 76, y: 122 };
+  const secondTile = { x: 78, y: 122 };
+  const nextDayTile = { x: 80, y: 122 };
   const oldSave = {
     version: 4,
     day: 3,
     minutes: 480,
     cash: 160,
-    player: firstTile,
-    selected: { type: "cleared", ...firstTile },
+    player: legacyFirstTile,
+    selected: { type: "cleared", ...legacyFirstTile },
     location: "cleared",
-    cleared: [`${firstTile.x},${firstTile.y}`, `${secondTile.x},${secondTile.y}`, `${nextDayTile.x},${nextDayTile.y}`],
+    cleared: ["76,169", "78,169", "80,169"],
     prospectorHired: true,
     prospectorDay: 3,
     prospectsUsedToday: 1,
   };
 
   const migrated = createEngineHarness(oldSave, engineSource);
-  assert.equal(migrated.saved().version, 11);
+  assert.equal(migrated.saved().version, 12);
+  assert.equal(migrated.saved().worldLayoutVersion, 2);
+  assert.deepEqual(migrated.saved().player, firstTile);
   assert.equal(migrated.saved().prospectsUsedToday, 0);
   assert.equal(migrated.element("pb7-prospect").disabled, false);
 
@@ -484,7 +486,7 @@ test("generic proposal records persist across save and reload without activating
   }, engineSource);
 
   const saved = game.saved();
-  assert.equal(saved.version, 11);
+  assert.equal(saved.version, 12);
   assert.equal(saved.proposals.length, 3);
   assert.deepEqual(saved.proposals, proposals);
   assert.equal(saved.nextProposalId, 4);
@@ -543,23 +545,25 @@ test("Town Hall displays independent residential proposals up to the configured 
 
 test("leasing a survey immediately frees the prospector for another mine claim", async () => {
   const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
-  const firstTile = { x: 76, y: 169 };
-  const secondClaimTile = { x: 78, y: 169 };
+  const legacyFirstTile = { x: 76, y: 169 };
+  const firstTile = { x: 76, y: 122 };
+  const secondClaimTile = { x: 78, y: 122 };
   const startingSave = {
     version: 4,
     day: 3,
     minutes: 480,
     cash: 500,
-    player: firstTile,
-    selected: { type: "cleared", ...firstTile },
+    player: legacyFirstTile,
+    selected: { type: "cleared", ...legacyFirstTile },
     location: "cleared",
-    cleared: [`${firstTile.x},${firstTile.y}`, `${secondClaimTile.x},${secondClaimTile.y}`],
+    cleared: ["76,169", "78,169"],
     prospectorHired: true,
     prospectorDay: 3,
     prospectsUsedToday: 0,
   };
 
   const first = createEngineHarness(startingSave, engineSource);
+  assert.deepEqual(first.saved().player, firstTile);
   first.element("pb7-prospect").click();
   const surveyed = first.saved();
 
@@ -672,7 +676,7 @@ test("an owned second warehouse parcel remains buildable after loading its profi
 
 test("an uncleared tree inside owned warehouse land remains selectable and cuttable", async () => {
   const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
-  const tree = { x: 76, y: 170 };
+  const tree = { x: 47, y: 122 };
   const warehouseParcel = {
     id: "warehouse-land-1",
     mineParcelId: "claim-1",
@@ -683,13 +687,14 @@ test("an uncleared tree inside owned warehouse land remains selectable and cutta
     status: "owned",
   };
   const game = createEngineHarness({
-    version: 6,
+    version: 12,
+    worldLayoutVersion: 2,
     day: 9,
     minutes: 480,
     cash: 1000,
     capacity: 6,
-    player: { x: 75, y: tree.y },
-    selected: { type: "road", x: 75, y: tree.y },
+    player: { x: 46, y: tree.y },
+    selected: { type: "road", x: 46, y: tree.y },
     location: "road",
     overview: true,
     pavedDepth: 4,
@@ -724,33 +729,143 @@ test("an uncleared tree inside owned warehouse land remains selectable and cutta
   assert.equal(game.saved().cargo.logs, 0.5);
 });
 
-test("the active claim's second stone gate unlocks for its configured payment", async () => {
+test("retired multiplayer lane and section barriers no longer block northern travel", async () => {
   const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
-  const game = createEngineHarness({
-    version: 7,
+  const laneBoundary = createEngineHarness({
+    version: 12,
+    worldLayoutVersion: 2,
     day: 4,
     minutes: 480,
     cash: 1000,
-    player: { x: 75, y: 208 },
+    player: { x: 29, y: 124 },
     location: "cleared",
-    selected: { type: "cleared", x: 75, y: 208 },
+    selected: { type: "cleared", x: 29, y: 124 },
     cleared: [],
-    pavedDepth: 3,
-    unlockedClaimZones: 1,
+    pavedDepth: 1,
   }, engineSource);
+
+  assert.equal(laneBoundary.element("pinebarrow-visible-menu-demo").dataset.multiplayerBarrierCount, "0");
+  assert.equal(laneBoundary.dispatchKey("keydown", "ArrowRight"), true);
+  laneBoundary.frame(100);
+  laneBoundary.frame(1000);
+  laneBoundary.dispatchKey("keyup", "ArrowRight");
+  laneBoundary.element("pb7-save-now").click();
+  assert.deepEqual(laneBoundary.saved().player, { x: 30, y: 124 });
+
+  const sectionBoundary = createEngineHarness({
+    version: 12,
+    worldLayoutVersion: 2,
+    day: 4,
+    minutes: 480,
+    cash: 1000,
+    player: { x: 44, y: 83 },
+    location: "cleared",
+    selected: { type: "cleared", x: 44, y: 83 },
+    cleared: [],
+    pavedDepth: 42,
+  }, engineSource);
+  assert.equal(sectionBoundary.dispatchKey("keydown", "ArrowUp"), true);
+  sectionBoundary.frame(100);
+  sectionBoundary.frame(1000);
+  sectionBoundary.dispatchKey("keyup", "ArrowUp");
+  sectionBoundary.element("pb7-save-now").click();
+  assert.deepEqual(sectionBoundary.saved().player, { x: 44, y: 82 });
+});
+
+test("single-player world assigns north to the company, south to Crowe, and keeps lakes conflict-free", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const fresh = createEngineHarness(null, engineSource);
+  assert.deepEqual(fresh.saved().player, { x: 45, y: 123 });
+  assert.ok(fresh.saved().player.y < 125);
+
+  const game = createEngineHarness({
+    version: 12,
+    worldLayoutVersion: 2,
+    day: 4,
+    minutes: 480,
+    cash: 1000,
+    player: { x: 44, y: 167 },
+    location: "road",
+    selected: { type: "road", x: 44, y: 167 },
+    cleared: [],
+    pavedDepth: 1,
+  }, engineSource);
+
+  const root = game.element("pinebarrow-visible-menu-demo");
+  assert.equal(root.dataset.worldLayoutVersion, "2");
+  assert.equal(root.dataset.worldMode, "single-player-campaign");
+  assert.equal(root.dataset.playerDevelopmentSide, "north");
+  assert.equal(root.dataset.croweDevelopmentSide, "south");
+  assert.equal(root.dataset.multiplayerBarrierCount, "0");
+  assert.equal(root.dataset.lakeCount, "5");
+  assert.ok(Number(root.dataset.lakeTileCount) > 300);
+  assert.equal(root.dataset.townLakeTileCount, "0");
+  assert.equal(root.dataset.lakeSurfaceConflicts, "0");
+  assert.equal(root.dataset.townPlannedLotCapacity, "16");
 
   assert.equal(game.dispatchKey("keydown", "ArrowDown"), true);
   game.frame(100);
-  assert.equal(game.saved().selected.type, "gate");
-  assert.equal(game.saved().selected.gateIndex, 1);
-  game.element("pb7-touch-interact").click();
-  assert.equal(game.element("pb7-unlock-gate").hidden, false);
-  assert.equal(game.element("pb7-unlock-gate").disabled, false);
+  game.frame(1000);
+  game.dispatchKey("keyup", "ArrowDown");
+  game.element("pb7-save-now").click();
+  assert.deepEqual(game.saved().player, { x: 44, y: 168 });
+  assert.equal(game.element("pb7-prospect").disabled, true);
+});
 
-  game.element("pb7-unlock-gate").click();
-  assert.equal(game.saved().unlockedClaimZones, 2);
-  assert.equal(game.saved().cash, 250);
-  assert.match(game.saved().contextTitle, /Section 2 unlocked/);
+test("legacy P4 assets migrate north without losing IDs, stock, roads, or cargo", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const mineParcel = { id: "claim-legacy", x: 76, y: 168, w: 2, h: 2, status: "owned", material: "stone", ratio: 0.4, mineId: "mine-legacy" };
+  const warehouseParcel = { id: "warehouse-land-legacy", x: 80, y: 172, w: 2, h: 2, status: "owned", warehouseId: "warehouse-legacy" };
+  const game = createEngineHarness({
+    version: 11,
+    day: 12,
+    minutes: 600,
+    cash: 777,
+    player: { x: 75, y: 169 },
+    selected: { type: "mine", x: 76, y: 168, mineId: "mine-legacy" },
+    location: "mine",
+    cleared: ["76,168", "77,168", "76,169", "77,169"],
+    roadTiles: ["75,169", "75,170"],
+    pavedDepth: 3,
+    cargo: { stone: 2.5, dirt: 1 },
+    mineParcels: [mineParcel],
+    warehouseParcels: [warehouseParcel],
+    mines: [{
+      id: "mine-legacy", parcelId: mineParcel.id, x: 76, y: 168, w: 2, h: 2,
+      doorX: 78, doorY: 168, level: 3, baseMaterial: "stone", material: "coal",
+      depth: 1, ratio: 0.4, stockMaterial: 4.5, stockDirt: 2,
+    }],
+    warehouses: [{
+      id: "warehouse-legacy", parcelId: warehouseParcel.id, x: 80, y: 172, w: 2, h: 2,
+      doorX: 82, doorY: 172, level: 2, storage: { stone: 6 },
+    }],
+    selectedMineId: "mine-legacy",
+    selectedWarehouseId: "warehouse-legacy",
+  }, engineSource);
+
+  const saved = game.saved();
+  assert.equal(saved.version, 12);
+  assert.equal(saved.worldLayoutVersion, 2);
+  assert.deepEqual(saved.player, { x: 75, y: 122 });
+  assert.deepEqual(saved.cargo, { stone: 2.5, clay: 0, coal: 0, iron: 0, copper: 0, tin: 0, quartz: 0, silver: 0, gold: 0, sapphire: 0, logs: 0, dirt: 1 });
+  assert.equal(saved.mineParcels[0].id, "claim-legacy");
+  assert.deepEqual({ x: saved.mines[0].x, y: saved.mines[0].y, doorX: saved.mines[0].doorX, doorY: saved.mines[0].doorY }, { x: 76, y: 122, doorX: 78, doorY: 123 });
+  assert.equal(saved.mines[0].stockMaterial, 4.5);
+  assert.equal(saved.warehouseParcels[0].id, "warehouse-land-legacy");
+  assert.deepEqual({ x: saved.warehouses[0].x, y: saved.warehouses[0].y, doorX: saved.warehouses[0].doorX, doorY: saved.warehouses[0].doorY }, { x: 80, y: 118, doorX: 82, doorY: 119 });
+  assert.equal(saved.warehouses[0].storage.stone, 6);
+  assert.ok(saved.roadTiles.includes("75,121"));
+  assert.ok(saved.roadTiles.includes("74,124"));
+  assert.ok(saved.roadTiles.includes("74,122"));
+  assert.equal(saved.pavedDepth, 1);
+  assert.match(saved.contextTitle, /Company moved north/);
+
+  const reloaded = createEngineHarness(saved, engineSource).saved();
+  assert.deepEqual(reloaded.player, saved.player);
+  assert.deepEqual(reloaded.mineParcels, saved.mineParcels);
+  assert.deepEqual(reloaded.warehouseParcels, saved.warehouseParcels);
+  assert.deepEqual(reloaded.roadTiles, saved.roadTiles);
+  assert.equal(reloaded.worldLayoutVersion, 2);
 });
 
 test("the daily bulletin opens the full price, business, Crowe, and material guide", async () => {
@@ -781,14 +896,15 @@ test("the daily bulletin opens the full price, business, Crowe, and material gui
 
 test("keyboard controls cut an adjacent tree and toggle the PL system menu", async () => {
   const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
-  const tree = { x: 76, y: 169 };
+  const tree = { x: 47, y: 122 };
   const game = createEngineHarness({
-    version: 6,
+    version: 12,
+    worldLayoutVersion: 2,
     day: 2,
     minutes: 480,
     cash: 160,
     capacity: 6,
-    player: { x: 75, y: 169 },
+    player: { x: 46, y: 122 },
     selected: { type: "tree", ...tree },
     location: "tree",
     cleared: [],
@@ -1122,7 +1238,8 @@ test("truck gauge reports useful full, waiting, and no-destination states", asyn
 test("surface ore cannot occupy or be prospected from reserved and custom road cells", async () => {
   const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
   const common = {
-    version: 8,
+    version: 12,
+    worldLayoutVersion: 2,
     day: 1,
     minutes: 480,
     cash: 160,
@@ -1133,26 +1250,26 @@ test("surface ore cannot occupy or be prospected from reserved and custom road c
     pavedDepth: 1,
   };
 
-  const reservedTile = { x: 74, y: 169 };
+  const reservedTile = { x: 44, y: 121 };
   const reserved = createEngineHarness({
     ...common,
     player: reservedTile,
     selected: { type: "cleared", ...reservedTile },
     location: "cleared",
-    cleared: ["74,169"],
+    cleared: ["44,121"],
     roadTiles: [],
   }, engineSource);
   assert.equal(reserved.element("pinebarrow-visible-menu-demo").dataset.resourceRoadOverlaps, "0");
   assert.equal(reserved.element("pb7-prospect").disabled, true);
 
-  const customRoadTile = { x: 76, y: 169 };
+  const customRoadTile = { x: 47, y: 121 };
   const custom = createEngineHarness({
     ...common,
     player: customRoadTile,
     selected: { type: "cleared", ...customRoadTile },
     location: "cleared",
-    cleared: ["76,169"],
-    roadTiles: ["76,169"],
+    cleared: ["47,121"],
+    roadTiles: ["47,121"],
   }, engineSource);
   assert.equal(custom.element("pinebarrow-visible-menu-demo").dataset.resourceRoadOverlaps, "0");
   assert.equal(custom.element("pb7-prospect").disabled, true);
@@ -1170,10 +1287,11 @@ test("the HUD removes the road-tile counter while retaining the readable truck g
 
 test("Town Hall approves and builds a turning two-wide road with purchased stone", async () => {
   const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
-  const roadDraft = ["74,170", "74,171", "73,171"];
-  const cleared = ["74,170", "75,170", "74,171", "75,171", "73,171", "73,172", "74,172"];
+  const roadDraft = ["46,122", "46,123", "47,123"];
+  const cleared = ["46,122", "47,122", "46,123", "47,123", "46,124", "47,124"];
   const game = createEngineHarness({
-    version: 8,
+    version: 12,
+    worldLayoutVersion: 2,
     day: 1,
     minutes: 480,
     cash: 5000,
@@ -1183,7 +1301,6 @@ test("Town Hall approves and builds a turning two-wide road with purchased stone
     selected: { type: "road", x: 45, y: 146 },
     cleared,
     pavedDepth: 3,
-    unlockedClaimZones: 1,
     roadDraft,
     roadPlanning: true,
     roadTiles: [],
@@ -1194,14 +1311,14 @@ test("Town Hall approves and builds a turning two-wide road with purchased stone
   game.element("pb7-road-submit").click();
   const approved = game.saved();
   assert.ok(approved.roadApproval);
-  assert.equal(approved.roadApproval.routeTiles.length, 7);
+  assert.equal(approved.roadApproval.routeTiles.length, 6);
   assert.equal(approved.roadApproval.stonePrice, 58);
   assert.equal(approved.cargo.stone, 2);
 
   game.element("pb7-road-accept").click();
   const built = game.saved();
   assert.equal(built.roadContractsCompleted, 1);
-  assert.equal(built.roadTiles.length, 7);
+  assert.equal(built.roadTiles.length, 6);
   assert.ok(built.roadMarketImpact.strength > 0);
   assert.equal(built.cargo.stone, 2);
   assert.ok(built.cash < 5000);

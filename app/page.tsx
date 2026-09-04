@@ -193,7 +193,7 @@ export default function Home() {
                     <option value="newsstand">Newsstand</option>
                     <option value="mine">Mine site · outside edge</option>
                     <option value="warehouse">Warehouse site · outside edge</option>
-                    <option value="deepclaim">Next gate / deepest field</option>
+                    <option value="deepclaim">Far north frontier</option>
                   </select>
                   <button id="pb7-go" className="fast-travel-go" type="button" aria-label="Drive to selected destination">Go</button>
                 </div>
@@ -230,7 +230,7 @@ export default function Home() {
               <p className="eyebrow">Current objective</p>
               <h2 id="pb7-context-title">Pinebarrow guide</h2>
               <p id="pb7-context">
-                Explore the open first section, clear clustered trees, and earn enough to unlock the deeper stone gates.
+                Develop north of Pinebarrow: clear clustered trees, survey promising ground, and build a road network around the lakes.
               </p>
             </section>
 
@@ -272,7 +272,6 @@ export default function Home() {
               <button id="pb7-road-submit" type="button">Submit route to Town Hall</button>
               <button id="pb7-road-accept" type="button">Accept approved road contract</button>
               <button id="pb7-road-cancel" type="button">Cancel road survey</button>
-              <button id="pb7-unlock-gate" type="button">Unlock claim section</button>
               <button id="pb7-read-news" type="button">Read market news</button>
               <button id="pb7-prospect" type="button">Prospect selected tile</button>
               <button id="pb7-select-prospect-1" type="button" hidden>Review Prospect 1</button>

@@ -14,14 +14,19 @@
       const TOWN_TOP = 125;
       const TOWN_BOTTOM = TOWN_TOP + TOWN_HEIGHT;
       const SOUTH_TOP = TOWN_BOTTOM;
-      const PLAYER_LANE = 2;
-      const PLAYER_LEFT = PLAYER_LANE * 30;
-      const PLAYER_RIGHT = PLAYER_LEFT + 30;
-      const PLAYER_ROAD_X = PLAYER_LEFT + 14;
-      const STARTER_TREE = { x: PLAYER_ROAD_X + 2, y: SOUTH_TOP + 2 };
+      const PLAYER_DEVELOPMENT_TOP = 0;
+      const PLAYER_DEVELOPMENT_BOTTOM = TOWN_TOP;
+      const CROWE_DEVELOPMENT_TOP = SOUTH_TOP;
+      const CROWE_DEVELOPMENT_BOTTOM = WORLD_HEIGHT;
+      const PLAYER_ROAD_X = 44;
+      const LEGACY_PLAYER_LEFT = 60;
+      const LEGACY_PLAYER_RIGHT = 90;
+      const LEGACY_PLAYER_ROAD_X = 74;
+      const WORLD_LAYOUT_VERSION = 2;
+      const STARTER_TREE = { x: PLAYER_ROAD_X + 3, y: TOWN_TOP - 3 };
       const CLAIM_SECTION_DEPTHS = [0, 42, 84];
       const CLAIM_SECTION_ENDS = [41, 83, CLAIM_DEPTH - 1];
-      const SAVE_VERSION = 11;
+      const SAVE_VERSION = 12;
       const MAIN_STREET_TOP = 142;
       const MAIN_STREET_BOTTOM = 146;
       const TOWN_SIDE_STREET_WIDTH = 2;
@@ -38,6 +43,14 @@
           TOWN_BLOCKS.push({ x: column.x, y: row.y, w: column.w, h: row.h });
         });
       });
+      const TOWN_PLANNED_LOT_CAPACITY = 16;
+      const LAKE_DEFINITIONS = [
+        { id: "northwest", side: "north", x: 14, y: 31, rx: 8, ry: 10, seed: 11 },
+        { id: "north-central", side: "north", x: 37, y: 83, rx: 7, ry: 8, seed: 23 },
+        { id: "north-meadow", side: "north", x: 18, y: 107, rx: 6, ry: 6, seed: 37 },
+        { id: "southwest", side: "south", x: 17, y: 213, rx: 9, ry: 8, seed: 53 },
+        { id: "southeast", side: "south", x: 70, y: 258, rx: 8, ry: 11, seed: 71 }
+      ];
 
       const CONFIG = {
         truckCapacity: 6,
@@ -94,8 +107,7 @@
         trailMoveMilliseconds: 520,
         controllerPollMilliseconds: 50,
         controllerDeadzone: .48,
-        controllerTriggerThreshold: .3,
-        claimGateCosts: [0, 750, 3000]
+        controllerTriggerThreshold: .3
       };
 
       const buildings = [
@@ -193,7 +205,7 @@
       function createInitialState() {
         return {
           started: false,
-          player: { x: 45, y: 145 },
+          player: { x: PLAYER_ROAD_X + 1, y: TOWN_TOP - 2 },
           path: [],
           pendingArrival: null,
           location: null,
@@ -225,7 +237,6 @@
           roadApproval: null,
           roadMarketImpact: null,
           roadContractsCompleted: 0,
-          unlockedClaimZones: 1,
           cleared: new Set(),
           surveyParcels: [],
           surveyParcel: null,
@@ -256,7 +267,7 @@
           day: 1,
           minutes: 8 * 60,
           contextTitle: "Pinebarrow guide",
-          contextText: "Explore the open first section, clear clustered trees, and earn enough to unlock the deeper stone gates.",
+          contextText: "Your company develops north of Pinebarrow. Explore the open frontier, clear clustered trees, and survey ground for your first mine.",
           contextTone: "neutral",
           lastStepAt: 0,
           lastMineTickAt: 0,
@@ -341,7 +352,6 @@
         roadSubmit: root.querySelector("#pb7-road-submit"),
         roadAccept: root.querySelector("#pb7-road-accept"),
         roadCancel: root.querySelector("#pb7-road-cancel"),
-        unlockGate: root.querySelector("#pb7-unlock-gate"),
         readNews: root.querySelector("#pb7-read-news"),
         clear: root.querySelector("#pb7-clear"),
         prospect: root.querySelector("#pb7-prospect"),
@@ -578,15 +588,11 @@
           state.location = null;
           return true;
         }
-        const targetGate = claimGateAt(targetX, targetY);
-        if (targetGate && isActivePlayerGate(targetGate) && !isClaimGateOpen(targetGate)) {
-          state.selected = { type: "gate", x: targetGate.x, y: targetGate.y, gateIndex: targetGate.sectionIndex };
-          state.location = "gate";
-          state.menuOpen = true;
-          setContext("Section " + targetGate.sectionNumber + " gate", "This stone gate opens the next extraction field for $" + targetGate.cost + ". Choose Unlock to pay, or close the gate menu and keep exploring.");
-          return false;
-        }
         if (isTreeAt(targetX, targetY)) {
+          if (!isPlayerClaimTile(targetX, targetY)) {
+            setContext("Crowe reserve", "You may travel through the southern frontier, but its timber and development rights are reserved for Crowe's campaign expansion.");
+            return false;
+          }
           const alreadyFacingTree = state.selected && state.selected.type === "tree" && state.selected.x === targetX && state.selected.y === targetY;
           state.selected = { type: "tree", x: targetX, y: targetY };
           state.location = "tree";
@@ -601,7 +607,11 @@
           if (state.contextTitle !== "Entrance required") setContext("Entrance required", "Drive to the marked entrance beside the building.");
           return false;
         }
-        if (state.contextTitle !== "Claim boundary") setContext("Claim boundary", "That direction leaves your accessible road and P4 claim.");
+        if (isLakeCell(targetX, targetY)) {
+          setContext("Lake shoreline", "The truck cannot enter the water. Drive around the irregular shoreline or survey a road route around it.");
+          return false;
+        }
+        if (state.contextTitle !== "World boundary") setContext("World boundary", "The truck cannot travel beyond Pinebarrow's mapped campaign area.");
         return false;
       }
 
@@ -789,7 +799,7 @@
       }
 
       function locationSupportsContextMenu() {
-        return ["market", "townhall", "garage", "rental", "newsstand", "mine", "warehouse", "cleared", "gate", "mine-site", "warehouse-site"].includes(state.location);
+        return ["market", "townhall", "garage", "rental", "newsstand", "mine", "warehouse", "cleared", "mine-site", "warehouse-site"].includes(state.location);
       }
 
       function interactFromInput() {
@@ -802,7 +812,7 @@
           openContextMenuFromInput();
           return;
         }
-        setContext("Nothing to interact with", "Drive to a building entrance, claim gate, mine, warehouse, construction edge, or open survey ground.");
+        setContext("Nothing to interact with", "Drive to a building entrance, mine, warehouse, construction edge, or open survey ground.");
       }
 
       function zoomInFromInput() {
@@ -1206,10 +1216,82 @@
         return proposal;
       }
 
+      function isLegacyPlayerPoint(x, y) {
+        return Number.isFinite(x) && Number.isFinite(y) && x >= LEGACY_PLAYER_LEFT && x < LEGACY_PLAYER_RIGHT && y >= SOUTH_TOP && y < WORLD_HEIGHT;
+      }
+
+      function migrateLegacyPoint(point) {
+        if (!point || !isLegacyPlayerPoint(point.x, point.y)) return false;
+        point.y = TOWN_TOP - 1 - (point.y - SOUTH_TOP);
+        return true;
+      }
+
+      function migrateLegacyRect(record) {
+        if (!record || !isLegacyPlayerPoint(record.x, record.y)) return false;
+        const height = Math.max(1, Math.round(record.h || 1));
+        record.y = TOWN_TOP - 1 - (record.y - SOUTH_TOP) - (height - 1);
+        if (Number.isFinite(record.doorX) && Number.isFinite(record.doorY)) {
+          const door = { x: record.doorX, y: record.doorY };
+          migrateLegacyPoint(door);
+          record.doorX = door.x;
+          record.doorY = door.y;
+        }
+        return true;
+      }
+
+      function migrateLegacyKeyCollection(collection) {
+        const migrated = new Set();
+        collection.forEach(function (key) {
+          const point = pointFromKey(key);
+          if (!point) return;
+          migrateLegacyPoint(point);
+          migrated.add(keyFor(point.x, point.y));
+        });
+        return migrated;
+      }
+
+      function migrateLegacyWorldState() {
+        let changed = true;
+        migrateLegacyPoint(state.player);
+        state.cleared = migrateLegacyKeyCollection(state.cleared);
+        state.roadTiles = migrateLegacyKeyCollection(state.roadTiles);
+        state.roadDraft = state.roadDraft.map(function (key) {
+          const point = pointFromKey(key);
+          if (!point) return key;
+          if (migrateLegacyPoint(point)) changed = true;
+          return keyFor(point.x, point.y);
+        });
+        if (state.roadApproval) {
+          ["routeTiles", "routePoints"].forEach(function (field) {
+            if (!Array.isArray(state.roadApproval[field])) return;
+            state.roadApproval[field] = state.roadApproval[field].map(function (key) {
+              const point = pointFromKey(key);
+              if (!point) return key;
+              if (migrateLegacyPoint(point)) changed = true;
+              return keyFor(point.x, point.y);
+            });
+          });
+        }
+        state.surveyParcels.concat(state.mineParcels, state.warehouseParcels, state.mines, state.warehouses).forEach(function (record) {
+          if (migrateLegacyRect(record)) changed = true;
+        });
+        if (state.selected && Number.isFinite(state.selected.x) && Number.isFinite(state.selected.y) && migrateLegacyPoint(state.selected)) changed = true;
+        const legacyPavedDepth = Math.min(CLAIM_DEPTH, Math.max(0, Math.round(state.pavedDepth || 0)));
+        for (let depth = 0; depth < legacyPavedDepth; depth += 1) {
+          const y = claimYAtDepth("north", depth);
+          state.roadTiles.add(keyFor(LEGACY_PLAYER_ROAD_X, y));
+          state.roadTiles.add(keyFor(LEGACY_PLAYER_ROAD_X + 1, y));
+        }
+        state.pavedDepth = 1;
+        return changed;
+      }
+
       function loadSavedState(saved) {
         if (!saved || !Number.isInteger(saved.version) || saved.version < 1 || saved.version > SAVE_VERSION) return false;
+        const needsWorldLayoutMigration = Math.round(saved.worldLayoutVersion || 1) < WORLD_LAYOUT_VERSION;
+        let migratedWorldLayout = false;
         try {
-          ["cash", "sawRentalDay", "pavedDepth", "unlockedClaimZones", "wasteToCrowe", "day", "minutes", "zoomIndex", "prospectorDay", "prospectsUsedToday", "workers", "truckSizeLevel", "truckSpeedLevel", "nextExchangeOrderId", "lastExchangeProcessAt", "nextCompanyContractId", "roadContractsCompleted"].forEach(function (key) {
+          ["cash", "sawRentalDay", "pavedDepth", "wasteToCrowe", "day", "minutes", "zoomIndex", "prospectorDay", "prospectsUsedToday", "workers", "truckSizeLevel", "truckSpeedLevel", "nextExchangeOrderId", "lastExchangeProcessAt", "nextCompanyContractId", "roadContractsCompleted"].forEach(function (key) {
             if (Number.isFinite(saved[key])) state[key] = saved[key];
           });
           ["prospectorHired", "sawAttached", "shaker", "overview", "soundEnabled", "musicEnabled", "engineSoundEnabled", "effectsSoundEnabled", "roadPlanning"].forEach(function (key) {
@@ -1234,7 +1316,6 @@
           state.cargo = Object.assign(emptyMaterialStore(), saved.cargo || {});
           state.cleared = new Set(Array.isArray(saved.cleared) ? saved.cleared.filter(function (key) { return typeof key === "string"; }) : []);
           state.roadTiles = new Set(Array.isArray(saved.roadTiles) ? saved.roadTiles.filter(function (key) { return typeof key === "string"; }) : []);
-          clearRoadSurfaceDecoration();
           state.roadDraft = Array.isArray(saved.roadDraft) ? saved.roadDraft.filter(function (key) { return typeof key === "string"; }) : [];
           state.roadApproval = saved.roadApproval && typeof saved.roadApproval === "object" ? saved.roadApproval : null;
           state.roadMarketImpact = saved.roadMarketImpact && typeof saved.roadMarketImpact === "object" ? saved.roadMarketImpact : null;
@@ -1266,6 +1347,11 @@
           if (!state.warehouseParcels.length && saved.warehouseParcel) state.warehouseParcels.push(saved.warehouseParcel);
           if (!state.mines.length && saved.mine) state.mines.push(saved.mine);
           if (!state.warehouses.length && saved.warehouse) state.warehouses.push(saved.warehouse);
+
+          if (needsWorldLayoutMigration) {
+            migratedWorldLayout = migrateLegacyWorldState();
+          }
+          clearRoadSurfaceDecoration();
 
           state.mineParcels.forEach(function (parcel) { normalizeSiteId(parcel, "claim"); });
           state.warehouseParcels.forEach(function (parcel) { normalizeSiteId(parcel, "warehouse-land"); });
@@ -1308,7 +1394,7 @@
           state.mines.forEach(function (mine, index) {
             normalizeSiteId(mine, "mine");
             if (!mine.parcelId && state.mineParcels[index]) mine.parcelId = state.mineParcels[index].id;
-            if (!Number.isFinite(mine.depth)) mine.depth = Math.max(0, mine.y - SOUTH_TOP);
+            if (!Number.isFinite(mine.depth)) mine.depth = developmentDepthForRect(mine);
             if (!mine.baseMaterial) mine.baseMaterial = mine.material || "stone";
             mine.material = mine.material || mine.baseMaterial;
             mine.stockMaterial = Math.max(0, Number(mine.stockMaterial) || 0);
@@ -1348,9 +1434,6 @@
           state.workers = Math.max(0, Math.min(CONFIG.maxWorkers, Math.round(state.workers || 0)));
           state.truckSizeLevel = Math.max(1, Math.min(CONFIG.maxTruckLevel, Math.round(state.truckSizeLevel || 1)));
           state.truckSpeedLevel = Math.max(1, Math.min(CONFIG.maxTruckLevel, Math.round(state.truckSpeedLevel || 1)));
-          state.unlockedClaimZones = saved.version <= 6
-            ? legacyUnlockedClaimZones()
-            : Math.max(1, Math.min(3, Math.round(state.unlockedClaimZones || 1)));
           if (isPlayerClaimTile(state.player.x, state.player.y) && isTreeAt(state.player.x, state.player.y)) {
             state.cleared.add(keyFor(state.player.x, state.player.y));
           }
@@ -1379,9 +1462,21 @@
             state.prospectorHired = true;
           }
           state.selected = saved.selected || null;
+          if (needsWorldLayoutMigration && state.selected && Number.isFinite(state.selected.x) && Number.isFinite(state.selected.y) && migrateLegacyPoint(state.selected)) {
+            migratedWorldLayout = true;
+          }
           state.location = typeof saved.location === "string" ? saved.location : null;
+          if (needsWorldLayoutMigration && state.location === "gate") {
+            state.location = "road";
+            state.selected = { type: "road", x: state.player.x, y: state.player.y };
+            migratedWorldLayout = true;
+          }
           state.contextTitle = typeof saved.contextTitle === "string" ? saved.contextTitle : state.contextTitle;
           state.contextText = typeof saved.contextText === "string" ? saved.contextText : state.contextText;
+          if (migratedWorldLayout) {
+            state.contextTitle = "Company moved north";
+            state.contextText = "Your truck, roads, prospects, mines, and warehouses were safely mirrored into Pinebarrow's northern development frontier. Crowe's future expansion area remains south of town.";
+          }
           if (saved.version <= 4 && state.prospectorHired) {
             state.prospectorDay = state.day;
             state.prospectsUsedToday = 0;
@@ -1436,6 +1531,7 @@
       function serializedState() {
         return {
           version: SAVE_VERSION,
+          worldLayoutVersion: WORLD_LAYOUT_VERSION,
           cash: state.cash,
           capacity: state.capacity,
           truckSizeLevel: state.truckSizeLevel,
@@ -1460,7 +1556,6 @@
           roadApproval: state.roadApproval,
           roadMarketImpact: state.roadMarketImpact,
           roadContractsCompleted: state.roadContractsCompleted,
-          unlockedClaimZones: state.unlockedClaimZones,
           cleared: Array.from(state.cleared),
           surveyParcels: state.surveyParcels,
           surveyParcel: state.surveyParcel,
@@ -1784,6 +1879,10 @@
           grass: color("--pb7-grass", "--background"),
           tree: color("--pb7-tree", "--viz-series-2"),
           treeLight: color("--pb7-tree-light", "--viz-series-2"),
+          water: color("--pb7-water", "--viz-series-3"),
+          waterDeep: color("--pb7-water-deep", "--primary-dark"),
+          waterLight: color("--pb7-water-light", "--surface-light"),
+          shore: color("--pb7-shore", "--secondary"),
           road: color("--pb7-road", "--secondary"),
           roadLine: color("--pb7-road-line", "--primary"),
           mainRoad: color("--pb7-main-road", "--pb7-road"),
@@ -1811,70 +1910,12 @@
         return x + "," + y;
       }
 
-      function claimInfoAt(x, y) {
-        if (x < 0 || x >= WORLD_WIDTH) return null;
-        if (insideNorthClaim(x, y)) {
-          return {
-            side: "north",
-            lane: Math.floor(x / 30),
-            localX: x % 30,
-            depth: TOWN_TOP - 1 - y
-          };
-        }
-        if (insideSouthClaim(x, y)) {
-          return {
-            side: "south",
-            lane: Math.floor(x / 30),
-            localX: x % 30,
-            depth: y - SOUTH_TOP
-          };
-        }
-        return null;
-      }
-
       function claimYAtDepth(side, depth) {
         return side === "north" ? TOWN_TOP - 1 - depth : SOUTH_TOP + depth;
       }
 
-      function claimSectionIndexFromDepth(depth) {
-        if (depth >= CLAIM_SECTION_DEPTHS[2]) return 2;
-        if (depth >= CLAIM_SECTION_DEPTHS[1]) return 1;
-        return 0;
-      }
-
-      function claimGateAt(x, y) {
-        const info = claimInfoAt(x, y);
-        if (!info || !CLAIM_SECTION_DEPTHS.includes(info.depth) || (info.localX !== 14 && info.localX !== 15)) return null;
-        const sectionIndex = CLAIM_SECTION_DEPTHS.indexOf(info.depth);
-        return {
-          side: info.side,
-          lane: info.lane,
-          sectionIndex: sectionIndex,
-          sectionNumber: sectionIndex + 1,
-          depth: info.depth,
-          x: info.lane * 30 + 14,
-          y: claimYAtDepth(info.side, info.depth),
-          cost: CONFIG.claimGateCosts[sectionIndex]
-        };
-      }
-
-      function isClaimWallCell(x, y) {
-        const info = claimInfoAt(x, y);
-        if (!info) return false;
-        return info.localX === 0 || info.localX === 29 || info.depth === CLAIM_DEPTH - 1 || CLAIM_SECTION_DEPTHS.includes(info.depth);
-      }
-
-      function isActivePlayerGate(gate) {
-        return Boolean(gate && gate.side === "south" && gate.lane === PLAYER_LANE);
-      }
-
-      function isClaimGateOpen(gate) {
-        return Boolean(isActivePlayerGate(gate) && gate.sectionIndex < state.unlockedClaimZones);
-      }
-
-      function claimZoneUnlockedAt(x, y) {
-        const info = claimInfoAt(x, y);
-        return Boolean(info && info.side === "south" && info.lane === PLAYER_LANE && claimSectionIndexFromDepth(info.depth) < state.unlockedClaimZones);
+      function hasPlayerDevelopmentRights(x, y) {
+        return isPlayerClaimTile(x, y);
       }
 
       function seededUnit(a, b, c, d) {
@@ -1883,6 +1924,28 @@
         value = Math.imul(value, 1274126177);
         value ^= value >>> 16;
         return (value >>> 0) / 4294967295;
+      }
+
+      function buildLakeCells() {
+        const cells = new Set();
+        LAKE_DEFINITIONS.forEach(function (lake) {
+          for (let y = Math.max(0, lake.y - lake.ry - 1); y <= Math.min(WORLD_HEIGHT - 1, lake.y + lake.ry + 1); y += 1) {
+            for (let x = Math.max(0, lake.x - lake.rx - 1); x <= Math.min(WORLD_WIDTH - 1, lake.x + lake.rx + 1); x += 1) {
+              if (insideTown(x, y) || x === PLAYER_ROAD_X || x === PLAYER_ROAD_X + 1) continue;
+              const normalizedX = (x - lake.x) / lake.rx;
+              const normalizedY = (y - lake.y) / lake.ry;
+              const edgeNoise = (seededUnit(x, y, lake.seed, 197) - .5) * .28;
+              if (normalizedX * normalizedX + normalizedY * normalizedY <= 1 + edgeNoise) cells.add(keyFor(x, y));
+            }
+          }
+        });
+        return cells;
+      }
+
+      const lakeCells = buildLakeCells();
+
+      function isLakeCell(x, y) {
+        return lakeCells.has(keyFor(x, y));
       }
 
       function surfaceMaterialFor(sectionIndex, seed) {
@@ -1902,16 +1965,16 @@
           resources: new Map()
         };
 
-        function addEllipse(target, side, lane, sectionIndex, centerX, centerDepth, radiusX, radiusDepth, roughness) {
-          const left = lane * 30 + 1;
-          const right = lane * 30 + 28;
+        function addEllipse(target, side, sectionIndex, centerX, centerDepth, radiusX, radiusDepth, roughness, seed) {
+          const left = 1;
+          const right = WORLD_WIDTH - 2;
           const startDepth = CLAIM_SECTION_DEPTHS[sectionIndex] + 1;
           const endDepth = Math.min(CLAIM_SECTION_ENDS[sectionIndex], CLAIM_DEPTH - 2);
           for (let depth = Math.max(startDepth, centerDepth - radiusDepth); depth <= Math.min(endDepth, centerDepth + radiusDepth); depth += 1) {
             for (let x = Math.max(left, centerX - radiusX); x <= Math.min(right, centerX + radiusX); x += 1) {
               const normalizedX = (x - centerX) / Math.max(1, radiusX);
               const normalizedY = (depth - centerDepth) / Math.max(1, radiusDepth);
-              const edgeNoise = (seededUnit(x, depth, lane + sectionIndex * 5, side === "north" ? 3 : 7) - .5) * roughness;
+              const edgeNoise = (seededUnit(x, depth, seed + sectionIndex * 5, side === "north" ? 3 : 7) - .5) * roughness;
               if (normalizedX * normalizedX + normalizedY * normalizedY > 1 + edgeNoise) continue;
               const y = claimYAtDepth(side, depth);
               if (isResourceSpawnableTile(x, y)) target.add(keyFor(x, y));
@@ -1920,42 +1983,40 @@
         }
 
         ["north", "south"].forEach(function (side, sideIndex) {
-          for (let lane = 0; lane < 3; lane += 1) {
-            for (let sectionIndex = 0; sectionIndex < 3; sectionIndex += 1) {
-              const startDepth = CLAIM_SECTION_DEPTHS[sectionIndex] + 2;
-              const endDepth = Math.min(CLAIM_SECTION_ENDS[sectionIndex] - 1, CLAIM_DEPTH - 3);
-              const depthSpan = Math.max(8, endDepth - startDepth);
-              const laneLeft = lane * 30;
+          for (let sectionIndex = 0; sectionIndex < 3; sectionIndex += 1) {
+            const startDepth = CLAIM_SECTION_DEPTHS[sectionIndex] + 2;
+            const endDepth = Math.min(CLAIM_SECTION_ENDS[sectionIndex] - 1, CLAIM_DEPTH - 3);
+            const depthSpan = Math.max(8, endDepth - startDepth);
 
-              for (let patch = 0; patch < 4; patch += 1) {
-                const centerX = laneLeft + 4 + Math.floor(seededUnit(lane, sectionIndex, patch, sideIndex + 31) * 22);
-                const centerDepth = startDepth + 2 + Math.floor(seededUnit(sectionIndex, patch, lane, sideIndex + 41) * Math.max(1, depthSpan - 4));
-                addEllipse(terrain.dirt, side, lane, sectionIndex, centerX, centerDepth, 4 + (patch % 3), 4 + ((lane + patch) % 3), .24);
-              }
+            for (let patch = 0; patch < 11; patch += 1) {
+              const centerX = 4 + Math.floor(seededUnit(sectionIndex, patch, sideIndex, 31) * (WORLD_WIDTH - 8));
+              const centerDepth = startDepth + 2 + Math.floor(seededUnit(sectionIndex, patch, sideIndex, 41) * Math.max(1, depthSpan - 4));
+              addEllipse(terrain.dirt, side, sectionIndex, centerX, centerDepth, 4 + (patch % 4), 4 + ((sectionIndex + patch) % 3), .24, patch + sideIndex * 31);
+            }
 
-              for (let cluster = 0; cluster < 6; cluster += 1) {
-                let centerX = laneLeft + 4 + Math.floor(seededUnit(lane, sectionIndex, cluster, sideIndex + 73) * 22);
-                if (centerX >= laneLeft + 12 && centerX <= laneLeft + 17) centerX += centerX < laneLeft + 15 ? -4 : 4;
-                const centerDepth = startDepth + 2 + Math.floor(seededUnit(sectionIndex, cluster, lane, sideIndex + 89) * Math.max(1, depthSpan - 4));
-                addEllipse(terrain.trees, side, lane, sectionIndex, centerX, centerDepth, 3 + ((lane + cluster) % 3), 3 + ((sectionIndex + cluster) % 3), .34);
-              }
+            for (let cluster = 0; cluster < 17; cluster += 1) {
+              let centerX = 3 + Math.floor(seededUnit(sectionIndex, cluster, sideIndex, 73) * (WORLD_WIDTH - 6));
+              if (centerX >= PLAYER_ROAD_X - 4 && centerX <= PLAYER_ROAD_X + 5) centerX += centerX < PLAYER_ROAD_X ? -5 : 5;
+              centerX = Math.max(3, Math.min(WORLD_WIDTH - 4, centerX));
+              const centerDepth = startDepth + 2 + Math.floor(seededUnit(sectionIndex, cluster, sideIndex, 89) * Math.max(1, depthSpan - 4));
+              addEllipse(terrain.trees, side, sectionIndex, centerX, centerDepth, 3 + (cluster % 4), 3 + ((sectionIndex + cluster) % 4), .34, cluster + sideIndex * 43);
+            }
 
-              for (let patch = 0; patch < 4; patch += 1) {
-                const centerX = laneLeft + 5 + Math.floor(seededUnit(lane, sectionIndex, patch, sideIndex + 109) * 20);
-                const centerDepth = startDepth + 3 + Math.floor(seededUnit(sectionIndex, patch, lane, sideIndex + 127) * Math.max(1, depthSpan - 6));
-                const material = surfaceMaterialFor(sectionIndex, seededUnit(centerX, centerDepth, lane, sideIndex + 151));
-                for (let dy = -2; dy <= 2; dy += 1) {
-                  for (let dx = -2; dx <= 2; dx += 1) {
-                    if (Math.abs(dx) + Math.abs(dy) > 3) continue;
-                    const x = centerX + dx;
-                    const depth = centerDepth + dy;
-                    const y = claimYAtDepth(side, depth);
-                    if (x <= laneLeft || x >= laneLeft + 29 || depth <= CLAIM_SECTION_DEPTHS[sectionIndex] || depth >= CLAIM_SECTION_ENDS[sectionIndex] || !isResourceSpawnableTile(x, y)) continue;
-                    const key = keyFor(x, y);
-                    terrain.resources.set(key, material);
-                    terrain.trees.delete(key);
-                    terrain.dirt.add(key);
-                  }
+            for (let patch = 0; patch < 10; patch += 1) {
+              const centerX = 4 + Math.floor(seededUnit(sectionIndex, patch, sideIndex, 109) * (WORLD_WIDTH - 8));
+              const centerDepth = startDepth + 3 + Math.floor(seededUnit(sectionIndex, patch, sideIndex, 127) * Math.max(1, depthSpan - 6));
+              const material = surfaceMaterialFor(sectionIndex, seededUnit(centerX, centerDepth, sideIndex, 151));
+              for (let dy = -2; dy <= 2; dy += 1) {
+                for (let dx = -2; dx <= 2; dx += 1) {
+                  if (Math.abs(dx) + Math.abs(dy) > 3) continue;
+                  const x = centerX + dx;
+                  const depth = centerDepth + dy;
+                  const y = claimYAtDepth(side, depth);
+                  if (x <= 0 || x >= WORLD_WIDTH - 1 || depth <= CLAIM_SECTION_DEPTHS[sectionIndex] || depth >= CLAIM_SECTION_ENDS[sectionIndex] || !isResourceSpawnableTile(x, y)) continue;
+                  const key = keyFor(x, y);
+                  terrain.resources.set(key, material);
+                  terrain.trees.delete(key);
+                  terrain.dirt.add(key);
                 }
               }
             }
@@ -2001,35 +2062,19 @@
 
       function isTreeAt(x, y) {
         const key = keyFor(x, y);
-        return Boolean(claimTerrain.trees.has(key) && !state.cleared.has(key) && !isPavedClaimRoad(x, y) && !isStructureCell(x, y));
+        return Boolean(!isLakeCell(x, y) && claimTerrain.trees.has(key) && !state.cleared.has(key) && !isPavedClaimRoad(x, y) && !isStructureCell(x, y));
       }
 
       function isNaturalDirtAt(x, y) {
-        return !isResourceRoadCell(x, y) && claimTerrain.dirt.has(keyFor(x, y));
+        return !isLakeCell(x, y) && !isResourceRoadCell(x, y) && claimTerrain.dirt.has(keyFor(x, y));
       }
 
       function surfaceResourceAt(x, y) {
-        return isResourceRoadCell(x, y) ? null : claimTerrain.resources.get(keyFor(x, y)) || null;
+        return isLakeCell(x, y) || isResourceRoadCell(x, y) ? null : claimTerrain.resources.get(keyFor(x, y)) || null;
       }
 
       function isSurveyableGround(x, y) {
-        if (!isPlayerClaimTile(x, y) || !claimZoneUnlockedAt(x, y) || isResourceRoadCell(x, y) || isTreeAt(x, y) || isStructureCell(x, y)) return false;
-        const gate = claimGateAt(x, y);
-        if (gate) return isClaimGateOpen(gate);
-        return !isClaimWallCell(x, y);
-      }
-
-      function legacyUnlockedClaimZones() {
-        let deepest = Math.max(0, (Number(state.pavedDepth) || 1) - 1);
-        if (isPlayerClaimTile(state.player.x, state.player.y)) deepest = Math.max(deepest, state.player.y - SOUTH_TOP);
-        state.cleared.forEach(function (key) {
-          const parts = key.split(",").map(Number);
-          if (parts.length === 2 && isPlayerClaimTile(parts[0], parts[1])) deepest = Math.max(deepest, parts[1] - SOUTH_TOP);
-        });
-        state.surveyParcels.concat(state.mineParcels, state.warehouseParcels, state.mines, state.warehouses).forEach(function (record) {
-          if (record && Number.isFinite(record.y) && isPlayerClaimTile(record.x, record.y)) deepest = Math.max(deepest, record.y + (record.h || 1) - 1 - SOUTH_TOP);
-        });
-        return deepest >= CLAIM_SECTION_DEPTHS[2] ? 3 : deepest >= CLAIM_SECTION_DEPTHS[1] ? 2 : 1;
+        return Boolean(isPlayerClaimTile(x, y) && hasPlayerDevelopmentRights(x, y) && !isLakeCell(x, y) && !isResourceRoadCell(x, y) && !isTreeAt(x, y) && !isStructureCell(x, y));
       }
 
       function round1(value) {
@@ -2086,11 +2131,24 @@
       }
 
       function isPlayerClaimTile(x, y) {
-        return insideSouthClaim(x, y) && x >= PLAYER_LEFT && x < PLAYER_RIGHT;
+        return insideNorthClaim(x, y);
       }
 
       function isPlayerClaimPath(x, y) {
         return isPlayerClaimTile(x, y) && (x === PLAYER_ROAD_X || x === PLAYER_ROAD_X + 1);
+      }
+
+      function developmentDepthAt(x, y) {
+        if (insideNorthClaim(x, y)) return Math.max(0, TOWN_TOP - 1 - y);
+        if (insideSouthClaim(x, y)) return Math.max(0, y - SOUTH_TOP);
+        return 0;
+      }
+
+      function developmentDepthForRect(rect) {
+        if (!rect) return 0;
+        if (insideNorthClaim(rect.x, rect.y)) return Math.max(0, TOWN_TOP - (rect.y + (rect.h || 1)));
+        if (insideSouthClaim(rect.x, rect.y)) return Math.max(0, rect.y - SOUTH_TOP);
+        return 0;
       }
 
       function isTownMainStreet(x, y) {
@@ -2211,11 +2269,11 @@
       }
 
       function isPavedClaimRoad(x, y) {
-        return (isPlayerClaimPath(x, y) && y - SOUTH_TOP < state.pavedDepth) || state.roadTiles.has(keyFor(x, y));
+        return (isPlayerClaimPath(x, y) && developmentDepthAt(x, y) < state.pavedDepth) || state.roadTiles.has(keyFor(x, y));
       }
 
       function isResourceSpawnableTile(x, y) {
-        return insideAnyClaim(x, y) && !isClaimWallCell(x, y) && !isResourceRoadCell(x, y) && !isStructureCell(x, y);
+        return insideAnyClaim(x, y) && !isLakeCell(x, y) && !isResourceRoadCell(x, y) && !isStructureCell(x, y);
       }
 
       function isCleared(x, y) {
@@ -2295,7 +2353,7 @@
         if (!parcel) return true;
         if (!isPlayerClaimTile(parcel.x, parcel.y) || !isPlayerClaimTile(parcel.x + parcel.w - 1, parcel.y + parcel.h - 1)) return true;
         if (parcelCells(parcel).some(function (cell) {
-          return isPavedClaimRoad(cell.x, cell.y) || isPlayerClaimPath(cell.x, cell.y) || isClaimWallCell(cell.x, cell.y) || !claimZoneUnlockedAt(cell.x, cell.y);
+          return isLakeCell(cell.x, cell.y) || isPavedClaimRoad(cell.x, cell.y) || isPlayerClaimPath(cell.x, cell.y) || !hasPlayerDevelopmentRights(cell.x, cell.y);
         })) return true;
         return state.surveyParcels.concat(state.mineParcels, state.warehouseParcels).some(function (existing) { return rectanglesOverlap(parcel, existing); });
       }
@@ -2330,14 +2388,10 @@
 
       function isPassable(x, y) {
         if (x < 0 || x >= WORLD_WIDTH || y < 0 || y >= WORLD_HEIGHT) return false;
-        if (buildingAt(x, y) || isStructureCell(x, y)) return false;
+        if (isLakeCell(x, y) || buildingAt(x, y) || isStructureCell(x, y) || isTreeAt(x, y)) return false;
         if (insideTown(x, y)) return true;
         if (!insideAnyClaim(x, y)) return false;
-        const gate = claimGateAt(x, y);
-        if (gate) return isClaimGateOpen(gate);
-        if (isClaimWallCell(x, y) || !claimZoneUnlockedAt(x, y)) return false;
-        if (isPavedClaimRoad(x, y)) return true;
-        return isSurveyableGround(x, y);
+        return true;
       }
 
       function moveDelayFor(x, y) {
@@ -2443,7 +2497,7 @@
           return target.x === state.player.x && target.y === state.player.y;
         });
         if (!path.length && !alreadyThere) {
-          setContext("Route blocked", "No open route reaches that point. A stone wall, locked gate, tree cluster, or another structure is blocking the truck.");
+          setContext("Route blocked", "No open route reaches that point. Water, a tree cluster, or another structure is blocking the truck.");
           return;
         }
         state.path = path;
@@ -2453,7 +2507,7 @@
         systemMenuOpen = false;
         closeFastTravel();
         setFollowView();
-        setContext("Driving", "Traveling to " + label + ". The truck uses town streets, paved rows, and open extraction ground, but cannot cross stone walls or locked gates.");
+        setContext("Driving", "Traveling to " + label + ". The truck uses town streets, company roads, and open ground while routing around lakes, trees, and structures.");
         if (!path.length) finishArrival();
       }
 
@@ -2476,11 +2530,7 @@
 
       function selectTree(x, y) {
         if (!isPlayerClaimTile(x, y)) {
-          setContext("Claim boundary", "That forest belongs to another player. Your highlighted P4 claim is thirty tiles wide.");
-          return;
-        }
-        if (!claimZoneUnlockedAt(x, y)) {
-          setContext("Section locked", "Open the stone gate before entering this deeper extraction field.");
+          setContext("Crowe reserve", "This forest is south of town in Crowe's future development area. Your company may clear and develop the northern frontier.");
           return;
         }
         if (!isTreeAt(x, y)) {
@@ -2494,23 +2544,6 @@
           return;
         }
         queueTravel(targets, { type: "tree", x: x, y: y }, "the selected tree");
-      }
-
-      function selectClaimGate(gate) {
-        if (!gate || !isActivePlayerGate(gate)) {
-          setContext("Other player gate", "This stone gate belongs to another player claim and cannot be opened from your company file.");
-          return;
-        }
-        if (isClaimGateOpen(gate)) {
-          queueTravel([
-            { x: gate.x, y: gate.y },
-            { x: gate.x + 1, y: gate.y }
-          ], { type: "road", x: gate.x, y: gate.y }, "the open Section " + gate.sectionNumber + " gate");
-          return;
-        }
-        state.selected = { type: "gate", x: gate.x, y: gate.y, gateIndex: gate.sectionIndex };
-        const targets = adjacentPassableTargets(gate.x, gate.y).concat(adjacentPassableTargets(gate.x + 1, gate.y));
-        queueTravel(targets, { type: "gate", gateIndex: gate.sectionIndex }, "the Section " + gate.sectionNumber + " stone gate");
       }
 
       function selectClearedTile(x, y) {
@@ -2598,7 +2631,7 @@
           finishManualStep(arrival);
           return;
         }
-        if (["building", "mine", "warehouse", "gate", "mine-site", "warehouse-site"].includes(arrival.type)) {
+        if (["building", "mine", "warehouse", "mine-site", "warehouse-site"].includes(arrival.type)) {
           state.menuOpen = true;
           systemMenuOpen = false;
           closeFastTravel();
@@ -2635,21 +2668,6 @@
         } else if (arrival.type === "cleared") {
           state.location = "cleared";
           setContext(surfaceResourceAt(arrival.x, arrival.y) ? "Visible ore patch" : "Extraction ground", clearedTileText(arrival.x, arrival.y));
-        } else if (arrival.type === "gate") {
-          const gateIndex = Math.max(1, Math.min(2, Math.round(arrival.gateIndex || 1)));
-          const gate = {
-            side: "south",
-            lane: PLAYER_LANE,
-            sectionIndex: gateIndex,
-            sectionNumber: gateIndex + 1,
-            depth: CLAIM_SECTION_DEPTHS[gateIndex],
-            x: PLAYER_ROAD_X,
-            y: claimYAtDepth("south", CLAIM_SECTION_DEPTHS[gateIndex]),
-            cost: CONFIG.claimGateCosts[gateIndex]
-          };
-          state.selected = { type: "gate", x: gate.x, y: gate.y, gateIndex: gateIndex };
-          state.location = "gate";
-          setContext("Section " + gate.sectionNumber + " gate", "The stone walls are impenetrable. Pay $" + gate.cost + " here to open this gate and reach the next extraction field.");
         } else if (arrival.type === "mine") {
           selectActiveMine(state.mines.find(function (mine) { return mine.id === arrival.mineId; }) || state.mine);
           state.location = "mine";
@@ -2701,13 +2719,8 @@
           return;
         }
         if (value === "deepclaim") {
-          if (state.unlockedClaimZones < 3) {
-            const gateIndex = state.unlockedClaimZones;
-            selectClaimGate(claimGateAt(PLAYER_ROAD_X, claimYAtDepth("south", CLAIM_SECTION_DEPTHS[gateIndex])));
-          } else {
-            const deepestY = claimYAtDepth("south", CLAIM_DEPTH - 2);
-            queueTravel([{ x: PLAYER_ROAD_X + 1, y: deepestY }], { type: "cleared", x: PLAYER_ROAD_X + 1, y: deepestY }, "the deepest open extraction field");
-          }
+          const frontierY = claimYAtDepth("north", CLAIM_DEPTH - 2);
+          queueTravel([{ x: PLAYER_ROAD_X + 1, y: frontierY }], { type: "cleared", x: PLAYER_ROAD_X + 1, y: frontierY }, "the far northern survey frontier");
           return;
         }
         const building = buildings.find(function (item) { return item.id === value; });
@@ -2739,11 +2752,6 @@
         if (x < 0 || x >= WORLD_WIDTH || y < 0 || y >= WORLD_HEIGHT) return;
         if (state.roadPlanning) {
           planRoadPoint(x, y);
-          return;
-        }
-        const clickedGate = claimGateAt(x, y);
-        if (clickedGate) {
-          selectClaimGate(clickedGate);
           return;
         }
         const building = buildingAt(x, y);
@@ -2809,16 +2817,12 @@
           queueTravel([{ x: x, y: y }], { type: "road" }, "the selected map tile");
           return;
         }
-        if (isPlayerClaimTile(x, y) && !claimZoneUnlockedAt(x, y)) {
-          setContext("Section locked", "Reach the gold gate in the stone divider and pay its access price before entering this field.");
-          return;
-        }
-        if (isClaimWallCell(x, y)) {
-          setContext("Impenetrable stone wall", "The truck cannot cross this boundary. Use the gold gate at the center of your claim section.");
+        if (isLakeCell(x, y)) {
+          setContext("Lake shoreline", "This natural lake blocks driving, building, roads, trees, and surface ore. Route around its shoreline.");
           return;
         }
         if (insideAnyClaim(x, y)) {
-          setContext("Other player claim", "This claim and its access path are locked. P4 is your thirty-tile-wide area south of town.");
+          setContext("Natural obstacle", "That campaign tile is currently blocked by terrain or a structure. Choose an open neighboring route.");
           return;
         }
         setContext("Town edge", "Choose a town building or road tile.");
@@ -2826,7 +2830,7 @@
 
       function resourceAt(x, y) {
         if (x === STARTER_TREE.x && y === STARTER_TREE.y) return { material: "stone", ratio: .45 };
-        const depth = Math.max(0, Math.min(CLAIM_DEPTH - 1, y - SOUTH_TOP));
+        const depth = Math.max(0, Math.min(CLAIM_DEPTH - 1, developmentDepthAt(x, y)));
         const surfaceMaterial = surfaceResourceAt(x, y);
         let options;
         if (depth < 25) options = ["stone", "stone", "clay", "coal"];
@@ -2876,6 +2880,10 @@
 
       function clearSelectedTree() {
         if (!state.selected || state.selected.type !== "tree" || !isNextToSelected()) return;
+        if (!isPlayerClaimTile(state.selected.x, state.selected.y)) {
+          setContext("Development rights required", "Your company may harvest the northern development frontier, but not Crowe's reserved southern timber.");
+          return;
+        }
         if (!state.sawAttached) {
           setContext("Saw required", "Buy a saw at the Garage or rent one at the Rental Shop before cutting trees.");
           return;
@@ -2900,7 +2908,7 @@
 
       function clearedTileText(x, y) {
         if (isPlayerClaimPath(x, y)) {
-          return "Open road ground. Start a two-wide Road Survey at Town Hall, mark the route, then pay the approved stone-and-labor contract. Closed stone gates still require separate access.";
+          return "Open company-road ground. Start a two-wide Road Survey at Town Hall, mark a route around lakes and structures, then pay the approved stone-and-labor contract.";
         }
         const surfaceMaterial = surfaceResourceAt(x, y);
         const mineParcel = mineParcelAt(x, y);
@@ -2984,7 +2992,7 @@
       function selectedTileMatchesCurrentSurvey() {
         const tile = selectedSurveyTile();
         return Boolean(tile && state.surveyParcels.some(function (parcel) {
-          return parcel.x === tile.x && parcel.y === Math.max(SOUTH_TOP, tile.y - 1);
+          return inRect(tile.x, tile.y, parcel);
         }));
       }
 
@@ -3024,12 +3032,12 @@
         const candidate = {
           id: allocateSiteId("survey"),
           x: tile.x,
-          y: Math.max(SOUTH_TOP, tile.y - 1),
+          y: Math.max(PLAYER_DEVELOPMENT_TOP, Math.min(PLAYER_DEVELOPMENT_BOTTOM - 2, tile.y - 1)),
           w: 2,
           h: 2
         };
         if (parcelConflicts(candidate)) {
-          setContext("Survey area unavailable", "This 2×2 result would overlap a road, another mine, a warehouse parcel, or the edge of P4. Choose a different cleared side tile.");
+          setContext("Survey area unavailable", "This 2×2 result would overlap water, a road, another company parcel, or the edge of the northern development area. Choose different cleared ground.");
           return;
         }
         const resource = resourceAt(tile.x, tile.y);
@@ -3039,7 +3047,7 @@
           prospectSlot: nextProspectSlot(),
           material: resource.material,
           ratio: resource.ratio,
-          depth: Math.max(0, candidate.y - SOUTH_TOP),
+          depth: developmentDepthForRect(candidate),
           leaseCredit: 0,
           lastLeaseDay: 0
         });
@@ -3167,7 +3175,7 @@
           level: 1,
           baseMaterial: state.mineParcel.material,
           material: state.mineParcel.material,
-          depth: Number.isFinite(state.mineParcel.depth) ? state.mineParcel.depth : Math.max(0, state.mineParcel.y - SOUTH_TOP),
+          depth: Number.isFinite(state.mineParcel.depth) ? state.mineParcel.depth : developmentDepthForRect(state.mineParcel),
           ratio: state.mineParcel.ratio,
           stockMaterial: 0,
           stockDirt: 0,
@@ -4151,10 +4159,8 @@
       }
 
       function isRoadSurveyCellLegal(x, y) {
-        if (!isPlayerClaimTile(x, y) || !claimZoneUnlockedAt(x, y)) return false;
-        const gate = claimGateAt(x, y);
-        if (gate) return isClaimGateOpen(gate);
-        return !isClaimWallCell(x, y) && !isTreeAt(x, y) && !isStructureCell(x, y) && !mineParcelAt(x, y) && !warehouseParcelAt(x, y);
+        if (!isPlayerClaimTile(x, y) || !hasPlayerDevelopmentRights(x, y)) return false;
+        return !isLakeCell(x, y) && !isTreeAt(x, y) && !isStructureCell(x, y) && !mineParcelAt(x, y) && !warehouseParcelAt(x, y);
       }
 
       function draftConnectsToRoad(points) {
@@ -4212,7 +4218,7 @@
           return point && !isPavedClaimRoad(point.x, point.y) && !isRoadSurveyCellLegal(point.x, point.y);
         });
         if (blocked) {
-          setContext("Road survey blocked", "The two-wide route crosses a tree, parcel, wall, locked field, or structure at " + blocked.x + "," + blocked.y + ". Clear it or turn around it.");
+          setContext("Road survey blocked", "The two-wide route crosses water, a tree, company parcel, or structure at " + blocked.x + "," + blocked.y + ". Clear it or turn around it.");
           return true;
         }
         state.roadDraft.push(key);
@@ -4277,7 +4283,7 @@
           tons: approval.stoneTons,
           strength: Math.min(.32, .07 + approval.stoneTons * .012)
         };
-        while (state.pavedDepth < CLAIM_DEPTH && state.roadTiles.has(keyFor(PLAYER_ROAD_X, SOUTH_TOP + state.pavedDepth)) && state.roadTiles.has(keyFor(PLAYER_ROAD_X + 1, SOUTH_TOP + state.pavedDepth))) {
+        while (state.pavedDepth < CLAIM_DEPTH && state.roadTiles.has(keyFor(PLAYER_ROAD_X, claimYAtDepth("north", state.pavedDepth))) && state.roadTiles.has(keyFor(PLAYER_ROAD_X + 1, claimYAtDepth("north", state.pavedDepth)))) {
           state.pavedDepth += 1;
         }
         const built = approval.routeTiles.length;
@@ -4294,31 +4300,6 @@
         state.roadDraft = [];
         state.roadApproval = null;
         setContext("Road survey cancelled", "No stone was purchased and no cash was spent. Start a new two-wide route from Town Hall whenever you are ready.");
-      }
-
-      function selectedClaimGate() {
-        if (!state.selected || state.selected.type !== "gate") return null;
-        const gateIndex = Math.max(0, Math.min(2, Math.round(state.selected.gateIndex || 0)));
-        return claimGateAt(PLAYER_ROAD_X, claimYAtDepth("south", CLAIM_SECTION_DEPTHS[gateIndex]));
-      }
-
-      function unlockSelectedClaimGate() {
-        const gate = selectedClaimGate();
-        if (!gate || !isActivePlayerGate(gate) || isClaimGateOpen(gate)) return;
-        if (gate.sectionIndex !== state.unlockedClaimZones) {
-          setContext("Earlier gate required", "Open Section " + (state.unlockedClaimZones + 1) + " before purchasing access to this deeper field.");
-          return;
-        }
-        if (state.cash < gate.cost) {
-          setContext("Gate payment required", "Section " + gate.sectionNumber + " costs $" + gate.cost + ". You currently have $" + Math.round(state.cash) + ".");
-          return;
-        }
-        state.cash -= gate.cost;
-        state.unlockedClaimZones = Math.min(3, gate.sectionIndex + 1);
-        state.menuOpen = false;
-        state.location = "road";
-        state.selected = { type: "road", x: state.player.x, y: state.player.y };
-        setContext("Section " + gate.sectionNumber + " unlocked", "$" + gate.cost + " paid. The gold gate is open, and the next extraction field is now accessible.", "success");
       }
 
       function readNews() {
@@ -4535,12 +4516,6 @@
         if (button === el.roadSubmit) return "Draw at least two connected center points and return to Town Hall.";
         if (button === el.roadAccept) return state.roadApproval ? "You need $" + state.roadApproval.totalCost + " for purchased stone and road labor." : "Submit a surveyed route for Town Hall approval first.";
         if (button === el.roadCancel) return "There is no active road survey or approved quote to cancel.";
-        if (button === el.unlockGate) {
-          const gate = selectedClaimGate();
-          if (!gate) return "Select a locked gold gate in your P4 stone wall.";
-          if (gate.sectionIndex !== state.unlockedClaimZones) return "Open the earlier section gate first.";
-          return "You need $" + gate.cost + " to unlock extraction field " + gate.sectionNumber + ".";
-        }
         if (button === el.prospect) {
           if (!state.prospectorHired) return "Hire the permanent prospector at Town Hall.";
           if (state.surveyParcels.length >= CONFIG.maxActiveProspects) return "Prospect 1 and Prospect 2 are saved. Lease one at Town Hall before surveying more ground.";
@@ -4668,7 +4643,6 @@
           rental: "Rental services",
           newsstand: "Newsstand",
           cleared: "Field crew",
-          gate: "Claim access",
           "mine-site": "Construction site",
           "warehouse-site": "Construction site"
         };
@@ -4701,20 +4675,6 @@
             ["Approved stone", approval ? approval.stoneTons.toFixed(1) + " t · $" + approval.stoneCost : "None"],
             ["Contract total", approval ? "$" + approval.totalCost : "Not quoted"]
           ]) + townHallProspectBoardMarkup() + townHallResidentialBoardMarkup();
-          return;
-        }
-
-        if (state.location === "gate") {
-          const gate = selectedClaimGate();
-          if (!gate) return;
-          el.locationDetails.hidden = false;
-          el.locationDetails.innerHTML = detailCards([
-            ["Extraction field", gate.sectionNumber + " / 3"],
-            ["Access", isClaimGateOpen(gate) ? "Unlocked" : "Locked"],
-            ["Gate price", gate.cost ? "$" + gate.cost : "Starter access"],
-            ["Terrain", gate.sectionNumber === 2 ? "Coal · iron · copper · tin" : gate.sectionNumber === 3 ? "Quartz · silver · gold · sapphire" : "Stone · clay · coal"],
-            ["Boundary", "Impenetrable stone"]
-          ]);
           return;
         }
 
@@ -4823,6 +4783,21 @@
         el.truck.setAttribute("data-tooltip", truckStatus.label + " · " + cargoSummary() + " · cargo size level " + state.truckSizeLevel + " · speed level " + state.truckSpeedLevel + " · " + state.workers + " permanent workers · prospector " + (state.prospectorHired ? "employed" : "not hired") + " · saw " + (state.sawOwnership || "not attached"));
         el.company.textContent = companyStatusText();
         root.dataset.resourceRoadOverlaps = String(roadSurfaceResourceOverlapCount());
+        root.dataset.worldLayoutVersion = String(WORLD_LAYOUT_VERSION);
+        root.dataset.worldMode = "single-player-campaign";
+        root.dataset.playerDevelopmentSide = "north";
+        root.dataset.croweDevelopmentSide = "south";
+        root.dataset.multiplayerBarrierCount = "0";
+        root.dataset.lakeCount = String(LAKE_DEFINITIONS.length);
+        root.dataset.lakeTileCount = String(lakeCells.size);
+        root.dataset.townLakeTileCount = String(Array.from(lakeCells).filter(function (key) {
+          const point = pointFromKey(key);
+          return point && insideTown(point.x, point.y);
+        }).length);
+        root.dataset.lakeSurfaceConflicts = String(Array.from(lakeCells).filter(function (key) {
+          const point = pointFromKey(key);
+          return point && (claimTerrain.trees.has(key) || claimTerrain.dirt.has(key) || claimTerrain.resources.has(key) || isPavedClaimRoad(point.x, point.y) || isStructureCell(point.x, point.y));
+        }).length);
         root.dataset.townMainStreetLanes = String(MAIN_STREET_BOTTOM - MAIN_STREET_TOP);
         root.dataset.townSideStreetLanes = String(TOWN_SIDE_STREET_WIDTH);
         root.dataset.townBlockCount = String(TOWN_BLOCKS.length);
@@ -4832,6 +4807,7 @@
         root.dataset.townFrontageConflicts = String(townFrontageConflictCount());
         root.dataset.townPerimeterStreets = String(TOWN_PERIMETER_STREET_YS.length);
         root.dataset.townFutureLots = String(businessLots.filter(function (business) { return !state.townBusinesses[business.id]; }).length);
+        root.dataset.townPlannedLotCapacity = String(TOWN_PLANNED_LOT_CAPACITY);
         root.dataset.managementMineCount = String(state.mines.length);
         root.dataset.managementWarehouseCount = String(state.warehouses.length);
         root.dataset.managementActiveContracts = String(state.companyContracts.filter(function (contract) { return contract.status === "active"; }).length);
@@ -4935,12 +4911,6 @@
         el.roadAccept.textContent = state.roadApproval ? "Buy " + state.roadApproval.stoneTons.toFixed(1) + " t stone & build · $" + state.roadApproval.totalCost : "Accept approved road contract";
         el.roadCancel.hidden = state.location !== "townhall" || (!state.roadPlanning && !state.roadDraft.length && !state.roadApproval);
         el.roadCancel.disabled = false;
-        const gate = selectedClaimGate();
-        el.unlockGate.hidden = state.location !== "gate" || !gate || isClaimGateOpen(gate);
-        el.unlockGate.disabled = !gate || gate.sectionIndex !== state.unlockedClaimZones || state.cash < gate.cost;
-        el.unlockGate.textContent = gate
-          ? (isClaimGateOpen(gate) ? "Section " + gate.sectionNumber + " already unlocked" : "Unlock extraction field " + gate.sectionNumber + " · $" + gate.cost)
-          : "Unlock claim section";
         el.readNews.hidden = state.location !== "newsstand";
         el.readNews.textContent = "Open full newspaper & price board";
         el.clear.hidden = !(state.sawAttached && state.selected && state.selected.type === "tree" && state.location === "tree" && isNextToSelected());
@@ -5035,7 +5005,6 @@
           mine: "Mine controls",
           warehouse: "Warehouse controls",
           cleared: "Field crew",
-          gate: "Claim gate",
           "mine-site": "Mine construction",
           "warehouse-site": "Warehouse construction"
         };
@@ -5221,6 +5190,53 @@
         ctx.restore();
       }
 
+      function drawLakeTile(x, y, colors) {
+        const point = screenPoint(x, y);
+        const size = drawView.scale;
+        fillTile(x, y, colors.water, 1);
+        ctx.save();
+        ctx.fillStyle = colors.waterDeep;
+        ctx.globalAlpha = .16 + seededUnit(x, y, 313, 19) * .08;
+        ctx.fillRect(point.x, point.y + size * .58, Math.ceil(size), Math.ceil(size * .42));
+        if (size >= 7) {
+          ctx.strokeStyle = colors.waterLight;
+          ctx.globalAlpha = .52;
+          ctx.lineWidth = Math.max(.7, size * .045);
+          ctx.beginPath();
+          ctx.moveTo(point.x + size * .18, point.y + size * .38);
+          ctx.quadraticCurveTo(point.x + size * .46, point.y + size * .27, point.x + size * .78, point.y + size * .4);
+          ctx.stroke();
+        }
+        ctx.strokeStyle = colors.shore;
+        ctx.globalAlpha = .84;
+        ctx.lineWidth = Math.max(1, size * .11);
+        if (!isLakeCell(x, y - 1)) {
+          ctx.beginPath();
+          ctx.moveTo(point.x, point.y);
+          ctx.lineTo(point.x + size, point.y);
+          ctx.stroke();
+        }
+        if (!isLakeCell(x, y + 1)) {
+          ctx.beginPath();
+          ctx.moveTo(point.x, point.y + size);
+          ctx.lineTo(point.x + size, point.y + size);
+          ctx.stroke();
+        }
+        if (!isLakeCell(x - 1, y)) {
+          ctx.beginPath();
+          ctx.moveTo(point.x, point.y);
+          ctx.lineTo(point.x, point.y + size);
+          ctx.stroke();
+        }
+        if (!isLakeCell(x + 1, y)) {
+          ctx.beginPath();
+          ctx.moveTo(point.x + size, point.y);
+          ctx.lineTo(point.x + size, point.y + size);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
       function surfaceResourceColor(material) {
         return {
           stone: "#8d9ba6",
@@ -5267,112 +5283,6 @@
           }
         });
         ctx.restore();
-      }
-
-      function drawStoneWallCell(x, y, colors) {
-        const point = screenPoint(x, y);
-        const size = drawView.scale;
-        if (size < 5) {
-          ctx.fillStyle = colors.wallDark;
-          ctx.fillRect(point.x, point.y, Math.ceil(size), Math.ceil(size));
-          ctx.fillStyle = colors.wallLight;
-          ctx.globalAlpha = .72;
-          ctx.fillRect(point.x, point.y, Math.ceil(size), Math.max(1, size * .34));
-          ctx.globalAlpha = 1;
-          return;
-        }
-        ctx.save();
-        ctx.shadowColor = colors.shadow;
-        ctx.shadowBlur = Math.max(1, size * .2);
-        ctx.shadowOffsetY = Math.max(1, size * .08);
-        ctx.fillStyle = colors.wallDark;
-        roundedPath(point.x, point.y, Math.ceil(size), Math.ceil(size), Math.max(1, size * .12));
-        ctx.fill();
-        ctx.shadowColor = "transparent";
-        ctx.fillStyle = colors.wall;
-        roundedPath(point.x + size * .08, point.y + size * .08, size * .84, size * .8, Math.max(1, size * .11));
-        ctx.fill();
-        ctx.fillStyle = colors.wallLight;
-        ctx.globalAlpha = .78;
-        ctx.beginPath();
-        ctx.moveTo(point.x + size * .12, point.y + size * .14);
-        ctx.lineTo(point.x + size * .78, point.y + size * .14);
-        ctx.lineTo(point.x + size * .62, point.y + size * .32);
-        ctx.lineTo(point.x + size * .2, point.y + size * .36);
-        ctx.closePath();
-        ctx.fill();
-        ctx.globalAlpha = 1;
-        ctx.strokeStyle = colors.wallDark;
-        ctx.lineWidth = Math.max(.7, size * .055);
-        ctx.beginPath();
-        ctx.moveTo(point.x + size * .58, point.y + size * .35);
-        ctx.lineTo(point.x + size * .48, point.y + size * .58);
-        ctx.lineTo(point.x + size * .68, point.y + size * .74);
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      function drawClaimGateCell(x, y, gate, colors) {
-        const point = screenPoint(x, y);
-        const size = drawView.scale;
-        const open = isClaimGateOpen(gate);
-        ctx.save();
-        ctx.fillStyle = open ? colors.road : colors.wallDark;
-        ctx.fillRect(point.x, point.y, Math.ceil(size), Math.ceil(size));
-        ctx.fillStyle = colors.wall;
-        ctx.fillRect(point.x, point.y, size * .18, size);
-        ctx.fillRect(point.x + size * .82, point.y, size * .18, size);
-        ctx.fillStyle = open ? colors.roadLine : "#d8a62a";
-        if (open) {
-          ctx.fillRect(point.x + size * .14, point.y + size * .08, size * .16, size * .84);
-          ctx.fillRect(point.x + size * .7, point.y + size * .08, size * .16, size * .84);
-        } else {
-          roundedPath(point.x + size * .18, point.y + size * .08, size * .64, size * .84, Math.max(1, size * .08));
-          ctx.fill();
-          ctx.strokeStyle = colors.wallDark;
-          ctx.lineWidth = Math.max(.8, size * .055);
-          for (let bar = 1; bar < 4; bar += 1) {
-            const barX = point.x + size * (.18 + .64 * bar / 4);
-            ctx.beginPath();
-            ctx.moveTo(barX, point.y + size * .12);
-            ctx.lineTo(barX, point.y + size * .88);
-            ctx.stroke();
-          }
-          if (drawView.scale >= 10) {
-            ctx.fillStyle = colors.wallDark;
-            ctx.beginPath();
-            ctx.arc(point.x + size * .5, point.y + size * .48, Math.max(2, size * .13), 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillRect(point.x + size * .43, point.y + size * .48, size * .14, size * .2);
-          }
-        }
-        ctx.restore();
-      }
-
-      function drawActiveGateLabels(colors) {
-        if (drawView.scale < 5) return;
-        CLAIM_SECTION_DEPTHS.forEach(function (depth, sectionIndex) {
-          const gate = claimGateAt(PLAYER_ROAD_X, claimYAtDepth("south", depth));
-          if (!gate) return;
-          const point = screenPoint(PLAYER_ROAD_X + 1, gate.y);
-          const label = isClaimGateOpen(gate) ? (sectionIndex === 0 ? "P4 CLAIM" : "OPEN") : "$" + gate.cost;
-          const width = Math.max(30, Math.min(66, label.length * 7 + 14));
-          const height = Math.max(13, Math.min(19, drawView.scale * .78));
-          ctx.save();
-          ctx.fillStyle = isClaimGateOpen(gate) ? "rgba(36,116,95,.94)" : "rgba(32,38,48,.95)";
-          roundedPath(point.x - width / 2, point.y - height - 3, width, height, height * .35);
-          ctx.fill();
-          ctx.strokeStyle = isClaimGateOpen(gate) ? colors.treeLight : "#ffd75e";
-          ctx.lineWidth = 1.5;
-          roundedPath(point.x - width / 2, point.y - height - 3, width, height, height * .35);
-          ctx.stroke();
-          ctx.fillStyle = "#ffffff";
-          ctx.font = "900 " + Math.max(7, Math.min(10, drawView.scale * .45)) + "px system-ui, sans-serif";
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillText(label, point.x, point.y - height / 2 - 3);
-          ctx.restore();
-        });
       }
 
       function drawBuilding(building, colors) {
@@ -5991,20 +5901,18 @@
         ctx.stroke();
       }
 
-      function drawLaneLabels(colors) {
+      function drawLaneLabels() {
         if (drawView.scale < 1.5) return;
-        ctx.fillStyle = colors.foreground;
-        ctx.font = "400 11px system-ui, sans-serif";
+        ctx.font = "900 11px system-ui, sans-serif";
         ctx.textAlign = "center";
-        for (let lane = 0; lane < 3; lane += 1) {
-          const northPoint = screenPoint(lane * 30 + 15, TOWN_TOP + 1);
-          const southPoint = screenPoint(lane * 30 + 15, TOWN_BOTTOM - 1);
-          ctx.textBaseline = "top";
-          ctx.fillText("↑ P" + (lane + 1) + " · LOCKED", northPoint.x, northPoint.y);
-          ctx.textBaseline = "bottom";
-          const southPlayer = lane === PLAYER_LANE;
-          ctx.fillText(southPlayer ? "↓ P4 · YOU" : "↓ P" + (6 - lane) + " · LOCKED", southPoint.x, southPoint.y);
-        }
+        const northPoint = screenPoint(WORLD_WIDTH / 2, TOWN_TOP - .35);
+        const southPoint = screenPoint(WORLD_WIDTH / 2, TOWN_BOTTOM + .35);
+        ctx.fillStyle = "rgba(35,92,71,.9)";
+        ctx.textBaseline = "bottom";
+        ctx.fillText("NORTH · YOUR DEVELOPMENT FRONT", northPoint.x, northPoint.y);
+        ctx.fillStyle = "rgba(102,59,52,.9)";
+        ctx.textBaseline = "top";
+        ctx.fillText("SOUTH · CROWE RESERVE", southPoint.x, southPoint.y);
       }
 
       function townBlockForStructure(structure) {
@@ -6213,8 +6121,8 @@
         ctx.lineWidth = Math.max(1, drawView.scale * .08);
         ctx.lineCap = "round";
         ctx.setLineDash([Math.max(3, drawView.scale * .62), Math.max(3, drawView.scale * .58)]);
-        const roadTop = screenPoint(PLAYER_ROAD_X + 1, SOUTH_TOP);
-        const roadBottom = screenPoint(PLAYER_ROAD_X + 1, SOUTH_TOP + state.pavedDepth);
+        const roadTop = screenPoint(PLAYER_ROAD_X + 1, TOWN_TOP);
+        const roadBottom = screenPoint(PLAYER_ROAD_X + 1, claimYAtDepth("north", state.pavedDepth));
         ctx.beginPath();
         ctx.moveTo(roadTop.x, roadTop.y);
         ctx.lineTo(roadBottom.x, roadBottom.y);
@@ -6276,48 +6184,34 @@
             if (insideTown(x, y)) {
               fillTile(x, y, townSurfaceColorAt(x, y, colors), 1);
             } else {
-              const gate = claimGateAt(x, y);
-              const wall = isClaimWallCell(x, y);
-              const paved = isPavedClaimRoad(x, y) && (!wall || (gate && isClaimGateOpen(gate)));
+              if (isLakeCell(x, y)) {
+                drawLakeTile(x, y, colors);
+                continue;
+              }
+              const paved = isPavedClaimRoad(x, y);
               const dirt = isCleared(x, y) || isNaturalDirtAt(x, y);
               fillTile(x, y, paved ? colors.road : dirt ? colors.soil : colors.grass, 1);
-              if (!wall) {
-                drawClaimGroundTexture(x, y, colors);
-                const material = surfaceResourceAt(x, y);
-                if (material) drawSurfaceResource(x, y, material, colors);
-                if (drawView.scale >= 5 && isTreeAt(x, y)) drawTree(x, y, colors);
-              }
-              if (wall) {
-                if (gate) drawClaimGateCell(x, y, gate, colors);
-                else drawStoneWallCell(x, y, colors);
-              }
+              drawClaimGroundTexture(x, y, colors);
+              const material = surfaceResourceAt(x, y);
+              if (material) drawSurfaceResource(x, y, material, colors);
+              if (drawView.scale >= 5 && isTreeAt(x, y)) drawTree(x, y, colors);
             }
           }
         }
 
-        ctx.globalAlpha = .045;
+        ctx.globalAlpha = .035;
         ctx.fillStyle = colors.owned;
-        const claimPoint = screenPoint(PLAYER_LEFT, SOUTH_TOP);
-        ctx.fillRect(claimPoint.x, claimPoint.y, 30 * drawView.scale, CLAIM_DEPTH * drawView.scale);
+        const claimPoint = screenPoint(0, PLAYER_DEVELOPMENT_TOP);
+        ctx.fillRect(claimPoint.x, claimPoint.y, WORLD_WIDTH * drawView.scale, (PLAYER_DEVELOPMENT_BOTTOM - PLAYER_DEVELOPMENT_TOP) * drawView.scale);
+        const crowePoint = screenPoint(0, CROWE_DEVELOPMENT_TOP);
+        ctx.fillStyle = "#8f4c45";
+        ctx.globalAlpha = .028;
+        ctx.fillRect(crowePoint.x, crowePoint.y, WORLD_WIDTH * drawView.scale, (CROWE_DEVELOPMENT_BOTTOM - CROWE_DEVELOPMENT_TOP) * drawView.scale);
         ctx.globalAlpha = 1;
 
         ctx.strokeStyle = colors.border;
         ctx.globalAlpha = .3;
         ctx.lineWidth = 1;
-        for (let laneX = 0; laneX <= WORLD_WIDTH; laneX += 30) {
-          const northTop = screenPoint(laneX, 0);
-          const northBottom = screenPoint(laneX, CLAIM_DEPTH);
-          ctx.beginPath();
-          ctx.moveTo(northTop.x, northTop.y);
-          ctx.lineTo(northBottom.x, northBottom.y);
-          ctx.stroke();
-          const southTop = screenPoint(laneX, SOUTH_TOP);
-          const southBottom = screenPoint(laneX, WORLD_HEIGHT);
-          ctx.beginPath();
-          ctx.moveTo(southTop.x, southTop.y);
-          ctx.lineTo(southBottom.x, southBottom.y);
-          ctx.stroke();
-        }
         const townPoint = screenPoint(TOWN_LEFT, TOWN_TOP);
         ctx.strokeRect(townPoint.x, townPoint.y, (TOWN_RIGHT - TOWN_LEFT) * drawView.scale, TOWN_HEIGHT * drawView.scale);
         ctx.globalAlpha = 1;
@@ -6325,7 +6219,6 @@
         drawTownBlocksAndLots(colors);
         drawRoadAccents(colors);
         drawRoadSurvey(colors);
-        drawActiveGateLabels(colors);
         buildings.forEach(function (building) { drawBuilding(building, colors); });
         businessLots.forEach(function (business) {
           const record = state.townBusinesses[business.id];
@@ -6350,7 +6243,7 @@
         drawActiveHauler(colors);
         drawSelection(colors);
         drawStarterMarker(colors);
-        drawLaneLabels(colors);
+        drawLaneLabels();
         drawPlayer(colors);
       }
 
@@ -6441,7 +6334,8 @@
         if (isPlayerClaimTile(state.player.x, state.player.y)) {
           const roadCandidates = [];
           for (let depth = 0; depth < state.pavedDepth; depth += 1) {
-            roadCandidates.push({ x: PLAYER_ROAD_X, y: SOUTH_TOP + depth }, { x: PLAYER_ROAD_X + 1, y: SOUTH_TOP + depth });
+            const y = claimYAtDepth("north", depth);
+            roadCandidates.push({ x: PLAYER_ROAD_X, y: y }, { x: PLAYER_ROAD_X + 1, y: y });
           }
           state.roadTiles.forEach(function (key) {
             const point = pointFromKey(key);
@@ -6449,7 +6343,7 @@
           });
           const nearest = roadCandidates.sort(function (a, b) {
             return (Math.abs(a.x - state.player.x) + Math.abs(a.y - state.player.y)) - (Math.abs(b.x - state.player.x) + Math.abs(b.y - state.player.y));
-          })[0] || { x: PLAYER_ROAD_X + 1, y: SOUTH_TOP };
+          })[0] || { x: PLAYER_ROAD_X + 1, y: TOWN_TOP - 1 };
           state.player.x = nearest.x;
           state.player.y = nearest.y;
           state.location = "road";
@@ -6549,7 +6443,6 @@
       el.roadSubmit.addEventListener("click", submitRoadSurvey);
       el.roadAccept.addEventListener("click", acceptRoadContract);
       el.roadCancel.addEventListener("click", cancelRoadSurvey);
-      el.unlockGate.addEventListener("click", unlockSelectedClaimGate);
       el.readNews.addEventListener("click", readNews);
       el.clear.addEventListener("click", clearSelectedTree);
       el.prospect.addEventListener("click", prospectSelectedTile);

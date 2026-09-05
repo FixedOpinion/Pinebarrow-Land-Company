@@ -42,6 +42,10 @@ class FakeElement {
     await Promise.all((this.listeners.get("click") ?? []).map((listener) => listener({})));
   }
 
+  emit(type, event = {}) {
+    for (const listener of this.listeners.get(type) ?? []) listener(event);
+  }
+
   setAttribute(name, value) {
     this[name] = String(value);
   }
@@ -268,7 +272,7 @@ test("two independent prospects survive save/reload and neither replaces the oth
   };
 
   const migrated = createEngineHarness(oldSave, engineSource);
-  assert.equal(migrated.saved().version, 12);
+  assert.equal(migrated.saved().version, 13);
   assert.equal(migrated.saved().worldLayoutVersion, 2);
   assert.deepEqual(migrated.saved().player, firstTile);
   assert.equal(migrated.saved().prospectsUsedToday, 0);
@@ -486,7 +490,7 @@ test("generic proposal records persist across save and reload without activating
   }, engineSource);
 
   const saved = game.saved();
-  assert.equal(saved.version, 12);
+  assert.equal(saved.version, 13);
   assert.equal(saved.proposals.length, 3);
   assert.deepEqual(saved.proposals, proposals);
   assert.equal(saved.nextProposalId, 4);
@@ -844,7 +848,7 @@ test("legacy P4 assets migrate north without losing IDs, stock, roads, or cargo"
   }, engineSource);
 
   const saved = game.saved();
-  assert.equal(saved.version, 12);
+  assert.equal(saved.version, 13);
   assert.equal(saved.worldLayoutVersion, 2);
   assert.deepEqual(saved.player, { x: 75, y: 122 });
   assert.deepEqual(saved.cargo, { stone: 2.5, clay: 0, coal: 0, iron: 0, copper: 0, tin: 0, quartz: 0, silver: 0, gold: 0, sapphire: 0, logs: 0, dirt: 1 });
@@ -1509,4 +1513,69 @@ test("an older save at a town service follows that building to its aligned front
   assert.deepEqual(saved.player, { x: 8, y: 141 });
   assert.deepEqual(saved.selected, { type: "building", x: 5, y: 132, buildingId: "market" });
   assert.equal(saved.location, "market");
+});
+
+
+test("Town Hall routes a residential proposal through builder and procurement records", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const game = createEngineHarness({
+    version: 12,
+    day: 2,
+    minutes: 480,
+    cash: 1000,
+    player: { x: 37, y: 141 },
+    selected: { type: "building", id: "townhall", x: 37, y: 141 },
+    location: "townhall",
+    cleared: [],
+    proposals: [{
+      id: "proposal-house-1",
+      type: "residential",
+      use: "workforce-housing",
+      lot: { x: 17, y: 130, w: 2, h: 2, blockId: "town-block-2" },
+      footprint: { w: 2, h: 2 },
+      cost: 280,
+      status: "draft",
+      owner: null,
+      stage: "unstarted",
+    }],
+    townBusinesses: {},
+  }, engineSource);
+
+  const details = game.element("pb7-location-details");
+  assert.match(details.innerHTML, /Approve site/);
+  details.emit("click", { target: { closest: () => ({ dataset: { projectAction: "approve", proposalId: "proposal-house-1" } }) } });
+
+  let saved = game.saved();
+  assert.equal(saved.version, 13);
+  assert.equal(saved.proposals[0].status, "approved");
+  assert.equal(saved.proposals[0].stage, "coming-soon");
+  assert.equal(saved.constructionProjects.length, 0);
+
+  details.emit("click", { target: { closest: () => ({ dataset: { projectAction: "create-project", proposalId: "proposal-house-1" } }) } });
+  saved = game.saved();
+  assert.equal(saved.constructionProjects.length, 1);
+  assert.equal(saved.constructionProjects[0].status, "awaiting-builder");
+  assert.equal(saved.constructionProjects[0].buildingId, "worker-house");
+  assert.equal(saved.constructionBids.length, 3);
+  assert.equal(saved.procurementContracts.length, 4);
+  assert.equal(saved.procurementContracts.filter((contract) => contract.category === "mine-supply").length, 2);
+  assert.equal(saved.procurementContracts.filter((contract) => contract.category === "logistics").length, 1);
+  assert.equal(saved.procurementContracts.filter((contract) => contract.category === "hauling").length, 1);
+
+  details.emit("click", { target: { closest: () => ({ dataset: { projectAction: "award-builder", bidId: saved.constructionBids[0].id } }) } });
+  saved = game.saved();
+  assert.equal(saved.constructionProjects[0].status, "procurement");
+  assert.equal(saved.constructionBids.filter((bid) => bid.status === "awarded").length, 1);
+  assert.equal(saved.constructionBids.filter((bid) => bid.status === "rejected").length, 2);
+
+  details.emit("click", { target: { closest: () => ({ dataset: { projectAction: "bid-procurement", procurementId: saved.procurementContracts[0].id } }) } });
+  saved = game.saved();
+  assert.equal(saved.procurementContracts[0].status, "awarded");
+  assert.equal(saved.procurementContracts[0].providerId, "player-company");
+
+  const reloaded = createEngineHarness(saved, engineSource).saved();
+  assert.equal(reloaded.version, 13);
+  assert.deepEqual(reloaded.constructionProjects, saved.constructionProjects);
+  assert.deepEqual(reloaded.constructionBids, saved.constructionBids);
+  assert.deepEqual(reloaded.procurementContracts, saved.procurementContracts);
 });

@@ -1745,7 +1745,7 @@
             return contract && typeof contract.id === "string" && materialNames[contract.material] && Number.isFinite(contract.quantity) && Number.isFinite(contract.delivered) && typeof contract.mineId === "string";
           }).slice(0, CONFIG.maxCompanyContracts) : [];
           state.townBusinesses = saved.townBusinesses && typeof saved.townBusinesses === "object" ? saved.townBusinesses : {};
-          state.legacyConstructionMode = saved.version < 14 || saved.legacyConstructionMode === true;
+          state.legacyConstructionMode = false;
           state.nextProjectId = Math.max(1, Math.round(saved.nextProjectId || 1));
           state.nextDevelopedBuildingId = Math.max(1, Math.round(saved.nextDevelopedBuildingId || 1));
           state.nextResidentId = Math.max(1, Math.round(saved.nextResidentId || 1));
@@ -1781,6 +1781,18 @@
             workforceIds.add(worker.id);
             state.workforce.push(worker);
           });
+          if (saved.version < 14 && !state.workforce.length && state.workers > 0) {
+            for (let workerIndex = 0; workerIndex < Math.min(CONFIG.maxWorkers, state.workers); workerIndex += 1) {
+              state.workforce.push({
+                id: allocateWorkforceId(),
+                residentId: null,
+                status: "available",
+                jobType: null,
+                jobId: null,
+                createdDay: state.day
+              });
+            }
+          }
           state.nextConstructionBidId = Math.max(1, Math.round(saved.nextConstructionBidId || 1));
           state.nextProcurementContractId = Math.max(1, Math.round(saved.nextProcurementContractId || 1));
           state.constructionProjects = [];

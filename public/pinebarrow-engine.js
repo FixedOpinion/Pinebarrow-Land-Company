@@ -1373,10 +1373,6 @@
         return contract;
       }
 
-
-        return Number.isFinite(x) && Number.isFinite(y) && x >= LEGACY_PLAYER_LEFT && x < LEGACY_PLAYER_RIGHT && y >= SOUTH_TOP && y < WORLD_HEIGHT;
-      }
-
       function isLegacyPlayerPoint(x, y) {
         return Number.isFinite(x) && Number.isFinite(y) && x >= LEGACY_PLAYER_LEFT && x < LEGACY_PLAYER_RIGHT && y >= SOUTH_TOP && y < WORLD_HEIGHT;
       }

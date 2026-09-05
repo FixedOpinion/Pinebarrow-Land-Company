@@ -3731,6 +3731,10 @@
         worker.jobId = jobId;
         const resident = residentForWorkforce(worker);
         if (resident) resident.employerId = jobType + ":" + jobId;
+        if (jobType === "shop") {
+          const shop = state.developedBuildings.find(function (building) { return building.id === jobId; });
+          if (shop) shop.operatingStatus = "operating";
+        }
         syncWorkerMirror();
         return true;
       }
@@ -3743,6 +3747,10 @@
         worker.jobId = null;
         const resident = residentForWorkforce(worker);
         if (resident) resident.employerId = null;
+        if (worker.jobType === "shop") {
+          const shop = state.developedBuildings.find(function (building) { return building.id === worker.jobId; });
+          if (shop) shop.operatingStatus = "unstaffed";
+        }
         syncWorkerMirror();
         return true;
       }

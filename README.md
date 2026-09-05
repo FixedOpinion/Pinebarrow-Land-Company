@@ -57,6 +57,7 @@ The untouched recovered production source is preserved on branch `baseline-live-
 
 ## Design documents
 
+- [`docs/DEPLOYMENT_HANDOFF.md`](docs/DEPLOYMENT_HANDOFF.md) — cross-chat release access, safety rules, and the reusable deployment request
 - [`docs/GAME_BLUEPRINT.md`](docs/GAME_BLUEPRINT.md) — identity, gameplay loop, preservation rules, and phased roadmap
 - [`docs/ECONOMY.md`](docs/ECONOMY.md) — materials, workers, logistics, markets, contracts, and bottlenecks
 - [`docs/TOWN_DESIGN.md`](docs/TOWN_DESIGN.md) — large-town layout, streets, blocks, industry growth, and terrain exclusions

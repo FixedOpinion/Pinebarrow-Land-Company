@@ -26,7 +26,7 @@
       const STARTER_TREE = { x: PLAYER_ROAD_X + 3, y: TOWN_TOP - 3 };
       const CLAIM_SECTION_DEPTHS = [0, 42, 84];
       const CLAIM_SECTION_ENDS = [41, 83, CLAIM_DEPTH - 1];
-      const SAVE_VERSION = 12;
+      const SAVE_VERSION = 13;
       const MAIN_STREET_TOP = 142;
       const MAIN_STREET_BOTTOM = 146;
       const TOWN_SIDE_STREET_WIDTH = 2;
@@ -76,6 +76,53 @@
         maxActiveProspects: 2,
         maxProposals: 64,
         maxResidentialProposals: 4,
+        maxConstructionProjects: 64,
+        maxConstructionBids: 192,
+        maxProcurementContracts: 384,
+        constructionMaterials: ["logs", "stone", "clay", "coal", "iron", "copper", "tin", "quartz", "silver", "gold", "sapphire"],
+        buildingDefinitions: {
+          "worker-house": {
+            id: "worker-house",
+            label: "Workforce House",
+            type: "residential",
+            footprint: { w: 2, h: 2 },
+            requiredBuilderLevel: 1,
+            baseCost: 280,
+            resources: { logs: 20, stone: 15 },
+            labor: 2,
+            buildTimeDays: 2,
+            housingCapacity: 1
+          },
+          "town-shop": {
+            id: "town-shop",
+            label: "Rentable Town Shop",
+            type: "commercial",
+            footprint: { w: 2, h: 2 },
+            requiredBuilderLevel: 1,
+            baseCost: 520,
+            resources: { logs: 35, stone: 25 },
+            labor: 4,
+            buildTimeDays: 3,
+            housingCapacity: 0
+          },
+          "crowe-workshop": {
+            id: "crowe-workshop",
+            label: "Crowe Operations Building",
+            type: "crowe",
+            footprint: { w: 2, h: 2 },
+            requiredBuilderLevel: 2,
+            baseCost: 460,
+            resources: { logs: 30, stone: 20 },
+            labor: 4,
+            buildTimeDays: 3,
+            housingCapacity: 0
+          }
+        },
+        constructionBuilders: [
+          { id: "pinebarrow-builders", label: "Pinebarrow Builders", level: 1, priceMultiplier: 1, durationMultiplier: 1 },
+          { id: "county-works", label: "County Works Cooperative", level: 2, priceMultiplier: 1.18, durationMultiplier: .9 },
+          { id: "crowe-construction", label: "Crowe Construction", level: 3, priceMultiplier: 1.08, durationMultiplier: .75 }
+        ],
         maxMineLevel: 8,
         mineUpgradeCosts: { 1: 260, 2: 390, 3: 560, 4: 780, 5: 1060, 6: 1420, 7: 1880 },
         mineOutputByLevel: { 1: 1, 2: 1.18, 3: 1.38, 4: 1.6, 5: 1.82, 6: 2.02, 7: 2.22, 8: 2.4 },
@@ -263,6 +310,12 @@
           companyContracts: [],
           nextCompanyContractId: 1,
           townBusinesses: {},
+          constructionProjects: [],
+          constructionBids: [],
+          procurementContracts: [],
+          nextProjectId: 1,
+          nextConstructionBidId: 1,
+          nextProcurementContractId: 1,
           wasteToCrowe: 0,
           day: 1,
           minutes: 8 * 60,
@@ -1216,7 +1269,111 @@
         return proposal;
       }
 
-      function isLegacyPlayerPoint(x, y) {
+      function allocateConstructionProjectId() {
+        let id = "";
+        do {
+          id = "project-" + state.nextProjectId;
+          state.nextProjectId += 1;
+        } while (state.constructionProjects.some(function (project) { return project && project.id === id; }));
+        return id;
+      }
+
+      function allocateConstructionBidId() {
+        let id = "";
+        do {
+          id = "builder-bid-" + state.nextConstructionBidId;
+          state.nextConstructionBidId += 1;
+        } while (state.constructionBids.some(function (bid) { return bid && bid.id === id; }));
+        return id;
+      }
+
+      function allocateProcurementContractId() {
+        let id = "";
+        do {
+          id = "procurement-" + state.nextProcurementContractId;
+          state.nextProcurementContractId += 1;
+        } while (state.procurementContracts.some(function (contract) { return contract && contract.id === id; }));
+        return id;
+      }
+
+      function normalizeRequirementStore(source) {
+        const result = {};
+        const input = source && typeof source === "object" ? source : {};
+        CONFIG.constructionMaterials.forEach(function (material) {
+          const amount = Number(input[material]);
+          if (Number.isFinite(amount) && amount > 0) result[material] = Math.round(amount * 10) / 10;
+        });
+        return result;
+      }
+
+      function normalizeDeliveredStore(source, requirements) {
+        const result = {};
+        const input = source && typeof source === "object" ? source : {};
+        Object.keys(requirements || {}).forEach(function (material) {
+          const amount = Number(input[material]);
+          result[material] = Number.isFinite(amount) ? Math.max(0, Math.min(requirements[material], Math.round(amount * 10) / 10)) : 0;
+        });
+        return result;
+      }
+
+      function normalizeConstructionProject(record) {
+        if (!record || typeof record !== "object") return null;
+        const project = Object.assign({}, record);
+        if (typeof project.id !== "string" || !project.id) project.id = allocateConstructionProjectId();
+        project.proposalId = typeof project.proposalId === "string" ? project.proposalId : null;
+        project.buildingId = typeof project.buildingId === "string" ? project.buildingId : "town-shop";
+        project.ownerId = typeof project.ownerId === "string" && project.ownerId ? project.ownerId : "player";
+        const allowedStatuses = ["awaiting-builder", "procurement", "ready-to-build", "building", "completed", "cancelled"];
+        project.status = allowedStatuses.includes(project.status) ? project.status : "awaiting-builder";
+        project.requirements = normalizeRequirementStore(project.requirements);
+        project.delivered = normalizeDeliveredStore(project.delivered, project.requirements);
+        project.procurementContractIds = Array.isArray(project.procurementContractIds)
+          ? project.procurementContractIds.filter(function (id) { return typeof id === "string"; })
+          : [];
+        project.laborRequired = Number.isFinite(project.laborRequired) ? Math.max(0, Math.round(project.laborRequired)) : 0;
+        project.laborDelivered = Number.isFinite(project.laborDelivered) ? Math.max(0, Math.min(project.laborRequired, Math.round(project.laborDelivered))) : 0;
+        project.buildProgress = Number.isFinite(project.buildProgress) ? Math.max(0, Math.min(1, project.buildProgress)) : 0;
+        project.cost = Number.isFinite(project.cost) ? Math.max(0, Math.round(project.cost)) : 0;
+        project.housingCapacity = Number.isFinite(project.housingCapacity) ? Math.max(0, Math.round(project.housingCapacity)) : 0;
+        project.level = Number.isFinite(project.level) ? Math.max(1, Math.round(project.level)) : 1;
+        project.createdDay = Number.isFinite(project.createdDay) ? Math.max(1, Math.round(project.createdDay)) : 1;
+        project.deadlineDay = Number.isFinite(project.deadlineDay) ? Math.max(project.createdDay, Math.round(project.deadlineDay)) : project.createdDay;
+        project.builderBidId = typeof project.builderBidId === "string" ? project.builderBidId : null;
+        return project;
+      }
+
+      function normalizeConstructionBid(record) {
+        if (!record || typeof record !== "object") return null;
+        const bid = Object.assign({}, record);
+        if (typeof bid.id !== "string" || !bid.id) bid.id = allocateConstructionBidId();
+        bid.projectId = typeof bid.projectId === "string" ? bid.projectId : null;
+        bid.builderId = typeof bid.builderId === "string" ? bid.builderId : "unassigned-builder";
+        bid.builderLabel = typeof bid.builderLabel === "string" && bid.builderLabel ? bid.builderLabel : bid.builderId;
+        bid.requiredBuilderLevel = Number.isFinite(bid.requiredBuilderLevel) ? Math.max(1, Math.round(bid.requiredBuilderLevel)) : 1;
+        bid.price = Number.isFinite(bid.price) ? Math.max(0, Math.round(bid.price)) : 0;
+        bid.durationDays = Number.isFinite(bid.durationDays) ? Math.max(1, Math.round(bid.durationDays)) : 1;
+        bid.status = ["open", "awarded", "rejected", "withdrawn"].includes(bid.status) ? bid.status : "open";
+        return bid;
+      }
+
+      function normalizeProcurementContract(record) {
+        if (!record || typeof record !== "object") return null;
+        const contract = Object.assign({}, record);
+        if (typeof contract.id !== "string" || !contract.id) contract.id = allocateProcurementContractId();
+        contract.projectId = typeof contract.projectId === "string" ? contract.projectId : null;
+        contract.category = typeof contract.category === "string" && contract.category ? contract.category : "mine-supply";
+        contract.material = typeof contract.material === "string" ? contract.material : null;
+        contract.service = typeof contract.service === "string" ? contract.service : null;
+        contract.providerId = typeof contract.providerId === "string" && contract.providerId ? contract.providerId : null;
+        contract.quantity = Number.isFinite(contract.quantity) ? Math.max(0, Math.round(contract.quantity * 10) / 10) : 0;
+        contract.delivered = Number.isFinite(contract.delivered) ? Math.max(0, Math.min(contract.quantity, Math.round(contract.delivered * 10) / 10)) : 0;
+        contract.status = ["open", "awarded", "fulfilled", "cancelled"].includes(contract.status) ? contract.status : "open";
+        contract.createdDay = Number.isFinite(contract.createdDay) ? Math.max(1, Math.round(contract.createdDay)) : 1;
+        contract.deadlineDay = Number.isFinite(contract.deadlineDay) ? Math.max(contract.createdDay, Math.round(contract.deadlineDay)) : contract.createdDay;
+        return contract;
+      }
+
+
         return Number.isFinite(x) && Number.isFinite(y) && x >= LEGACY_PLAYER_LEFT && x < LEGACY_PLAYER_RIGHT && y >= SOUTH_TOP && y < WORLD_HEIGHT;
       }
 
@@ -1452,6 +1609,43 @@
             return contract && typeof contract.id === "string" && materialNames[contract.material] && Number.isFinite(contract.quantity) && Number.isFinite(contract.delivered) && typeof contract.mineId === "string";
           }).slice(0, CONFIG.maxCompanyContracts) : [];
           state.townBusinesses = saved.townBusinesses && typeof saved.townBusinesses === "object" ? saved.townBusinesses : {};
+          state.nextProjectId = Math.max(1, Math.round(saved.nextProjectId || 1));
+          state.nextConstructionBidId = Math.max(1, Math.round(saved.nextConstructionBidId || 1));
+          state.nextProcurementContractId = Math.max(1, Math.round(saved.nextProcurementContractId || 1));
+          state.constructionProjects = [];
+          state.constructionBids = [];
+          state.procurementContracts = [];
+          const savedConstructionProjects = Array.isArray(saved.constructionProjects) ? saved.constructionProjects : [];
+          const projectIds = new Set();
+          savedConstructionProjects.slice(0, CONFIG.maxConstructionProjects).forEach(function (record) {
+            const project = normalizeConstructionProject(record);
+            if (!project) return;
+            if (projectIds.has(project.id)) project.id = allocateConstructionProjectId();
+            projectIds.add(project.id);
+            state.constructionProjects.push(project);
+          });
+          const savedConstructionBids = Array.isArray(saved.constructionBids) ? saved.constructionBids : [];
+          const bidIds = new Set();
+          savedConstructionBids.slice(0, CONFIG.maxConstructionBids).forEach(function (record) {
+            const bid = normalizeConstructionBid(record);
+            if (!bid || !projectIds.has(bid.projectId)) return;
+            if (bidIds.has(bid.id)) bid.id = allocateConstructionBidId();
+            bidIds.add(bid.id);
+            state.constructionBids.push(bid);
+          });
+          const savedProcurementContracts = Array.isArray(saved.procurementContracts) ? saved.procurementContracts : [];
+          const procurementIds = new Set();
+          savedProcurementContracts.slice(0, CONFIG.maxProcurementContracts).forEach(function (record) {
+            const contract = normalizeProcurementContract(record);
+            if (!contract || !projectIds.has(contract.projectId)) return;
+            if (procurementIds.has(contract.id)) contract.id = allocateProcurementContractId();
+            procurementIds.add(contract.id);
+            state.procurementContracts.push(contract);
+          });
+          state.constructionProjects.forEach(function (project) {
+            const proposal = state.proposals.find(function (record) { return record.id === project.proposalId; });
+            if (proposal && !proposal.projectId) proposal.projectId = project.id;
+          });
           processTownBusinessOpenings();
           if (saved.version <= 4 && !state.prospectorHired && (state.prospectsUsedToday > 0 || state.surveyParcels.length || state.mineParcels.length)) {
             state.prospectorHired = true;
@@ -1578,6 +1772,12 @@
           companyContracts: state.companyContracts,
           nextCompanyContractId: state.nextCompanyContractId,
           townBusinesses: state.townBusinesses,
+          constructionProjects: state.constructionProjects,
+          constructionBids: state.constructionBids,
+          procurementContracts: state.procurementContracts,
+          nextProjectId: state.nextProjectId,
+          nextConstructionBidId: state.nextConstructionBidId,
+          nextProcurementContractId: state.nextProcurementContractId,
           wasteToCrowe: state.wasteToCrowe,
           day: state.day,
           minutes: state.minutes,
@@ -4588,6 +4788,253 @@
         return value.trim().replace(/[-_]+/g, " ").replace(/\b\w/g, function (character) { return character.toUpperCase(); });
       }
 
+      function projectForProposal(proposalId) {
+        return state.constructionProjects.find(function (project) { return project.proposalId === proposalId; }) || null;
+      }
+
+      function constructionBidsForProject(projectId) {
+        return state.constructionBids.filter(function (bid) { return bid.projectId === projectId; });
+      }
+
+      function procurementContractsForProject(projectId) {
+        return state.procurementContracts.filter(function (contract) { return contract.projectId === projectId; });
+      }
+
+      function proposalLotKey(proposal) {
+        if (!proposal || !proposal.lot) return "";
+        return [proposal.lot.x, proposal.lot.y, proposal.lot.w, proposal.lot.h].join(",");
+      }
+
+      function projectBuildingDefinitionFor(proposal) {
+        const requestedId = proposal && typeof proposal.buildingId === "string" ? proposal.buildingId : "";
+        if (requestedId && CONFIG.buildingDefinitions[requestedId]) return CONFIG.buildingDefinitions[requestedId];
+        const type = proposal && typeof proposal.type === "string" ? proposal.type.toLowerCase() : "";
+        const owner = proposal && typeof proposal.owner === "string" ? proposal.owner.toLowerCase() : "";
+        if (owner === "crowe" || type === "crowe") return CONFIG.buildingDefinitions["crowe-workshop"];
+        if (type === "residential") return CONFIG.buildingDefinitions["worker-house"];
+        return CONFIG.buildingDefinitions["town-shop"];
+      }
+
+      function approveDevelopmentProposal(proposalId) {
+        if (state.location !== "townhall") return;
+        const proposal = state.proposals.find(function (record) { return record.id === proposalId; });
+        if (!proposal || proposal.status !== "draft") return;
+        if (!proposal.lot || !proposal.footprint) {
+          setContext("Approval blocked", "This proposal needs a valid lot and footprint before Town Hall can approve it.", "danger");
+          renderInterface();
+          return;
+        }
+        const lotKey = proposalLotKey(proposal);
+        const conflict = state.proposals.find(function (record) {
+          return record.id !== proposal.id && proposalLotKey(record) === lotKey &&
+            ["approved", "purchased", "under-construction", "completed"].includes(record.status);
+        });
+        if (conflict) {
+          setContext("Approval blocked", "That lot is already controlled by another active development proposal.", "danger");
+          renderInterface();
+          return;
+        }
+        proposal.status = "approved";
+        proposal.owner = proposal.owner || "player";
+        proposal.stage = "coming-soon";
+        proposal.approval = { route: "town-hall", approvedDay: state.day };
+        setContext("Site approved", proposalDisplayText(proposal.use, "Development") + " may now select a building design and request bids.", "success");
+        saveState(true);
+        renderInterface();
+      }
+
+      function purchaseDevelopmentProposal(proposalId) {
+        if (state.location !== "townhall") return;
+        const proposal = state.proposals.find(function (record) { return record.id === proposalId; });
+        if (!proposal || proposal.status !== "draft" || String(proposal.type).toLowerCase() === "residential") return;
+        proposal.status = "purchased";
+        proposal.owner = proposal.owner || "player";
+        proposal.stage = "coming-soon";
+        proposal.purchaseAgreement = { route: "town-infrastructure", purchasedDay: state.day, price: Number.isFinite(proposal.cost) ? proposal.cost : null };
+        setContext("Purchase agreement recorded", proposalDisplayText(proposal.use, "Town improvement") + " skips site approval and now follows the shared construction route.", "success");
+        saveState(true);
+        renderInterface();
+      }
+
+      function createConstructionProject(proposalId) {
+        if (state.location !== "townhall") return;
+        const proposal = state.proposals.find(function (record) { return record.id === proposalId; });
+        if (!proposal || !["approved", "purchased"].includes(proposal.status)) return;
+        if (projectForProposal(proposalId)) {
+          setContext("Project already exists", "This proposal already has a construction project in the company ledger.", "warning");
+          renderInterface();
+          return;
+        }
+        const definition = projectBuildingDefinitionFor(proposal);
+        const project = {
+          id: allocateConstructionProjectId(),
+          proposalId: proposal.id,
+          buildingId: definition.id,
+          ownerId: proposal.owner || "player",
+          level: 1,
+          status: "awaiting-builder",
+          requirements: normalizeRequirementStore(definition.resources),
+          delivered: {},
+          laborRequired: definition.labor,
+          laborDelivered: 0,
+          buildProgress: 0,
+          procurementContractIds: [],
+          builderBidId: null,
+          cost: Number.isFinite(proposal.cost) ? Math.round(proposal.cost) : definition.baseCost,
+          housingCapacity: definition.housingCapacity,
+          createdDay: state.day,
+          deadlineDay: state.day + definition.buildTimeDays + 3
+        };
+        state.constructionProjects.push(project);
+        CONFIG.constructionBuilders.filter(function (builder) {
+          return builder.level >= definition.requiredBuilderLevel;
+        }).forEach(function (builder) {
+          state.constructionBids.push({
+            id: allocateConstructionBidId(),
+            projectId: project.id,
+            builderId: builder.id,
+            builderLabel: builder.label,
+            requiredBuilderLevel: definition.requiredBuilderLevel,
+            price: Math.round(project.cost * builder.priceMultiplier),
+            durationDays: Math.max(1, Math.round(definition.buildTimeDays * builder.durationMultiplier)),
+            status: "open"
+          });
+        });
+        Object.keys(project.requirements).forEach(function (material) {
+          const contract = {
+            id: allocateProcurementContractId(),
+            projectId: project.id,
+            category: "mine-supply",
+            material: material,
+            service: null,
+            quantity: project.requirements[material],
+            delivered: 0,
+            providerId: null,
+            status: "open",
+            createdDay: state.day,
+            deadlineDay: project.deadlineDay
+          };
+          state.procurementContracts.push(contract);
+          project.procurementContractIds.push(contract.id);
+        });
+        [
+          { category: "logistics", service: "warehouse-staging" },
+          { category: "hauling", service: "site-delivery" }
+        ].forEach(function (service) {
+          const contract = {
+            id: allocateProcurementContractId(),
+            projectId: project.id,
+            category: service.category,
+            material: null,
+            service: service.service,
+            quantity: 1,
+            delivered: 0,
+            providerId: null,
+            status: "open",
+            createdDay: state.day,
+            deadlineDay: project.deadlineDay
+          };
+          state.procurementContracts.push(contract);
+          project.procurementContractIds.push(contract.id);
+        });
+        proposal.status = "under-construction";
+        proposal.stage = "fenced";
+        proposal.projectId = project.id;
+        proposal.buildingId = definition.id;
+        setContext("Construction project opened", definition.label + " is fenced. Builder bids, mine supply, warehouse staging, and site hauling are now tracked as separate contracts.", "success");
+        saveState(true);
+        renderInterface();
+      }
+
+      function awardConstructionBid(bidId) {
+        if (state.location !== "townhall") return;
+        const bid = state.constructionBids.find(function (record) { return record.id === bidId; });
+        if (!bid || bid.status !== "open") return;
+        const project = state.constructionProjects.find(function (record) { return record.id === bid.projectId; });
+        if (!project || project.status !== "awaiting-builder") return;
+        state.constructionBids.forEach(function (record) {
+          if (record.projectId === project.id && record.status === "open") record.status = record.id === bid.id ? "awarded" : "rejected";
+        });
+        bid.status = "awarded";
+        project.builderBidId = bid.id;
+        project.status = "procurement";
+        setContext("Builder awarded", bid.builderLabel + " won the construction contract. Procurement can now be assigned without changing the project requirements.", "success");
+        saveState(true);
+        renderInterface();
+      }
+
+      function bidOnProcurementContract(contractId) {
+        if (state.location !== "townhall") return;
+        const contract = state.procurementContracts.find(function (record) { return record.id === contractId; });
+        if (!contract || contract.status !== "open") return;
+        const project = state.constructionProjects.find(function (record) { return record.id === contract.projectId; });
+        if (!project || !["procurement", "ready-to-build"].includes(project.status)) return;
+        contract.providerId = "player-company";
+        contract.status = "awarded";
+        const projectContracts = procurementContractsForProject(project.id);
+        if (projectContracts.length && projectContracts.every(function (record) { return record.status === "awarded" || record.status === "fulfilled"; })) {
+          project.status = "ready-to-build";
+        }
+        setContext("Procurement contract awarded", (contract.material ? materialNames[contract.material] : proposalDisplayText(contract.service, "Service")) + " is assigned to your company. Delivery and payment settlement are the next construction step.", "success");
+        saveState(true);
+        renderInterface();
+      }
+
+      function projectStatusText(project) {
+        if (!project) return "No project";
+        const labels = {
+          "awaiting-builder": "Builder bids open",
+          procurement: "Procurement contracts open",
+          "ready-to-build": "Ready for construction",
+          building: "Construction in progress",
+          completed: "Completed",
+          cancelled: "Cancelled"
+        };
+        return labels[project.status] || proposalDisplayText(project.status, "Project");
+      }
+
+      function projectContractLabel(contract) {
+        if (contract.material) return materialNames[contract.material] + " supply · " + contract.quantity + " t";
+        return proposalDisplayText(contract.service, "Service") + " contract";
+      }
+
+      function proposalProjectActionMarkup(proposal) {
+        const project = projectForProposal(proposal.id);
+        if (!project) {
+          if (proposal.status === "draft") {
+            return '<div class="townhall-project-actions"><strong>Development route</strong><p>Town Hall approval is required before the building design and contract desk can open.</p><button type="button" data-project-action="approve" data-proposal-id="' + detailText(proposal.id) + '">Approve site</button></div>';
+          }
+          if (["approved", "purchased"].includes(proposal.status)) {
+            return '<div class="townhall-project-actions"><strong>Development route</strong><p>The lot is authorized. Select the building design and snapshot the project requirements.</p><button type="button" data-project-action="create-project" data-proposal-id="' + detailText(proposal.id) + '">Select design &amp; create project</button></div>';
+          }
+          return '<div class="townhall-project-actions"><strong>Development route</strong><p>No construction project is linked to this proposal yet.</p></div>';
+        }
+        const builderBids = constructionBidsForProject(project.id);
+        const procurement = procurementContractsForProject(project.id);
+        let actions = '<div class="townhall-project-actions"><strong>Project ' + detailText(project.id) + ' · ' + detailText(projectStatusText(project)) + '</strong>' +
+          '<p>' + detailText(projectBuildingDefinitionFor(proposal).label) + ' · ' + project.laborRequired + ' labor · $' + project.cost + ' snapshot</p>';
+        if (project.status === "awaiting-builder") {
+          actions += '<div class="townhall-contract-list"><small>Builder bids</small>' + builderBids.map(function (bid) {
+            return '<span><b>' + detailText(bid.builderLabel) + '</b><em>$' + bid.price + ' · ' + bid.durationDays + ' days</em><button type="button" data-project-action="award-builder" data-bid-id="' + detailText(bid.id) + '">Award bid</button></span>';
+          }).join("") + '</div>';
+        } else {
+          const openContracts = procurement.filter(function (contract) { return contract.status === "open"; });
+          actions += '<div class="townhall-contract-list"><small>Procurement, logistics &amp; hauling</small>' +
+            (openContracts.length ? openContracts.map(function (contract) {
+              return '<span><b>' + detailText(projectContractLabel(contract)) + '</b><em>' + detailText(contract.category) + '</em><button type="button" data-project-action="bid-procurement" data-procurement-id="' + detailText(contract.id) + '">Bid this contract</button></span>';
+            }).join("") : '<p>All project contracts have a provider. Delivery and construction progress are next.</p>') + '</div>';
+        }
+        return actions + '</div>';
+      }
+
+      function handleProjectAction(action, id) {
+        if (action === "approve") approveDevelopmentProposal(id);
+        else if (action === "purchase") purchaseDevelopmentProposal(id);
+        else if (action === "create-project") createConstructionProject(id);
+        else if (action === "award-builder") awardConstructionBid(id);
+        else if (action === "bid-procurement") bidOnProcurementContract(id);
+      }
+
       function townHallResidentialBoardMarkup() {
         const allResidential = state.proposals.filter(function (proposal) {
           return proposal && typeof proposal.type === "string" && proposal.type.toLowerCase() === "residential";
@@ -4623,6 +5070,7 @@
               '<span><small>OWNER</small><b>' + detailText(owner) + '</b></span>' +
               '<span><small>STABLE ID</small><b>' + detailText(proposal.id) + '</b></span>' +
             '</div>' +
+            proposalProjectActionMarkup(proposal) +
           '</article>');
         }
         const overflow = Math.max(0, allResidential.length - CONFIG.maxResidentialProposals);
@@ -4808,6 +5256,9 @@
         root.dataset.townPerimeterStreets = String(TOWN_PERIMETER_STREET_YS.length);
         root.dataset.townFutureLots = String(businessLots.filter(function (business) { return !state.townBusinesses[business.id]; }).length);
         root.dataset.townPlannedLotCapacity = String(TOWN_PLANNED_LOT_CAPACITY);
+        root.dataset.constructionProjectCount = String(state.constructionProjects.length);
+        root.dataset.constructionOpenBidCount = String(state.constructionBids.filter(function (bid) { return bid.status === "open"; }).length);
+        root.dataset.constructionOpenProcurementCount = String(state.procurementContracts.filter(function (contract) { return contract.status === "open"; }).length);
         root.dataset.managementMineCount = String(state.mines.length);
         root.dataset.managementWarehouseCount = String(state.warehouses.length);
         root.dataset.managementActiveContracts = String(state.companyContracts.filter(function (contract) { return contract.status === "active"; }).length);
@@ -6448,6 +6899,17 @@
       el.prospect.addEventListener("click", prospectSelectedTile);
       el.selectProspect1.addEventListener("click", function () { selectSurveyParcelById(el.selectProspect1.dataset.prospectId); });
       el.selectProspect2.addEventListener("click", function () { selectSurveyParcelById(el.selectProspect2.dataset.prospectId); });
+      if (el.locationDetails) {
+        el.locationDetails.addEventListener("click", function (event) {
+          const button = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-project-action]") : null;
+          if (!button) return;
+          const action = button.dataset.projectAction;
+          const id = action === "award-builder" ? button.dataset.bidId
+            : action === "bid-procurement" ? button.dataset.procurementId
+              : button.dataset.proposalId;
+          handleProjectAction(action, id);
+        });
+      }
       el.lease.addEventListener("click", leaseMineLand);
       el.buyLand.addEventListener("click", buyMineLand);
       el.buyWarehouseLand.addEventListener("click", buyWarehouseLand);

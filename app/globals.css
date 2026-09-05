@@ -5263,3 +5263,62 @@ html:-webkit-full-screen body {
 .game-app[data-fullscreen="true"] .fullscreen-launch {
   display: none;
 }
+
+
+.townhall-project-actions {
+  display: grid;
+  gap: .55rem;
+  margin-top: .8rem;
+  padding: .8rem;
+  border: 1px solid color-mix(in srgb, var(--border, #d8d4c8) 70%, transparent);
+  border-radius: .8rem;
+  background: color-mix(in srgb, var(--surface, #fffdf7) 84%, #d9a441);
+}
+
+.townhall-project-actions > p {
+  margin: 0;
+  color: var(--muted, #6b685f);
+  font-size: .82rem;
+  line-height: 1.4;
+}
+
+.townhall-project-actions > button,
+.townhall-contract-list button {
+  justify-self: start;
+  padding: .45rem .65rem;
+  border: 1px solid var(--primary, #5b6cf8);
+  border-radius: .55rem;
+  background: var(--primary, #5b6cf8);
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: .78rem;
+}
+
+.townhall-contract-list {
+  display: grid;
+  gap: .45rem;
+}
+
+.townhall-contract-list > small {
+  color: var(--muted, #6b685f);
+  font-size: .7rem;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.townhall-contract-list > span {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: .5rem;
+  padding: .45rem 0;
+  border-top: 1px solid color-mix(in srgb, var(--border, #d8d4c8) 55%, transparent);
+  font-size: .78rem;
+}
+
+.townhall-contract-list em {
+  color: var(--muted, #6b685f);
+  font-style: normal;
+  font-size: .72rem;
+}

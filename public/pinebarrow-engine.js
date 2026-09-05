@@ -6171,6 +6171,9 @@
         root.dataset.constructionProjectCount = String(state.constructionProjects.length);
         root.dataset.constructionOpenBidCount = String(state.constructionBids.filter(function (bid) { return bid.status === "open"; }).length);
         root.dataset.constructionOpenProcurementCount = String(state.procurementContracts.filter(function (contract) { return contract.status === "open"; }).length);
+        root.dataset.completedBuildingCount = String(state.developedBuildings.length);
+        root.dataset.residentCount = String(state.residents.length);
+        root.dataset.workforceCount = String(state.workforce.filter(function (worker) { return worker.status !== "inactive"; }).length);
         root.dataset.managementMineCount = String(state.mines.length);
         root.dataset.managementWarehouseCount = String(state.warehouses.length);
         root.dataset.managementActiveContracts = String(state.companyContracts.filter(function (contract) { return contract.status === "active"; }).length);
@@ -6204,6 +6207,8 @@
         const minePermitted = state.mineParcel && (state.mineParcel.status === "leased" || state.mineParcel.status === "owned");
         const parcelMine = state.mineParcel && state.mines.find(function (mine) { return mine.parcelId === state.mineParcel.id; });
         const parcelWarehouse = state.warehouseParcel && state.warehouses.find(function (warehouse) { return warehouse.parcelId === state.warehouseParcel.id; });
+        const mineProject = state.mineParcel && siteProjectFor("mine", state.mineParcel.id);
+        const warehouseProject = state.warehouseParcel && siteProjectFor("warehouse", state.warehouseParcel.id);
         const mineUpgradeCost = state.mine && state.mine.level < CONFIG.maxMineLevel ? CONFIG.mineUpgradeCosts[state.mine.level] : 0;
         const warehouseUpgradeCost = state.warehouse && state.warehouse.level < CONFIG.maxWarehouseLevel ? CONFIG.warehouseUpgradeCosts[state.warehouse.level] : 0;
 
@@ -6213,13 +6218,17 @@
           ? "Prospector employed · " + prospectsRemaining() + "/" + CONFIG.prospectsPerDay + " left today"
           : "Hire permanent prospector · $" + CONFIG.prospectorCost;
         const workerCost = nextWorkerCost();
+        const canUseAvailableWorker = !state.legacyConstructionMode && availableWorkforce().length > 0;
+        const canHireResidentForMine = !state.legacyConstructionMode && state.residents.some(function (resident) { return resident.status === "candidate"; }) && state.cash >= workerCost;
         el.hireWorker.hidden = state.location !== "market";
-        el.hireWorker.disabled = !state.mine || state.workers >= CONFIG.maxWorkers || state.cash < workerCost;
+        el.hireWorker.disabled = !state.mine || state.workers >= CONFIG.maxWorkers || (!state.legacyConstructionMode && !canUseAvailableWorker && !canHireResidentForMine) || (state.legacyConstructionMode && state.cash < workerCost);
         el.hireWorker.textContent = !state.mine
           ? "Build a mine before hiring a worker"
           : state.workers >= CONFIG.maxWorkers
-            ? "Mine crew full · " + CONFIG.maxWorkers + " workers"
-            : "Hire permanent worker " + (state.workers + 1) + "/" + CONFIG.maxWorkers + " · $" + workerCost;
+            ? "Workforce full · " + CONFIG.maxWorkers + " workers"
+            : canUseAvailableWorker
+              ? "Assign available worker to mine"
+              : "Hire resident for mine · $" + workerCost;
         el.marketplace.hidden = state.location !== "market";
         el.marketplace.disabled = false;
         el.contracts.hidden = state.location !== "market";
@@ -6323,11 +6332,11 @@
         el.buyWarehouseLand.disabled = state.cash < CONFIG.warehouseLandPrice;
         el.buyWarehouseLand.textContent = "Buy warehouse land · $" + CONFIG.warehouseLandPrice;
 
-        el.buildMine.hidden = !atConstructionEdge || !minePermitted || Boolean(parcelMine);
-        el.buildMine.disabled = !parcelCleared(state.mineParcel) || !besideParcel(state.mineParcel) || state.cash < CONFIG.mineBuildCost || state.mines.length >= mineSlotLimit();
-        el.buildMine.textContent = "Build mine " + (state.mines.length + 1) + "/" + mineSlotLimit() + " · $" + CONFIG.mineBuildCost;
+        el.buildMine.hidden = !atConstructionEdge || !minePermitted || Boolean(parcelMine) || Boolean(mineProject);
+        el.buildMine.disabled = !parcelCleared(state.mineParcel) || !besideParcel(state.mineParcel) || (state.legacyConstructionMode && state.cash < CONFIG.mineBuildCost) || state.mines.length >= mineSlotLimit();
+        el.buildMine.textContent = state.legacyConstructionMode ? "Build mine " + (state.mines.length + 1) + "/" + mineSlotLimit() + " · $" + CONFIG.mineBuildCost : "Open mine construction project";
         el.loadMine.hidden = state.location !== "mine";
-        el.loadMine.disabled = !state.mine || !atStructureDoor(state.mine) || mineStockUsed() <= .01 || freeCargo() <= .01;
+        el.loadMine.disabled = !state.mine || !atStructureDoor(state.mine) || (mineRequiresDedicatedWorker(state.mine) && workersAssignedTo("mine", state.mine.id) < 1) || mineStockUsed() <= .01 || freeCargo() <= .01;
         el.upgradeMine.hidden = state.location !== "mine" || !state.mine;
         const nextSeamLevel = state.mine ? nextMaterialUnlockLevel(state.mine) : null;
         el.upgradeMine.textContent = state.mine && state.mine.level < CONFIG.maxMineLevel
@@ -6337,13 +6346,13 @@
         const upgradeChangesContractSeam = state.mine && activeCompanyContractForMine(state.mine) && mineMaterialForLevel(state.mine, state.mine.level + 1) !== state.mine.material;
         el.upgradeMine.disabled = !state.mine || state.mine.level >= CONFIG.maxMineLevel || state.cash < mineUpgradeCost || Boolean(upgradeChangesContractSeam) || (state.mine.level >= 3 && (!activeMineParcel || activeMineParcel.status !== "owned"));
 
-        el.buildWarehouse.hidden = !atConstructionEdge || !(state.warehouseParcel && state.warehouseParcel.status === "owned") || Boolean(parcelWarehouse);
-        el.buildWarehouse.disabled = !parcelCleared(state.warehouseParcel) || !besideParcel(state.warehouseParcel) || state.cash < CONFIG.warehouseBuildCost;
-        el.buildWarehouse.textContent = "Build starter warehouse · $" + CONFIG.warehouseBuildCost;
+        el.buildWarehouse.hidden = !atConstructionEdge || !(state.warehouseParcel && state.warehouseParcel.status === "owned") || Boolean(parcelWarehouse) || Boolean(warehouseProject);
+        el.buildWarehouse.disabled = !parcelCleared(state.warehouseParcel) || !besideParcel(state.warehouseParcel) || (state.legacyConstructionMode && state.cash < CONFIG.warehouseBuildCost);
+        el.buildWarehouse.textContent = state.legacyConstructionMode ? "Build starter warehouse · $" + CONFIG.warehouseBuildCost : "Open warehouse construction project";
         el.unloadWarehouse.hidden = state.location !== "warehouse" || !state.warehouse;
-        el.unloadWarehouse.disabled = !state.warehouse || usedCargo() <= .01 || usedStore(state.warehouse.storage) >= warehouseCapacity() - .01;
+        el.unloadWarehouse.disabled = !state.warehouse || (warehouseRequiresDedicatedWorker(state.warehouse) && workersAssignedTo("warehouse", state.warehouse.id) < 1) || usedCargo() <= .01 || usedStore(state.warehouse.storage) >= warehouseCapacity() - .01;
         el.loadWarehouse.hidden = state.location !== "warehouse" || !state.warehouse;
-        el.loadWarehouse.disabled = !state.warehouse || usedStore(state.warehouse.storage) <= .01 || freeCargo() <= .01;
+        el.loadWarehouse.disabled = !state.warehouse || (warehouseRequiresDedicatedWorker(state.warehouse) && workersAssignedTo("warehouse", state.warehouse.id) < 1) || usedStore(state.warehouse.storage) <= .01 || freeCargo() <= .01;
         el.upgradeWarehouse.hidden = state.location !== "warehouse" || !state.warehouse;
         el.upgradeWarehouse.textContent = state.warehouse && state.warehouse.level < CONFIG.maxWarehouseLevel ? "Warehouse Lv" + (state.warehouse.level + 1) + " · " + CONFIG.warehouseCapacityByLevel[state.warehouse.level + 1] + " t · $" + warehouseUpgradeCost : "Warehouse at max level · Lv" + CONFIG.maxWarehouseLevel;
         el.upgradeWarehouse.disabled = !state.warehouse || state.warehouse.level >= CONFIG.maxWarehouseLevel || state.cash < warehouseUpgradeCost;

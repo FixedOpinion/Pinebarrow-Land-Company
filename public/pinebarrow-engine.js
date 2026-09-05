@@ -1377,6 +1377,10 @@
         return Number.isFinite(x) && Number.isFinite(y) && x >= LEGACY_PLAYER_LEFT && x < LEGACY_PLAYER_RIGHT && y >= SOUTH_TOP && y < WORLD_HEIGHT;
       }
 
+      function isLegacyPlayerPoint(x, y) {
+        return Number.isFinite(x) && Number.isFinite(y) && x >= LEGACY_PLAYER_LEFT && x < LEGACY_PLAYER_RIGHT && y >= SOUTH_TOP && y < WORLD_HEIGHT;
+      }
+
       function migrateLegacyPoint(point) {
         if (!point || !isLegacyPlayerPoint(point.x, point.y)) return false;
         point.y = TOWN_TOP - 1 - (point.y - SOUTH_TOP);

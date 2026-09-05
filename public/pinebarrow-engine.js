@@ -5901,6 +5901,88 @@
         '</section>';
       }
 
+      function standaloneProjectActionMarkup(project) {
+        const definition = constructionProjectDefinition(project);
+        const builderBids = constructionBidsForProject(project.id);
+        const procurement = procurementContractsForProject(project.id);
+        let html = '<div class="townhall-project-actions"><strong>' + detailText(definition.label) + ' · ' + detailText(projectStatusText(project)) + '</strong><p>Project ' + detailText(project.id) + ' · labor ' + round1(project.laborDelivered).toFixed(1) + '/' + project.laborRequired + ' · deadline day ' + project.deadlineDay + '</p>';
+        if (project.status === "awaiting-builder") {
+          html += '<div class="townhall-contract-list"><small>Builder bids</small>' + builderBids.map(function (bid) {
+            return '<span><b>' + detailText(bid.builderLabel) + '</b><em>$' + bid.price + ' · ' + bid.durationDays + ' days</em><button type="button" data-project-action="award-builder" data-bid-id="' + detailText(bid.id) + '">Award bid</button></span>';
+          }).join("") + '</div>';
+        } else {
+          const openContracts = procurement.filter(function (contract) { return contract.status === "open"; });
+          html += '<div class="townhall-contract-list"><small>Supply, logistics &amp; hauling</small>' +
+            (openContracts.length ? openContracts.map(function (contract) {
+              return '<span><b>' + detailText(projectContractLabel(contract)) + '</b><em>' + detailText(contract.category) + '</em><button type="button" data-project-action="bid-procurement" data-procurement-id="' + detailText(contract.id) + '">Bid this contract</button></span>';
+            }).join("") : '<p>All contracts have providers. Delivery, settlement, labor, and completion run with time.</p>') + '</div>';
+        }
+        return html + '</div>';
+      }
+
+      function townHallProjectLedgerMarkup() {
+        const projects = state.constructionProjects.filter(function (project) { return !project.proposalId; });
+        if (!projects.length) return "";
+        return '<section class="townhall-prospect-board townhall-project-ledger" aria-label="Infrastructure projects"><header><span>Infrastructure projects</span><strong>' + projects.length + ' tracked</strong></header><div class="townhall-contract-list">' + projects.map(standaloneProjectActionMarkup).join("") + '</div></section>';
+      }
+
+      function townHallWorkforceBoardMarkup() {
+        const houses = state.developedBuildings.filter(function (building) { return building.buildingId === "worker-house" && building.status !== "sold"; });
+        const candidates = state.residents.filter(function (resident) { return resident.status === "candidate"; });
+        const workers = state.workforce.filter(function (worker) { return worker.status !== "inactive"; });
+        const mineTargets = state.mines.filter(function (mine) { return workersAssignedTo("mine", mine.id) < 1; });
+        const warehouseTargets = state.warehouses.filter(function (warehouse) { return workersAssignedTo("warehouse", warehouse.id) < 1; });
+        let html = '<section class="townhall-prospect-board townhall-workforce-board" aria-label="Workforce management"><header><span>Workforce management</span><strong>' + state.workers + ' / ' + CONFIG.maxWorkers + ' workers</strong></header>';
+        html += '<p class="townhall-proposal-overflow">' + houses.length + ' completed workforce house' + (houses.length === 1 ? "" : "s") + ' · ' + candidates.length + ' resident candidate' + (candidates.length === 1 ? "" : "s") + '. Each house holds one resident; each mine or warehouse takes one assigned worker.</p>';
+        if (candidates.length) {
+          html += '<div class="townhall-contract-list"><small>Resident hiring</small>' + candidates.map(function (resident) {
+            return '<span><b>' + detailText(resident.name) + '</b><em>candidate · house ' + detailText(resident.houseId || "unassigned") + '</em><button type="button" data-workforce-action="hire-resident" data-resident-id="' + detailText(resident.id) + '">Hire for $' + nextWorkerCost() + '</button></span>';
+          }).join("") + '</div>';
+        }
+        if (workers.length) {
+          html += '<div class="townhall-contract-list"><small>Assignments</small>' + workers.map(function (worker) {
+            const resident = residentForWorkforce(worker);
+            if (worker.status === "assigned") {
+              return '<span><b>' + detailText(resident ? resident.name : worker.id) + '</b><em>' + detailText(worker.jobType + " · " + worker.jobId) + '</em><button type="button" data-workforce-action="unassign" data-worker-id="' + detailText(worker.id) + '">Unassign</button></span>';
+            }
+            const buttons = mineTargets.map(function (mine) {
+              return '<button type="button" data-workforce-action="assign" data-worker-id="' + detailText(worker.id) + '" data-job-type="mine" data-job-id="' + detailText(mine.id) + '">Mine ' + detailText(mine.id) + '</button>';
+            }).concat(warehouseTargets.map(function (warehouse) {
+              return '<button type="button" data-workforce-action="assign" data-worker-id="' + detailText(worker.id) + '" data-job-type="warehouse" data-job-id="' + detailText(warehouse.id) + '">Warehouse ' + detailText(warehouse.id) + '</button>';
+            })).join("");
+            return '<span><b>' + detailText(resident ? resident.name : worker.id) + '</b><em>available</em>' + (buttons || '<em>No open mine or warehouse slot</em>') + '</span>';
+          }).join("") + '</div>';
+        }
+        return html + '</section>';
+      }
+
+      function developmentDetailsMarkup() {
+        const building = state.developedBuildings.find(function (record) { return record.id === state.developmentId; });
+        if (!building) return detailCards([["Property", "No completed development selected"]]);
+        const definition = constructionProjectDefinition({ buildingId: building.buildingId });
+        const residents = building.residentIds.map(function (id) { return state.residents.find(function (resident) { return resident.id === id; }); }).filter(Boolean);
+        let html = detailCards([
+          ["Building", definition.label],
+          ["Owner", building.ownerId === "player" ? "Your company" : "Town / Crowe"],
+          ["Status", building.forSale ? "For buy-back" : building.status],
+          ["Residents", residents.length ? residents.map(function (resident) { return resident.name + " · " + resident.status; }).join(", ") : "None"],
+          ["Tenant", building.tenantName || "Vacant"],
+          ["Rent", building.rentPerDay ? "$" + building.rentPerDay + " / day" : "Not applicable"],
+          ["Sale value", "$" + building.salePrice]
+        ]);
+        html += '<div class="townhall-project-actions">';
+        if (building.ownerId === "player" && building.type === "commercial" && !building.tenantId && !building.forSale) {
+          html += '<button type="button" data-property-action="lease" data-building-id="' + detailText(building.id) + '">Lease shop</button>';
+        }
+        if (building.ownerId === "player" && !building.forSale) {
+          html += '<button type="button" data-property-action="sell" data-building-id="' + detailText(building.id) + '">Sell property</button>';
+        }
+        if (building.ownerId === "town" && building.forSale) {
+          html += '<button type="button" data-property-action="buy-back" data-building-id="' + detailText(building.id) + '">Buy back for $' + building.salePrice + '</button>';
+        }
+        return html + '</div>';
+      }
+
       function renderLocationDetails() {
         if (!el.locationDetails || !el.locationKicker) return;
         el.locationDetails.hidden = true;
@@ -5913,7 +5995,8 @@
           newsstand: "Newsstand",
           cleared: "Field crew",
           "mine-site": "Construction site",
-          "warehouse-site": "Construction site"
+          "warehouse-site": "Construction site",
+          development: "Property management"
         };
         el.locationKicker.textContent = defaultKickers[state.location] || "Available here";
 
@@ -5943,7 +6026,13 @@
             ["Stone market", "$" + prices.stone + "/t"],
             ["Approved stone", approval ? approval.stoneTons.toFixed(1) + " t · $" + approval.stoneCost : "None"],
             ["Contract total", approval ? "$" + approval.totalCost : "Not quoted"]
-          ]) + townHallProspectBoardMarkup() + townHallResidentialBoardMarkup();
+          ]) + townHallProspectBoardMarkup() + townHallResidentialBoardMarkup() + townHallProjectLedgerMarkup() + townHallWorkforceBoardMarkup();
+          return;
+        }
+
+        if (state.location === "development") {
+          el.locationDetails.hidden = false;
+          el.locationDetails.innerHTML = developmentDetailsMarkup();
           return;
         }
 
@@ -5954,7 +6043,8 @@
           const linkedWarehouse = warehouseParcel && state.warehouses.find(function (warehouse) { return warehouse.parcelId === warehouseParcel.id; });
           const currentHaul = activeHaulForMine(state.mine);
           const companyContract = activeCompanyContractForMine(state.mine);
-          const staffedOutput = CONFIG.mineOutputByLevel[state.mine.level] * CONFIG.workerOutputMultiplierByCount[state.workers];
+          const dedicatedWorkers = mineRequiresDedicatedWorker(state.mine) ? workersAssignedTo("mine", state.mine.id) : state.workers;
+          const staffedOutput = CONFIG.mineOutputByLevel[state.mine.level] * (CONFIG.workerOutputMultiplierByCount[Math.min(4, Math.max(0, dedicatedWorkers))] || 1);
           const nextUnlockLevel = nextMaterialUnlockLevel(state.mine);
           el.locationKicker.textContent = "Mine " + mineIndex + " operations";
           el.locationDetails.hidden = false;
@@ -5966,8 +6056,8 @@
             ["Stockpile", round1(mineStockUsed()).toFixed(1) + " / " + mineCapacity().toFixed(1) + " t"],
             ["Material / dirt", round1(state.mine.stockMaterial).toFixed(1) + " / " + round1(state.mine.stockDirt).toFixed(1) + " t"],
             ["Dirt ratio", Math.round(state.mine.ratio * 100) + "%"],
-            ["Production", round1(staffedOutput).toFixed(1) + " raw t/cycle"],
-            ["Workers", String(state.workers)],
+            ["Production", state.mine.lastProductionStatus === "no-worker" ? "Stopped · no worker" : round1(staffedOutput).toFixed(1) + " raw t/cycle"],
+            ["Workers", String(dedicatedWorkers) + (mineRequiresDedicatedWorker(state.mine) ? " assigned" : " company-wide")],
             ["Contract truck", companyContract ? companyContract.truckSize.toUpperCase() + " · " + round1(companyContract.delivered).toFixed(1) + "/" + companyContract.quantity + " t" : currentHaul ? CONFIG.haulers[currentHaul.size].label + " · " + haulMinutesRemaining(currentHaul) + " min" : "Hire through Market contracts"],
             ["Warehouse", linkedWarehouse ? "Warehouse " + (state.warehouses.indexOf(linkedWarehouse) + 1) + " · Lv" + linkedWarehouse.level : warehouseParcel ? "Land prepared" : "Not connected"],
             ["Depth ore band", mineBandForDepth(state.mine.depth).materials.map(function (material) { return materialNames[material]; }).join(" · ")],
@@ -5989,6 +6079,7 @@
             ["Free space", round1(Math.max(0, warehouseCapacity() - stored)).toFixed(1) + " t"],
             ["Inventory", cargoSummary(state.warehouse.storage)],
             ["Connected mine", linkedMine ? "Mine " + (state.mines.indexOf(linkedMine) + 1) + " · " + materialNames[linkedMine.material] : "No mine link"],
+            ["Workers", warehouseRequiresDedicatedWorker(state.warehouse) ? String(workersAssignedTo("warehouse", state.warehouse.id)) + " assigned" : "Legacy shared crew"],
             ["Next capacity", state.warehouse.level >= CONFIG.maxWarehouseLevel ? "Maximum" : CONFIG.warehouseCapacityByLevel[state.warehouse.level + 1] + " t"]
           ]);
           return;
@@ -6002,7 +6093,7 @@
             ["Survey", materialNames[state.mineParcel.material] + " · " + Math.round(state.mineParcel.ratio * 100) + "% dirt"],
             ["Claim depth", (state.mineParcel.depth || 0) + " tiles"],
             ["Prepared", clearedCells + " / 4 tiles"]
-          ]);
+          ]) + (siteProjectFor("mine", state.mineParcel.id) ? standaloneProjectActionMarkup(siteProjectFor("mine", state.mineParcel.id)) : "");
           return;
         }
 
@@ -6018,7 +6109,7 @@
             ["Prepared", clearedCells + " / 4 tiles"],
             ["Connected mine", linkedMine ? "Mine " + (state.mines.indexOf(linkedMine) + 1) : "No mine link"],
             ["Build cost", "$" + CONFIG.warehouseBuildCost]
-          ]);
+          ]) + (siteProjectFor("warehouse", state.warehouseParcel.id) ? standaloneProjectActionMarkup(siteProjectFor("warehouse", state.warehouseParcel.id)) : "");
         }
       }
 

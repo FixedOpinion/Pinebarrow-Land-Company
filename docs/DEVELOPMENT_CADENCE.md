@@ -7,10 +7,10 @@ Pinebarrow development must survive interrupted chats and usage limits. GitHub i
 ## Repository state at this update
 
 - Current `main`: `2c65ba7431b18d5514321cdd2d14cddb08f9128f`
-- Current release marker: v22 smoke-test merge (PR #13)
+- Current release marker: v22 smoke-test merge (PR #13); v24 is the active integrated draft
 - Reference-only Workforce branch: `phase-5-workforce` / closed superseded PR #4
 - Stale visual branch: `town-road-building-fix` / draft PR #2; do not merge unchanged
-- Active v23 branch: `phase-5-project-construction`
+- Active v24 branch: `phase-5-project-construction` / draft PR #14
 
 PR #4 and the stale visual branch are recovery evidence, not merge bases. The active branch is based on current `main`.
 
@@ -73,29 +73,18 @@ Implementation rule: manually port the small workforce behaviors into the canoni
 
 | Checkpoint | Single responsibility | Verification |
 |---|---|---|
-| 5P.1 | Persist BuildingDefinitions, ConstructionProjects, BuilderBids, and ProcurementContracts under save schema v13 | v12 saves migrate cleanly; duplicate and malformed records are bounded |
-| 5P.2 | Route Town Hall residential proposals through site approval, design snapshot, builder bids, and mine/logistics/hauling contracts | Town Hall action and reassignment-safety tests |
-| 5P.3 | Connect awarded procurement to mine/warehouse inventory, delivery, labor, construction progress, ownership, and management | Material, payment, deadline, and completion regressions |
-| 5P.4 | Apply the same spine to purchased town shops and Crowe-owned buildings | Purchase-agreement, sale, Crowe, and property-management tests |
+| 5P.1 | Persist BuildingDefinitions, ConstructionProjects, BuilderBids, ProcurementContracts, property, resident, and workforce records under save schema v14 | 39 focused regressions pass; bounded/idempotent loaders verified |
+| 5P.2 | Route Town Hall residential proposals and resource sites through approval, design snapshot, builder bids, and supply/logistics/hauling contracts | Residential, mine, and warehouse project tests pass |
+| 5P.3 | Connect awarded procurement to inventory, cash settlement, delivery, labor, deadlines, ownership, and completion | Settlement and completed-building tests pass |
+| 5P.4 | Apply the same spine to purchased town shops, rent/sale/buy-back, workforce staffing, and Crowe-owned buildings | Property, workforce, production-stop, and Crowe tests pass |
 
-The v23 foundation deliberately stops before resource transfer and physical completion. Worker houses add housing capacity; they do not mint workers. Residents, candidates, hiring, and mine/warehouse staffing remain downstream of completed housing.
+The v23 foundation is superseded by the v24 integrated slice. The remaining merge gate is production build, lint, and browser smoke verification on the exact branch head.
 
-### Phase 5B — Physical Worker Houses
+### Phase 5B / 5C — Folded into v24
 
-| Checkpoint | Single responsibility | Verification |
-|---|---|---|
-| 5B.1 | Add 2×2 house records, placement validation, configured cost, and save persistence | Road, wall, tree, ore, building, ownership, and overlap tests |
-| 5B.2 | Add build mode, top-down rendering, selection, and entrance/access behavior | Touch, mouse, keyboard, controller, and reload tests |
-| 5B.3 | Derive worker capacity strictly from completed physical houses | One completed house equals one worker; demolition/removal cannot orphan assignments |
-| 5B.4 | Physical-house integration gate | Full suite and migration pass |
+Physical worker-house records, resident candidates, hiring, one-worker-per-house capacity, mine/warehouse assignment, no-worker stoppage, property management, and reassignment safety were folded into the shared v24 implementation so the game does not carry a second workforce or construction path.
 
-### Phase 5C — Workforce completion
-
-| Checkpoint | Single responsibility | Verification |
-|---|---|---|
-| 5C.1 | Complete assignment/reassignment UI and explicit worker status | Multi-building assignment tests |
-| 5C.2 | Apply worker requirement to warehouses without adding automatic collection yet | Unstaffed warehouse stops operational actions safely |
-| 5C.3 | Workforce phase integration, changelog, merge, and release candidate | Full build/lint/tests and existing-profile smoke test |
+Remaining follow-up work belongs to later economy phases: richer placement validation, demolition/orphan handling, provider competition, warehouse routing, and balance tuning.
 
 ### Phase 6 — Mine Architecture and Efficiency
 

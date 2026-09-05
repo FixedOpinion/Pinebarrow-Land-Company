@@ -73,7 +73,7 @@ Implementation rule: manually port the small workforce behaviors into the canoni
 
 | Checkpoint | Single responsibility | Verification |
 |---|---|---|
-| 5P.1 | Persist BuildingDefinitions, ConstructionProjects, BuilderBids, ProcurementContracts, property, resident, and workforce records under save schema v14 | 39 focused regressions pass; bounded/idempotent loaders verified |
+| 5P.1 | Persist BuildingDefinitions, ConstructionProjects, BuilderBids, ProcurementContracts, property, resident, and workforce records under save schema v14 | 40 focused regressions pass; bounded/idempotent loaders verified |
 | 5P.2 | Route Town Hall residential proposals and resource sites through approval, design snapshot, builder bids, and supply/logistics/hauling contracts | Residential, mine, and warehouse project tests pass |
 | 5P.3 | Connect awarded procurement to inventory, cash settlement, delivery, labor, deadlines, ownership, and completion | Settlement and completed-building tests pass |
 | 5P.4 | Apply the same spine to purchased town shops, rent/sale/buy-back, workforce staffing, and Crowe-owned buildings | Property, workforce, production-stop, and Crowe tests pass |

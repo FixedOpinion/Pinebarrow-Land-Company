@@ -3540,12 +3540,18 @@
       function buildMine() {
         const permitted = state.mineParcel && (state.mineParcel.status === "leased" || state.mineParcel.status === "owned");
         const existingMine = state.mineParcel && state.mines.find(function (mine) { return mine.parcelId === state.mineParcel.id; });
-        if (!permitted || existingMine || !parcelCleared(state.mineParcel) || !besideParcel(state.mineParcel) || state.cash < CONFIG.mineBuildCost) return;
+        const existingProject = state.mineParcel && siteProjectFor("mine", state.mineParcel.id);
+        if (!permitted || existingMine || existingProject || !parcelCleared(state.mineParcel) || !besideParcel(state.mineParcel)) return;
         if (state.mines.length >= mineSlotLimit()) {
           const nextUnlock = CONFIG.mineSlotUnlockDays[state.mines.length] || CONFIG.mineSlotUnlockDays[CONFIG.mineSlotUnlockDays.length - 1];
           setContext("Mine slot locked", "Your company can operate " + mineSlotLimit() + " mine" + (mineSlotLimit() === 1 ? "" : "s") + " today. The next operating permit unlocks on Day " + nextUnlock + ".");
           return;
         }
+        if (!state.legacyConstructionMode) {
+          createSiteConstructionProject("mine", state.mineParcel);
+          return;
+        }
+        if (state.cash < CONFIG.mineBuildCost) return;
         state.cash -= CONFIG.mineBuildCost;
         const newMine = {
           id: allocateSiteId("mine"),
@@ -3921,7 +3927,13 @@
 
       function buildWarehouse() {
         const existingWarehouse = state.warehouseParcel && state.warehouses.find(function (warehouse) { return warehouse.parcelId === state.warehouseParcel.id; });
-        if (!state.warehouseParcel || state.warehouseParcel.status !== "owned" || existingWarehouse || !parcelCleared(state.warehouseParcel) || !besideParcel(state.warehouseParcel) || state.cash < CONFIG.warehouseBuildCost) return;
+        const existingProject = state.warehouseParcel && siteProjectFor("warehouse", state.warehouseParcel.id);
+        if (!state.warehouseParcel || state.warehouseParcel.status !== "owned" || existingWarehouse || existingProject || !parcelCleared(state.warehouseParcel) || !besideParcel(state.warehouseParcel)) return;
+        if (!state.legacyConstructionMode) {
+          createSiteConstructionProject("warehouse", state.warehouseParcel);
+          return;
+        }
+        if (state.cash < CONFIG.warehouseBuildCost) return;
         state.cash -= CONFIG.warehouseBuildCost;
         const newWarehouse = {
           id: allocateSiteId("warehouse"),

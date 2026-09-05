@@ -3599,6 +3599,235 @@
         return materialNames[state.mine.material] + " at forest depth " + state.mine.depth + " · stockpile " + round1(mineStockUsed()).toFixed(1) + " / " + mineCapacity().toFixed(1) + " t · " + round1(state.mine.stockMaterial).toFixed(1) + " material and " + round1(state.mine.stockDirt).toFixed(1) + " dirt · " + state.workers + " hired worker" + (state.workers === 1 ? "" : "s") + (nextMaterial !== state.mine.material ? " · next drill tier: " + materialNames[nextMaterial] + "." : ".");
       }
 
+      function createSiteConstructionProject(siteKind, parcel) {
+        if (state.legacyConstructionMode || !parcel) return false;
+        const existing = siteProjectFor(siteKind, parcel.id);
+        if (existing) {
+          setContext("Project already open", "This site is already tracked by " + existing.id + ". Visit Town Hall to award the builder and bid the supply, logistics, and hauling contracts.", "warning");
+          return false;
+        }
+        const definition = CONFIG.buildingDefinitions[siteKind];
+        if (!definition) return false;
+        const project = openConstructionProject({
+          buildingId: siteKind,
+          ownerId: "player",
+          route: "resource-infrastructure",
+          siteKind: siteKind,
+          siteParcelId: parcel.id,
+          point: {
+            x: parcel.x,
+            y: parcel.y,
+            w: definition.footprint.w,
+            h: definition.footprint.h,
+            doorX: state.player.x,
+            doorY: state.player.y
+          },
+          cost: definition.baseCost
+        });
+        if (!project) return false;
+        parcel.constructionProjectId = project.id;
+        setContext(siteKind === "mine" ? "Mine project opened" : "Warehouse project opened", definition.label + " now follows the shared builder, supply, logistics, and hauling pipeline. Take the project to Town Hall for contract bids.", "success");
+        return true;
+      }
+
+      function workersAssignedTo(jobType, jobId) {
+        return state.workforce.filter(function (worker) {
+          return worker.status === "assigned" && worker.jobType === jobType && worker.jobId === jobId;
+        }).length;
+      }
+
+      function availableWorkforce() {
+        return state.workforce.filter(function (worker) { return worker.status === "available"; });
+      }
+
+      function syncWorkerMirror() {
+        state.workers = Math.max(0, Math.min(CONFIG.maxWorkers, state.workforce.filter(function (worker) {
+          return worker.status !== "inactive";
+        }).length));
+      }
+
+      function residentForWorkforce(worker) {
+        return worker && worker.residentId ? state.residents.find(function (resident) { return resident.id === worker.residentId; }) : null;
+      }
+
+      function targetCanReceiveWorker(jobType, jobId) {
+        if (workersAssignedTo(jobType, jobId) >= 1) return false;
+        if (jobType === "mine") {
+          return state.mines.some(function (mine) { return mine.id === jobId; });
+        }
+        if (jobType === "warehouse") {
+          return state.warehouses.some(function (warehouse) { return warehouse.id === jobId; });
+        }
+        return false;
+      }
+
+      function assignWorkforceToJob(workerId, jobType, jobId) {
+        const worker = state.workforce.find(function (record) { return record.id === workerId; });
+        if (!worker || worker.status !== "available" || !targetCanReceiveWorker(jobType, jobId)) return false;
+        worker.status = "assigned";
+        worker.jobType = jobType;
+        worker.jobId = jobId;
+        const resident = residentForWorkforce(worker);
+        if (resident) resident.employerId = jobType + ":" + jobId;
+        syncWorkerMirror();
+        return true;
+      }
+
+      function unassignWorkforce(workerId) {
+        const worker = state.workforce.find(function (record) { return record.id === workerId; });
+        if (!worker || worker.status !== "assigned") return false;
+        worker.status = "available";
+        worker.jobType = null;
+        worker.jobId = null;
+        const resident = residentForWorkforce(worker);
+        if (resident) resident.employerId = null;
+        syncWorkerMirror();
+        return true;
+      }
+
+      function hireResidentRecord(resident, assignJobType, assignJobId) {
+        if (!resident || resident.status !== "candidate" || state.workforce.length >= CONFIG.maxWorkforce || state.workers >= CONFIG.maxWorkers) return false;
+        const cost = nextWorkerCost();
+        if (state.cash < cost) return false;
+        state.cash -= cost;
+        const worker = {
+          id: allocateWorkforceId(),
+          residentId: resident.id,
+          status: "available",
+          jobType: null,
+          jobId: null,
+          createdDay: state.day
+        };
+        state.workforce.push(worker);
+        resident.status = "worker";
+        resident.workforceId = worker.id;
+        if (assignJobType && assignJobId) assignWorkforceToJob(worker.id, assignJobType, assignJobId);
+        syncWorkerMirror();
+        return true;
+      }
+
+      function hireResident(residentId) {
+        if (state.location !== "townhall") return;
+        const resident = state.residents.find(function (record) { return record.id === residentId; });
+        if (!resident || resident.status !== "candidate") return;
+        if (!hireResidentRecord(resident)) {
+          setContext("Hiring blocked", "The company needs housing candidates, available workforce capacity, and $" + nextWorkerCost() + " to hire this resident.", "danger");
+          return;
+        }
+        setContext("Resident hired", resident.name + " joined the company workforce and is available for one mine or warehouse assignment.", "success");
+        saveState(true);
+        renderInterface();
+      }
+
+      function assignResidentToJob(workerId, jobType, jobId) {
+        if (state.location !== "townhall" || !assignWorkforceToJob(workerId, jobType, jobId)) return;
+        const worker = state.workforce.find(function (record) { return record.id === workerId; });
+        const targetLabel = jobType === "mine" ? "mine" : "warehouse";
+        setContext("Worker assigned", (worker && residentForWorkforce(worker) ? residentForWorkforce(worker).name : "The resident") + " now staffs the " + targetLabel + " and production or handling may resume.", "success");
+        saveState(true);
+        renderInterface();
+      }
+
+      function mineRequiresDedicatedWorker(mine) {
+        return Boolean(mine && mine.constructionProjectId && !state.legacyConstructionMode);
+      }
+
+      function warehouseRequiresDedicatedWorker(warehouse) {
+        return Boolean(warehouse && warehouse.constructionProjectId && !state.legacyConstructionMode);
+      }
+
+      function processPropertyRent() {
+        if (state.legacyConstructionMode) return;
+        state.developedBuildings.forEach(function (building) {
+          if (!building || building.type !== "commercial" || building.ownerId !== "player" || building.forSale || !building.tenantId) return;
+          const rent = Math.max(0, Number(building.rentPerDay) || 0);
+          if (!rent || building.lastRentDay === state.day) return;
+          state.cash += rent;
+          building.lastRentDay = state.day;
+          building.rentCollected = Math.max(0, Number(building.rentCollected) || 0) + rent;
+        });
+      }
+
+      function leaseDevelopedShop(buildingId) {
+        if (state.location !== "development") return;
+        const building = state.developedBuildings.find(function (record) { return record.id === buildingId; });
+        if (!building || building.type !== "commercial" || building.ownerId !== "player" || building.forSale || building.tenantId) return;
+        building.tenantId = "tenant-" + building.id;
+        building.tenantName = "Pinebarrow shopkeeper";
+        setContext("Shop leased", building.tenantName + " took the shop. Rent of $" + building.rentPerDay + " is collected each day while you retain ownership.", "success");
+        saveState(true);
+        renderInterface();
+      }
+
+      function sellDevelopedBuilding(buildingId) {
+        if (state.location !== "development") return;
+        const building = state.developedBuildings.find(function (record) { return record.id === buildingId; });
+        if (!building || building.ownerId !== "player") return;
+        const salePrice = Math.max(1, Number(building.salePrice) || 0);
+        state.cash += salePrice;
+        building.ownerId = "town";
+        building.status = "for-sale";
+        building.forSale = true;
+        building.tenantId = null;
+        building.tenantName = null;
+        setContext("Property sold", "The town bought back " + building.buildingId + " for $" + salePrice + ". It remains recoverable as a buy-back property.", "success");
+        saveState(true);
+        renderInterface();
+      }
+
+      function buyBackDevelopedBuilding(buildingId) {
+        if (state.location !== "development") return;
+        const building = state.developedBuildings.find(function (record) { return record.id === buildingId; });
+        if (!building || building.ownerId !== "town" || !building.forSale) return;
+        const price = Math.max(1, Number(building.salePrice) || 0);
+        if (state.cash < price) {
+          setContext("Buy-back blocked", "The company needs $" + price + " to recover this property.", "danger");
+          return;
+        }
+        state.cash -= price;
+        building.ownerId = "player";
+        building.status = "completed";
+        building.forSale = false;
+        setContext("Property recovered", "The company bought the property back from the town and retained its existing building record.", "success");
+        saveState(true);
+        renderInterface();
+      }
+
+      function ensureCroweDevelopmentProject() {
+        if (state.legacyConstructionMode || state.day < 3) return;
+        const existingProject = state.constructionProjects.find(function (project) {
+          return project.buildingId === "crowe-workshop" && !["cancelled"].includes(project.status);
+        });
+        const existingBuilding = state.developedBuildings.some(function (building) {
+          return building.buildingId === "crowe-workshop";
+        });
+        if (existingProject || existingBuilding) return;
+        const project = openConstructionProject({
+          buildingId: "crowe-workshop",
+          ownerId: "crowe",
+          route: "crowe",
+          siteKind: "crowe",
+          siteParcelId: "crowe-development",
+          point: { x: 43, y: SOUTH_TOP + 7, w: 2, h: 2, doorX: 45, doorY: SOUTH_TOP + 6 },
+          cost: CONFIG.buildingDefinitions["crowe-workshop"].baseCost
+        });
+        if (!project) return;
+        const bid = constructionBidsForProject(project.id)[0];
+        if (bid) {
+          bid.status = "awarded";
+          project.builderBidId = bid.id;
+          project.builderId = bid.builderId;
+          project.builderCost = 0;
+          project.builderDurationMultiplier = .75;
+          project.status = "ready-to-build";
+          project.deadlineDay = state.day + bid.durationDays + 3;
+        }
+        procurementContractsForProject(project.id).forEach(function (contract) {
+          contract.providerId = "crowe-construction";
+          contract.status = "awarded";
+        });
+      }
+
       function produceMines() {
         if (!state.mines.length) return;
         const dirtKeptShare = state.shaker ? .15 : 1;

@@ -7066,6 +7066,59 @@
         ctx.restore();
       }
 
+      function drawDevelopedBuilding(building, colors) {
+        if (!building || building.status === "sold") return;
+        const point = screenPoint(building.x, building.y);
+        const width = building.w * drawView.scale;
+        const height = building.h * drawView.scale;
+        const definition = CONFIG.buildingDefinitions[building.buildingId] || {};
+        const fill = building.ownerId === "crowe" ? "#754c48" : definition.type === "residential" ? "#866d56" : "#52736e";
+        ctx.save();
+        ctx.shadowColor = colors.shadow;
+        ctx.shadowBlur = Math.max(2, drawView.scale * .42);
+        ctx.fillStyle = fill;
+        roundedPath(point.x, point.y, width, height, Math.max(2, drawView.scale * .22));
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = building.forSale ? "#f0bb42" : "#c7d7d6";
+        ctx.lineWidth = Math.max(1, drawView.scale * .06);
+        ctx.stroke();
+        ctx.fillStyle = "#e9f0eb";
+        ctx.fillRect(point.x + width * .2, point.y + height * .18, width * .18, height * .22);
+        ctx.fillRect(point.x + width * .62, point.y + height * .18, width * .18, height * .22);
+        ctx.fillStyle = "#1b252d";
+        ctx.fillRect(point.x + width * .43, point.y + height * .62, width * .14, height * .38);
+        if (drawView.scale >= 4) {
+          ctx.font = "600 " + Math.max(8, drawView.scale * .38) + "px ui-monospace, monospace";
+          ctx.textAlign = "center";
+          ctx.fillStyle = "#f7f2e8";
+          ctx.fillText(definition.label || "PROPERTY", point.x + width / 2, point.y + height + drawView.scale * .55);
+        }
+        ctx.restore();
+      }
+
+      function drawConstructionProjectSite(project, colors) {
+        if (!project || ["completed", "cancelled"].includes(project.status) || !Number.isFinite(project.x) || !Number.isFinite(project.y)) return;
+        const point = screenPoint(project.x, project.y);
+        const width = (project.w || 2) * drawView.scale;
+        const height = (project.h || 2) * drawView.scale;
+        ctx.save();
+        ctx.setLineDash([Math.max(2, drawView.scale * .22), Math.max(2, drawView.scale * .14)]);
+        ctx.strokeStyle = project.status === "delayed" ? "#e06b5d" : "#e7c26b";
+        ctx.lineWidth = Math.max(1, drawView.scale * .08);
+        ctx.strokeRect(point.x, point.y, width, height);
+        ctx.setLineDash([]);
+        ctx.fillStyle = "rgba(231,194,107,.22)";
+        ctx.fillRect(point.x, point.y, width, height);
+        if (drawView.scale >= 4) {
+          ctx.font = "600 " + Math.max(8, drawView.scale * .34) + "px ui-monospace, monospace";
+          ctx.textAlign = "center";
+          ctx.fillStyle = project.status === "delayed" ? "#ffd1c7" : "#fff0b7";
+          ctx.fillText("SITE · " + Math.round(project.buildProgress * 100) + "%", point.x + width / 2, point.y + height / 2 + drawView.scale * .12);
+        }
+        ctx.restore();
+      }
+
       function drawWorkforce(colors) {
         if (state.prospectorHired) {
           const prospectingHere = state.location === "cleared" && state.selected && state.selected.type === "cleared" && prospectsRemaining() > 0;
@@ -7073,14 +7126,15 @@
           const prospectorY = prospectingHere ? state.selected.y + .18 : buildings[0].doorY + .18;
           drawRosterToken(prospectorX, prospectorY, "P", "#ffd75e", colors);
         }
-        if (!state.mine || state.workers <= 0) return;
+        const activeMineWorkers = state.mine ? (mineRequiresDedicatedWorker(state.mine) ? workersAssignedTo("mine", state.mine.id) : state.workers) : 0;
+        if (!state.mine || activeMineWorkers <= 0) return;
         const positions = [
           { x: state.mine.x - .08, y: state.mine.y + .45 },
           { x: state.mine.x + state.mine.w + .08, y: state.mine.y + .7 },
           { x: state.mine.x + .45, y: state.mine.y - .08 },
           { x: state.mine.x + 1.55, y: state.mine.y + state.mine.h + .08 }
         ];
-        for (let index = 0; index < state.workers; index += 1) {
+        for (let index = 0; index < Math.min(4, activeMineWorkers); index += 1) {
           drawRosterToken(positions[index].x, positions[index].y, "W", "#70e1c1", colors);
         }
       }
@@ -7598,6 +7652,8 @@
           else if (record.status === "open") drawBuilding(business, colors);
           else if (record.status === "announced") drawComingSoonBusiness(business, colors);
         });
+        state.developedBuildings.forEach(function (building) { drawDevelopedBuilding(building, colors); });
+        state.constructionProjects.forEach(function (project) { drawConstructionProjectSite(project, colors); });
         state.mineParcels.forEach(function (parcel, index) {
           const occupied = state.mines.some(function (mine) { return mine.parcelId === parcel.id; });
           if (!occupied) drawParcel(parcel, colors, "Mine land " + (index + 1));

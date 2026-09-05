@@ -2490,6 +2490,23 @@
           return x >= building.x && x < building.x + building.w && y >= building.y && y < building.y + building.h;
         }) || null;
         if (coreBuilding) return coreBuilding;
+        const developed = state.developedBuildings.find(function (building) {
+          return building && building.status !== "sold" && x >= building.x && x < building.x + building.w && y >= building.y && y < building.y + building.h;
+        });
+        if (developed) {
+          const definition = CONFIG.buildingDefinitions[developed.buildingId] || {};
+          return {
+            id: "development-" + developed.id,
+            developmentId: developed.id,
+            label: definition.label || "Developed building",
+            x: developed.x,
+            y: developed.y,
+            w: developed.w,
+            h: developed.h,
+            doorX: developed.doorX,
+            doorY: developed.doorY
+          };
+        }
         return businessLots.find(function (business) {
           const record = state.townBusinesses[business.id];
           return record && (record.status === "announced" || record.status === "open") && x >= business.x && x < business.x + business.w && y >= business.y && y < business.y + business.h;
@@ -2765,7 +2782,9 @@
       }
 
       function isStructureCell(x, y) {
-        return Boolean(mineAt(x, y) || warehouseAt(x, y));
+        return Boolean(mineAt(x, y) || warehouseAt(x, y) || state.developedBuildings.some(function (building) {
+          return building && building.status !== "sold" && x >= building.x && x < building.x + building.w && y >= building.y && y < building.y + building.h;
+        }));
       }
 
       function isPassable(x, y) {
@@ -2898,7 +2917,7 @@
       }
 
       function travelToBuilding(building) {
-        queueTravel(buildingDoorTargets(building), { type: "building", buildingId: building.id }, building.label);
+        queueTravel(buildingDoorTargets(building), { type: "building", buildingId: building.id, developmentId: building.developmentId || null }, building.label);
       }
 
       function adjacentPassableTargets(x, y) {
@@ -3020,6 +3039,13 @@
         }
         if (arrival.type === "building") {
           state.location = arrival.buildingId;
+          if (arrival.developmentId) {
+            state.developmentId = arrival.developmentId;
+            const developed = state.developedBuildings.find(function (building) { return building.id === arrival.developmentId; });
+            setContext((developed && developed.ownerId === "player" ? "Company property" : "Town property"), developed ? (CONFIG.buildingDefinitions[developed.buildingId] || {}).label || "Developed building" : "Developed building");
+            return;
+          }
+          state.developmentId = null;
           if (arrival.buildingId === "market") {
             if (!state.mine && state.mines.length) selectActiveMine(state.mines[0]);
             setContext("Market", "Choose Marketplace to post player-priced sell offers, or Company Contracts to assign a repeating truck to one matching mine. Permanent mine workers are still hired at this counter.");

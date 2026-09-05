@@ -6,13 +6,13 @@ Pinebarrow development must survive interrupted chats and usage limits. GitHub i
 
 ## Repository state at this update
 
-- Current `main`: `6e62e45e64ca3fe3f91a9f05ef3d0377def29772`
-- Current live-engine baseline before new mechanics: `f36a8aa5611998066bf19bf02ba735d3dad08044`
-- Reference-only Workforce branch: `phase-5-workforce` / draft PR #4
-- Deferred mine-planning branch: `phase-4b-mine-foundation`
-- Next code branch: create `phase-5r-workforce-reconciliation` from the then-current `main`
+- Current `main`: `2c65ba7431b18d5514321cdd2d14cddb08f9128f`
+- Current release marker: v22 smoke-test merge (PR #13)
+- Reference-only Workforce branch: `phase-5-workforce` / closed superseded PR #4
+- Stale visual branch: `town-road-building-fix` / draft PR #2; do not merge unchanged
+- Active v23 branch: `phase-5-project-construction`
 
-The old Workforce branch and deferred mine branch are recovery evidence. Neither should be merged wholesale.
+PR #4 and the stale visual branch are recovery evidence, not merge bases. The active branch is based on current `main`.
 
 ## Required checkpoint cycle
 
@@ -42,7 +42,7 @@ A phase is merged or published only after:
 
 ## Usage-efficient rules
 
-- Default to one micro-phase per development turn.
+- Default to one coherent vertical slice per development turn; it may touch the engine, UI, tests, and documentation when those pieces are inseparable.
 - Never hold more than one self-contained behavior uncommitted.
 - Target no more than three production files plus focused tests and documentation per checkpoint.
 - Use targeted file/line retrieval for inspection; fetch an entire large engine only when it must be edited.
@@ -68,6 +68,17 @@ Purpose: safely port the useful Workforce 5A foundation onto the current integra
 | 5R.4 | Reconciliation compatibility pass | Full tests/build/lint; verified PR checkpoint; stop before physical placement |
 
 Implementation rule: manually port the small workforce behaviors into the canonical current engine and Operations UI. Do not replace current files with the older branch versions, and do not preserve runtime monkey-patching merely because the reference branch used it.
+
+### Phase 5P — Shared Project/Construction Foundation
+
+| Checkpoint | Single responsibility | Verification |
+|---|---|---|
+| 5P.1 | Persist BuildingDefinitions, ConstructionProjects, BuilderBids, and ProcurementContracts under save schema v13 | v12 saves migrate cleanly; duplicate and malformed records are bounded |
+| 5P.2 | Route Town Hall residential proposals through site approval, design snapshot, builder bids, and mine/logistics/hauling contracts | Town Hall action and reassignment-safety tests |
+| 5P.3 | Connect awarded procurement to mine/warehouse inventory, delivery, labor, construction progress, ownership, and management | Material, payment, deadline, and completion regressions |
+| 5P.4 | Apply the same spine to purchased town shops and Crowe-owned buildings | Purchase-agreement, sale, Crowe, and property-management tests |
+
+The v23 foundation deliberately stops before resource transfer and physical completion. Worker houses add housing capacity; they do not mint workers. Residents, candidates, hiring, and mine/warehouse staffing remain downstream of completed housing.
 
 ### Phase 5B — Physical Worker Houses
 

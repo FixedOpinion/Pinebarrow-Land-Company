@@ -11,7 +11,7 @@
 - Added worker-house residents, explicit hiring, one-worker-per-house staffing, mine/warehouse assignment, no-worker production stoppage, and reassignment-safe workforce actions.
 - Added rentable shops with daily rent, sale-at-any-time, and recoverable town buy-back records.
 - Put Crowe's workshop through the same project, builder, procurement, delivery, and completion path.
-- Added 39 focused Node regressions for settlement, completion, site projects, staffing, property lifecycle, and Crowe.
+- Added 40 focused Node regressions for settlement, completion, site projects, staffing, property lifecycle, and Crowe.
 - Full production build, lint, and browser smoke verification remain the merge gate for this draft branch.
 
 ### Project/construction foundation — v23 (superseded by v24)

@@ -4866,6 +4866,7 @@
           return;
         }
         const definition = projectBuildingDefinitionFor(proposal);
+        const projectRequirements = normalizeRequirementStore(definition.resources);
         const project = {
           id: allocateConstructionProjectId(),
           proposalId: proposal.id,
@@ -4873,8 +4874,8 @@
           ownerId: proposal.owner || "player",
           level: 1,
           status: "awaiting-builder",
-          requirements: normalizeRequirementStore(definition.resources),
-          delivered: {},
+          requirements: projectRequirements,
+          delivered: normalizeDeliveredStore({}, projectRequirements),
           laborRequired: definition.labor,
           laborDelivered: 0,
           buildProgress: 0,

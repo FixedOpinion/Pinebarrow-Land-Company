@@ -7813,13 +7813,36 @@
       el.selectProspect2.addEventListener("click", function () { selectSurveyParcelById(el.selectProspect2.dataset.prospectId); });
       if (el.locationDetails) {
         el.locationDetails.addEventListener("click", function (event) {
-          const button = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-project-action]") : null;
-          if (!button) return;
-          const action = button.dataset.projectAction;
-          const id = action === "award-builder" ? button.dataset.bidId
-            : action === "bid-procurement" ? button.dataset.procurementId
-              : button.dataset.proposalId;
-          handleProjectAction(action, id);
+          const projectButton = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-project-action]") : null;
+          if (projectButton) {
+            const action = projectButton.dataset.projectAction;
+            const id = action === "award-builder" ? projectButton.dataset.bidId
+              : action === "bid-procurement" ? projectButton.dataset.procurementId
+                : projectButton.dataset.proposalId;
+            handleProjectAction(action, id);
+            return;
+          }
+          const workforceButton = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-workforce-action]") : null;
+          if (workforceButton) {
+            const action = workforceButton.dataset.workforceAction;
+            if (action === "hire-resident") hireResident(workforceButton.dataset.residentId);
+            else if (action === "assign") assignResidentToJob(workforceButton.dataset.workerId, workforceButton.dataset.jobType, workforceButton.dataset.jobId);
+            else if (action === "unassign") {
+              if (unassignWorkforce(workforceButton.dataset.workerId)) {
+                setContext("Worker unassigned", "The worker is available for another mine or warehouse assignment.", "success");
+                saveState(true);
+                renderInterface();
+              }
+            }
+            return;
+          }
+          const propertyButton = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-property-action]") : null;
+          if (propertyButton) {
+            const action = propertyButton.dataset.propertyAction;
+            if (action === "lease") leaseDevelopedShop(propertyButton.dataset.buildingId);
+            else if (action === "sell") sellDevelopedBuilding(propertyButton.dataset.buildingId);
+            else if (action === "buy-back") buyBackDevelopedBuilding(propertyButton.dataset.buildingId);
+          }
         });
       }
       el.lease.addEventListener("click", leaseMineLand);

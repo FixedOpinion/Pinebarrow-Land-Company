@@ -5558,11 +5558,15 @@
         const elapsed = Math.max(1, Number(minutes) || 1);
         state.constructionProjects.slice().forEach(function (project) {
           if (!project || ["completed", "cancelled"].includes(project.status)) return;
-          if (state.day > project.deadlineDay && project.status !== "delayed") {
+          if (state.day > project.deadlineDay && !["awaiting-builder", "procurement"].includes(project.status) && project.status !== "delayed") {
             project.status = "delayed";
             project.delayDays = Math.max(1, state.day - project.deadlineDay);
           }
-          if (project.status === "awaiting-builder" || project.status === "procurement") return;
+          if (project.status === "awaiting-builder") return;
+          if (project.status === "procurement") {
+            if (constructionProjectHasAwardedContracts(project)) project.status = "ready-to-build";
+            else return;
+          }
           if (!constructionProjectHasAwardedContracts(project)) return;
           procurementContractsForProject(project.id).forEach(function (contract) {
             if (contract.status !== "awarded") return;

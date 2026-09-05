@@ -1,9 +1,9 @@
 # Pinebarrow Land Company — Project, Construction, Property, and Workforce Specification
 
-**Status:** Approved design direction for the next implementation milestone
+**Status:** Implemented v24 checkpoint; merge candidate pending production build/lint verification
 **Starting main:** `2c65ba7431b18d5514321cdd2d14cddb08f9128f`
 **Branch:** `phase-5-project-construction`
-**Scope:** Consolidated design plus the first shared project/construction implementation boundary
+**Scope:** Shared project, construction, procurement, workforce, property, and Crowe implementation
 
 ## Why this replaces the old Phase 5 split
 
@@ -71,15 +71,14 @@ Configuration/data source for building designs. Definitions own footprint, permi
 
 Stable saved record for one physical development job:
 
-- `id`, `proposalId`, `buildingId`, `level`, and `ownerId`
-- immutable requirement snapshot
-- `status`: `awaiting-builder`, `builder-awarded`, `procurement`, `building`, `completed`, `blocked`, or `cancelled`
-- awarded builder/bid IDs
-- procurement contract IDs
-- delivered material totals
+- `id`, `proposalId`, `buildingId`, `siteKind`, `siteParcelId`, and `ownerId`
+- immutable requirement snapshot plus delivered totals
+- `status`: `awaiting-builder`, `procurement`, `ready-to-build`, `building`, `delayed`, `completed`, or `cancelled`
+- awarded builder/bid IDs and settled builder cost
+- procurement contract IDs and material/service settlement totals
 - labor/progress totals
-- created, deadline, completion, and cancellation dates
-- ownership and management references
+- created, deadline, delay, and completion dates
+- completed building, mine, or warehouse record reference
 
 ### ConstructionBid
 
@@ -147,62 +146,56 @@ Management may include:
 
 An owned property can be listed for sale at any time after the defined ownership state exists. Sale must settle or explicitly transfer active management and contract obligations; it must never delete the property or its ledger history.
 
-## Existing-runtime reconciliation
+## v24 implementation reconciliation
 
-The current main branch already provides:
+The current main branch supplied the canonical engine, stable proposal/mine/warehouse/haul/company-contract IDs, schema v12 save loading, Town Hall proposal display, prospect leasing, Coming Soon businesses, material prices, and the existing management screens.
 
-- stable proposal, mine, warehouse, prospect, haul, and company-contract IDs;
-- save normalization and migration through schema version 12;
-- Town Hall proposal display;
-- Town Hall prospect approval/lease flow;
-- primitive Coming Soon business progression;
-- existing material prices, mines, warehouses, trucks, company contracts, and Crowe news state.
+The v24 branch adds and persists schema v14 records for:
 
-The current main branch does not yet provide:
+- construction projects, builder bids, procurement contracts, deadlines, delivery, cash settlement, labor progress, completion, and delayed status;
+- completed worker houses, resident candidates, workforce records, one-worker-per-house capacity, explicit mine/warehouse assignment, and no-worker production stoppage;
+- project-backed mine and warehouse construction while preserving existing completed legacy assets;
+- completed town shops with tenants, daily rent, sale, and recoverable town buy-back;
+- Crowe's own project, builder, procurement, construction, and completed-building path;
+- map rendering and Town Hall ledgers for active sites and completed property.
 
-- construction project records;
-- builder profiles or bids;
-- procurement contracts for project materials;
-- logistics/hauling obligations tied to construction;
-- ownership/management/sale records for developed lots;
-- resident/candidate/hiring records;
-- dedicated worker-house capacity;
-- Crowe construction execution.
-
-Do not replace the current engine or merge PR #4. Add the new spine through the canonical current runtime and preserve existing saves.
+The remaining merge gate is operational rather than architectural: run the repository's production build and lint commands on the exact branch head, then perform a focused browser smoke test.
 
 ## Implementation order
 
-1. Add normalized project, bid, procurement, ownership, and management collections with idempotent save migration.
-2. Add one shared project state transition path and Town Hall permission/purchase-agreement entry points.
-3. Add one complete worker-house project path, including builder bidding and visible blocked procurement status.
-4. Connect actual mine, warehouse, logistics, and hauling contracts.
-5. Add shop ownership, rent, management, sale, and operating workforce requirements.
-6. Run Crowe through the same path with a separate owner/controller.
-7. Add physical map rendering and richer construction stages after the state/economy path is stable.
+The v24 branch completed the shared vertical slice in this order:
 
-Do not combine mine architecture redesign, Shaker balance, full population simulation, and visual redesign into the first project-system implementation.
+1. Add normalized project, bid, procurement, completed-building, resident, and workforce collections with bounded schema migration.
+2. Route residential proposals, purchased town development, mines, warehouses, and Crowe through the same project factory.
+3. Settle awarded builder, material, logistics, and hauling obligations against cash and company inventory.
+4. Advance delivery, labor, deadlines, completion, ownership, rent, sale, and buy-back through game time.
+5. Expose Town Hall project, workforce, property, and contract management while preserving the existing mine, warehouse, market, road, controls, and save flows.
+
+Follow-up phases can deepen provider competition, site-placement validation, demolition, richer warehouse logistics, and production balancing without bypassing this spine.
 
 ## Save and safety requirements
 
 - Increase save schema monotonically from 12.
 - Normalize every collection with stable IDs and bounded lengths.
 - Migrate old proposals without changing their IDs or deleting overflow records.
-- Preserve old `workers` and existing mine/warehouse fields as compatibility mirrors until a later workforce migration replaces them.
+- Preserve old `workers` and existing mine/warehouse fields as compatibility mirrors; migrate old anonymous crews into available workforce records while routing every new build through the project spine.
 - Load incomplete project records into a safe `blocked` or `awaiting-builder` state with a visible reason.
 - Never silently create cash, material, ownership, workers, or completed buildings during migration.
 - Loading the same profile twice must produce the same normalized project state.
 
-## Acceptance target for the first coherent slice
+## Acceptance target for the v24 integrated slice
 
-A test profile should be able to:
+A test profile can now:
 
 1. view a development proposal at Town Hall;
-2. enter the correct permission or purchase route;
-3. create a saved Construction Project;
-4. see a builder bid state and separate procurement obligations;
-5. see the project remain blocked when requirements are missing;
-6. preserve all records through save/reload;
-7. leave existing mining, hauling, marketplace, contracts, controls, and world-layout behavior unchanged.
+2. enter the correct approval or purchase-agreement route;
+3. create a saved Construction Project for a house, shop, mine, warehouse, or Crowe building;
+4. award a builder and bid separate material, logistics, and hauling obligations;
+5. see missing inventory or cash leave delivery blocked instead of creating resources;
+6. watch delivery, service settlement, labor, deadlines, and completion advance with game time;
+7. receive completed building, mine, warehouse, resident, tenant, and ownership records;
+8. hire housed residents, assign one worker per mine or warehouse, stop unstaffed production safely, and reassign without duplicate staffing;
+9. collect shop rent, sell property, recover a sold property, and preserve all records through save/reload.
 
-This first slice is the foundation for the later full construction economy; it is not permission to claim that population, rent, full Crowe AI, or completed construction are already implemented.
+The branch has 39 focused Node regressions passing. Production build, lint, and browser smoke verification remain the final merge gate.
+

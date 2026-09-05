@@ -2649,6 +2649,14 @@
       }
 
       function relocatePlayerFromTownBuilding() {
+        const savedDevelopment = state.location === "development" && state.developmentId
+          ? state.developedBuildings.find(function (building) { return building.id === state.developmentId; })
+          : null;
+        if (savedDevelopment) {
+          state.player = { x: savedDevelopment.doorX, y: savedDevelopment.doorY };
+          state.selected = { type: "building", x: savedDevelopment.x, y: savedDevelopment.y, buildingId: "development-" + savedDevelopment.id };
+          return true;
+        }
         const savedLocationBuilding = townBuildingById(state.location);
         if (savedLocationBuilding) {
           state.player = { x: savedLocationBuilding.doorX, y: savedLocationBuilding.doorY };
@@ -3040,6 +3048,7 @@
         if (arrival.type === "building") {
           state.location = arrival.buildingId;
           if (arrival.developmentId) {
+            state.location = "development";
             state.developmentId = arrival.developmentId;
             const developed = state.developedBuildings.find(function (building) { return building.id === arrival.developmentId; });
             setContext((developed && developed.ownerId === "player" ? "Company property" : "Town property"), developed ? (CONFIG.buildingDefinitions[developed.buildingId] || {}).label || "Developed building" : "Developed building");

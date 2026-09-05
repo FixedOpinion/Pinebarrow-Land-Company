@@ -97,7 +97,8 @@
             resources: { logs: 20, stone: 15 },
             labor: 2,
             buildTimeDays: 2,
-            housingCapacity: 1
+            housingCapacity: 1,
+            workerSlots: 0
           },
           "town-shop": {
             id: "town-shop",
@@ -109,7 +110,8 @@
             resources: { logs: 35, stone: 25 },
             labor: 4,
             buildTimeDays: 3,
-            housingCapacity: 0
+            housingCapacity: 0,
+            workerSlots: 1
           },
           "crowe-workshop": {
             id: "crowe-workshop",
@@ -121,7 +123,8 @@
             resources: { logs: 30, stone: 20 },
             labor: 4,
             buildTimeDays: 3,
-            housingCapacity: 0
+            housingCapacity: 0,
+            workerSlots: 2
           },
           "mine": {
             id: "mine",
@@ -1473,7 +1476,8 @@
         building.doorY = Number.isFinite(building.doorY) ? Math.round(building.doorY) : building.y;
         building.residentIds = Array.isArray(building.residentIds) ? building.residentIds.filter(function (id) { return typeof id === "string"; }) : [];
         building.workerIds = Array.isArray(building.workerIds) ? building.workerIds.filter(function (id) { return typeof id === "string"; }) : [];
-        building.workerSlots = Number.isFinite(building.workerSlots) ? Math.max(0, Math.round(building.workerSlots)) : 0;
+        const definition = CONFIG.buildingDefinitions[building.buildingId] || {};
+        building.workerSlots = Number.isFinite(building.workerSlots) ? Math.max(0, Math.round(building.workerSlots)) : Math.max(0, Math.round(definition.workerSlots || 0));
         building.rentPerDay = Number.isFinite(building.rentPerDay) ? Math.max(0, Math.round(building.rentPerDay)) : 0;
         building.salePrice = Number.isFinite(building.salePrice) ? Math.max(0, Math.round(building.salePrice)) : 0;
         building.forSale = Boolean(building.forSale || building.status === "for-sale");
@@ -3711,6 +3715,11 @@
         if (jobType === "warehouse") {
           return state.warehouses.some(function (warehouse) { return warehouse.id === jobId; });
         }
+        if (jobType === "shop") {
+          return state.developedBuildings.some(function (building) {
+            return building.id === jobId && building.type === "commercial" && building.ownerId === "player" && building.tenantId && !building.forSale;
+          });
+        }
         return false;
       }
 
@@ -3797,6 +3806,7 @@
           if (!rent || building.lastRentDay === state.day) return;
           state.cash += rent;
           building.lastRentDay = state.day;
+          building.operatingStatus = workersAssignedTo("shop", building.id) >= building.workerSlots ? "operating" : "unstaffed";
           building.rentCollected = Math.max(0, Number(building.rentCollected) || 0) + rent;
         });
       }
@@ -3816,6 +3826,14 @@
         if (state.location !== "development") return;
         const building = state.developedBuildings.find(function (record) { return record.id === buildingId; });
         if (!building || building.ownerId !== "player") return;
+        const occupants = state.residents.filter(function (resident) { return resident.houseId === building.id && resident.status !== "evicted"; });
+        if (building.type === "residential" && occupants.length) {
+          setContext("Sale blocked", "Move the resident out of this house before selling it; the company will not silently orphan housing or a workforce assignment.", "danger");
+          return;
+        }
+        state.workforce.filter(function (worker) { return worker.status === "assigned" && worker.jobType === "shop" && worker.jobId === building.id; }).forEach(function (worker) {
+          unassignWorkforce(worker.id);
+        });
         const salePrice = Math.max(1, Number(building.salePrice) || 0);
         state.cash += salePrice;
         building.ownerId = "town";
@@ -3823,6 +3841,7 @@
         building.forSale = true;
         building.tenantId = null;
         building.tenantName = null;
+        building.operatingStatus = "town-held";
         setContext("Property sold", "The town bought back " + building.buildingId + " for $" + salePrice + ". It remains recoverable as a buy-back property.", "success");
         saveState(true);
         renderInterface();
@@ -5530,7 +5549,7 @@
           doorY: point.doorY,
           residentIds: [],
           workerIds: [],
-          workerSlots: definition.type === "commercial" ? 1 : 0,
+          workerSlots: Math.max(0, Math.round(definition.workerSlots || 0)),
           rentPerDay: definition.type === "commercial" ? 35 : 0,
           salePrice: Math.max(definition.baseCost, Math.round((project.cost || definition.baseCost) * 1.15)),
           forSale: false,
@@ -5957,6 +5976,9 @@
         const workers = state.workforce.filter(function (worker) { return worker.status !== "inactive"; });
         const mineTargets = state.mines.filter(function (mine) { return workersAssignedTo("mine", mine.id) < 1; });
         const warehouseTargets = state.warehouses.filter(function (warehouse) { return workersAssignedTo("warehouse", warehouse.id) < 1; });
+        const shopTargets = state.developedBuildings.filter(function (building) {
+          return building.type === "commercial" && building.ownerId === "player" && building.tenantId && !building.forSale && workersAssignedTo("shop", building.id) < building.workerSlots;
+        });
         let html = '<section class="townhall-prospect-board townhall-workforce-board" aria-label="Workforce management"><header><span>Workforce management</span><strong>' + state.workers + ' / ' + CONFIG.maxWorkers + ' workers</strong></header>';
         html += '<p class="townhall-proposal-overflow">' + houses.length + ' completed workforce house' + (houses.length === 1 ? "" : "s") + ' · ' + candidates.length + ' resident candidate' + (candidates.length === 1 ? "" : "s") + '. Each house holds one resident; each mine or warehouse takes one assigned worker.</p>';
         if (candidates.length) {
@@ -5974,6 +5996,8 @@
               return '<button type="button" data-workforce-action="assign" data-worker-id="' + detailText(worker.id) + '" data-job-type="mine" data-job-id="' + detailText(mine.id) + '">Mine ' + detailText(mine.id) + '</button>';
             }).concat(warehouseTargets.map(function (warehouse) {
               return '<button type="button" data-workforce-action="assign" data-worker-id="' + detailText(worker.id) + '" data-job-type="warehouse" data-job-id="' + detailText(warehouse.id) + '">Warehouse ' + detailText(warehouse.id) + '</button>';
+            })).concat(shopTargets.map(function (shop) {
+              return '<button type="button" data-workforce-action="assign" data-worker-id="' + detailText(worker.id) + '" data-job-type="shop" data-job-id="' + detailText(shop.id) + '">Shop ' + detailText(shop.id) + '</button>';
             })).join("");
             return '<span><b>' + detailText(resident ? resident.name : worker.id) + '</b><em>available</em>' + (buttons || '<em>No open mine or warehouse slot</em>') + '</span>';
           }).join("") + '</div>';
@@ -5992,6 +6016,8 @@
           ["Status", building.forSale ? "For buy-back" : building.status],
           ["Residents", residents.length ? residents.map(function (resident) { return resident.name + " · " + resident.status; }).join(", ") : "None"],
           ["Tenant", building.tenantName || "Vacant"],
+          ["Workers", building.workerSlots ? workersAssignedTo("shop", building.id) + " / " + building.workerSlots : "Not applicable"],
+          ["Operating status", building.operatingStatus || (building.type === "commercial" ? "unstaffed" : "not applicable")],
           ["Rent", building.rentPerDay ? "$" + building.rentPerDay + " / day" : "Not applicable"],
           ["Sale value", "$" + building.salePrice]
         ]);

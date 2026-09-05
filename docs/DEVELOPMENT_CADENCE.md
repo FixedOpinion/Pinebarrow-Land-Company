@@ -6,9 +6,9 @@ Pinebarrow development must survive interrupted chats and usage limits. GitHub i
 
 ## Repository state at this update
 
-- Current `main`: `6e62e45e64ca3fe3f91a9f05ef3d0377def29772`
+- Current `main`: `2c65ba7431b18d5514321cdd2d14cddb08f9128f` (verified 2026-09-05)
 - Current live-engine baseline before new mechanics: `f36a8aa5611998066bf19bf02ba735d3dad08044`
-- Reference-only Workforce branch: `phase-5-workforce` / draft PR #4
+- Reference-only Workforce branch: `phase-5-workforce` / PR #4 (closed as superseded 2026-09-05)
 - Deferred mine-planning branch: `phase-4b-mine-foundation`
 - Next code branch: create `phase-5r-workforce-reconciliation` from the then-current `main`
 

@@ -4974,6 +4974,13 @@
         return state.constructionProjects.find(function (project) { return project.proposalId === proposalId; }) || null;
       }
 
+      function siteProjectFor(siteKind, siteParcelId) {
+        return state.constructionProjects.find(function (project) {
+          return project.siteKind === siteKind && project.siteParcelId === siteParcelId &&
+            !["completed", "cancelled"].includes(project.status);
+        }) || null;
+      }
+
       function constructionBidsForProject(projectId) {
         return state.constructionBids.filter(function (bid) { return bid.projectId === projectId; });
       }
@@ -4995,6 +5002,370 @@
         if (owner === "crowe" || type === "crowe") return CONFIG.buildingDefinitions["crowe-workshop"];
         if (type === "residential") return CONFIG.buildingDefinitions["worker-house"];
         return CONFIG.buildingDefinitions["town-shop"];
+      }
+
+      function constructionProjectHasAwardedContracts(project) {
+        const contracts = procurementContractsForProject(project.id);
+        return contracts.length > 0 && contracts.every(function (contract) {
+          return ["awarded", "fulfilled"].includes(contract.status);
+        });
+      }
+
+      function constructionContractIsComplete(contract) {
+        return contract.status === "fulfilled" || (contract.quantity > 0 && contract.delivered >= contract.quantity - .01);
+      }
+
+      function constructionProjectHasDeliveredContracts(project) {
+        const contracts = procurementContractsForProject(project.id);
+        return contracts.length > 0 && contracts.every(constructionContractIsComplete);
+      }
+
+      function constructionProjectDefinition(project) {
+        return CONFIG.buildingDefinitions[project.buildingId] || CONFIG.buildingDefinitions["town-shop"];
+      }
+
+      function takeConstructionInventory(material, amount) {
+        let remaining = Math.max(0, amount);
+        let taken = 0;
+        const take = function (store, key) {
+          if (!store || remaining <= .01) return;
+          const available = Math.max(0, Number(store[key]) || 0);
+          const amountTaken = Math.min(available, remaining);
+          if (amountTaken <= 0) return;
+          store[key] = Math.round((available - amountTaken) * 10) / 10;
+          remaining -= amountTaken;
+          taken += amountTaken;
+        };
+        take(state.cargo, material);
+        state.warehouses.forEach(function (warehouse) {
+          if (remaining <= .01 || !warehouse || !warehouse.storage) return;
+          if (!state.legacyConstructionMode && workersAssignedTo("warehouse", warehouse.id) < 1) return;
+          take(warehouse.storage, material);
+        });
+        if (material === "stone" || material === "logs") {
+          state.mines.forEach(function (mine) {
+            if (remaining <= .01 || !mine || mine.material !== material) return;
+            if (!state.legacyConstructionMode && mine.constructionProjectId && workersAssignedTo("mine", mine.id) < 1) return;
+            const available = Math.max(0, Number(mine.stockMaterial) || 0);
+            const amountTaken = Math.min(available, remaining);
+            if (amountTaken <= 0) return;
+            mine.stockMaterial = Math.round((available - amountTaken) * 10) / 10;
+            remaining -= amountTaken;
+            taken += amountTaken;
+          });
+        }
+        return taken;
+      }
+
+      function constructionEmergencyUnitPrice(material) {
+        return Math.max(1, Math.round((Number(basePrices[material]) || 25) * CONFIG.constructionEmergencyPriceMultiplier));
+      }
+
+      function settleConstructionMaterial(project, contract, minutes) {
+        if (contract.status !== "awarded" || !contract.material) return;
+        const remaining = Math.max(0, contract.quantity - contract.delivered);
+        if (remaining <= .01) {
+          contract.status = "fulfilled";
+          return;
+        }
+        const rate = Math.max(.1, CONFIG.constructionDeliveryTonsPerHour * Math.max(1, minutes) / 60);
+        const requested = Math.min(remaining, rate);
+        let delivered = project.ownerId === "crowe" ? requested : takeConstructionInventory(contract.material, requested);
+        const shortfall = Math.max(0, requested - delivered);
+        if (shortfall > .01 && project.ownerId !== "crowe") {
+          const emergencyCost = Math.ceil(shortfall * constructionEmergencyUnitPrice(contract.material));
+          if (state.cash >= emergencyCost) {
+            state.cash -= emergencyCost;
+            project.materialCostPaid += emergencyCost;
+            delivered += shortfall;
+            contract.emergencyTons = Math.round(((contract.emergencyTons || 0) + shortfall) * 10) / 10;
+          }
+        }
+        if (delivered <= 0) return;
+        contract.delivered = Math.min(contract.quantity, Math.round((contract.delivered + delivered) * 10) / 10);
+        project.delivered[contract.material] = contract.delivered;
+        if (contract.delivered >= contract.quantity - .01) {
+          contract.delivered = contract.quantity;
+          contract.status = "fulfilled";
+        }
+      }
+
+      function settleConstructionService(project, contract) {
+        if (contract.status !== "awarded") return;
+        const cost = project.ownerId === "crowe" ? 0 : (CONFIG.constructionServiceCosts[contract.category] || 0);
+        if (cost > 0) {
+          if (state.cash < cost) return;
+          state.cash -= cost;
+          project.serviceCostPaid += cost;
+        }
+        contract.settledCost = cost;
+        contract.delivered = contract.quantity;
+        contract.status = "fulfilled";
+      }
+
+      function constructionProjectSitePoint(project) {
+        const proposal = project.proposalId && state.proposals.find(function (record) { return record.id === project.proposalId; });
+        const lot = proposal && proposal.lot;
+        return {
+          x: Number.isFinite(project.x) ? project.x : (lot && Number.isFinite(lot.x) ? lot.x : 0),
+          y: Number.isFinite(project.y) ? project.y : (lot && Number.isFinite(lot.y) ? lot.y : 0),
+          w: project.w || (lot && lot.w) || 2,
+          h: project.h || (lot && lot.h) || 2,
+          doorX: Number.isFinite(project.doorX) ? project.doorX : (lot && Number.isFinite(lot.doorX) ? lot.doorX : project.x),
+          doorY: Number.isFinite(project.doorY) ? project.doorY : (lot && Number.isFinite(lot.doorY) ? lot.doorY : project.y)
+        };
+      }
+
+      function createCompletedBuildingFromProject(project) {
+        if (project.buildingRecordId) return;
+        const definition = constructionProjectDefinition(project);
+        const point = constructionProjectSitePoint(project);
+        if (project.siteKind === "mine") {
+          const parcel = state.mineParcels.find(function (record) { return record.id === project.siteParcelId; });
+          if (!parcel || state.mines.some(function (mine) { return mine.constructionProjectId === project.id || mine.parcelId === parcel.id; })) {
+            project.buildingRecordId = project.buildingRecordId || null;
+            return;
+          }
+          const mine = {
+            id: allocateSiteId("mine"),
+            parcelId: parcel.id,
+            constructionProjectId: project.id,
+            x: point.x,
+            y: point.y,
+            w: point.w,
+            h: point.h,
+            level: 1,
+            baseMaterial: parcel.material || "stone",
+            material: parcel.material || "stone",
+            depth: Number(parcel.depth) || 0,
+            ratio: Number(parcel.ratio) || .5,
+            stockMaterial: 0,
+            stockDirt: 0,
+            doorX: point.doorX,
+            doorY: point.doorY
+          };
+          mine.material = mineMaterialForLevel(mine);
+          state.mines.push(mine);
+          parcel.mineId = mine.id;
+          project.buildingRecordId = mine.id;
+          return;
+        }
+        if (project.siteKind === "warehouse") {
+          const parcel = state.warehouseParcels.find(function (record) { return record.id === project.siteParcelId; });
+          if (!parcel || state.warehouses.some(function (warehouse) { return warehouse.constructionProjectId === project.id || warehouse.parcelId === parcel.id; })) {
+            project.buildingRecordId = project.buildingRecordId || null;
+            return;
+          }
+          const warehouse = {
+            id: allocateSiteId("warehouse"),
+            parcelId: parcel.id,
+            constructionProjectId: project.id,
+            x: point.x,
+            y: point.y,
+            w: point.w,
+            h: point.h,
+            level: 1,
+            storage: emptyMaterialStore(),
+            doorX: point.doorX,
+            doorY: point.doorY
+          };
+          state.warehouses.push(warehouse);
+          parcel.warehouseId = warehouse.id;
+          project.buildingRecordId = warehouse.id;
+          return;
+        }
+        const existing = state.developedBuildings.find(function (building) { return building.projectId === project.id; });
+        if (existing) {
+          project.buildingRecordId = existing.id;
+          return;
+        }
+        const buildingId = allocateDevelopedBuildingId();
+        const building = {
+          id: buildingId,
+          projectId: project.id,
+          buildingId: definition.id,
+          type: definition.type,
+          ownerId: project.ownerId || "player",
+          status: "completed",
+          x: point.x,
+          y: point.y,
+          w: point.w,
+          h: point.h,
+          doorX: point.doorX,
+          doorY: point.doorY,
+          residentIds: [],
+          workerIds: [],
+          workerSlots: definition.type === "commercial" ? 1 : 0,
+          rentPerDay: definition.type === "commercial" ? 35 : 0,
+          salePrice: Math.max(definition.baseCost, Math.round((project.cost || definition.baseCost) * 1.15)),
+          forSale: false,
+          tenantId: null,
+          tenantName: null,
+          completedDay: state.day
+        };
+        state.developedBuildings.push(building);
+        project.buildingRecordId = building.id;
+        if (definition.type === "residential") {
+          const resident = {
+            id: allocateResidentId(),
+            houseId: building.id,
+            name: "Pinebarrow Resident " + state.nextResidentId,
+            status: "candidate",
+            workforceId: null,
+            employerId: null,
+            createdDay: state.day
+          };
+          state.residents.push(resident);
+          building.residentIds.push(resident.id);
+        }
+        if (definition.type === "commercial" && project.ownerId === "crowe") {
+          building.ownerId = "crowe";
+        }
+      }
+
+      function completeConstructionProject(project) {
+        if (project.status === "completed") return;
+        createCompletedBuildingFromProject(project);
+        project.status = "completed";
+        project.buildProgress = 1;
+        project.laborDelivered = project.laborRequired;
+        project.completedDay = state.day;
+        const proposal = project.proposalId && state.proposals.find(function (record) { return record.id === project.proposalId; });
+        if (proposal) {
+          proposal.status = "completed";
+          proposal.stage = "completed";
+          proposal.completedDay = state.day;
+        }
+      }
+
+      function processConstructionProjects(minutes) {
+        if (state.legacyConstructionMode) return;
+        ensureCroweDevelopmentProject();
+        const elapsed = Math.max(1, Number(minutes) || 1);
+        state.constructionProjects.slice().forEach(function (project) {
+          if (!project || ["completed", "cancelled"].includes(project.status)) return;
+          if (state.day > project.deadlineDay && project.status !== "delayed") {
+            project.status = "delayed";
+            project.delayDays = Math.max(1, state.day - project.deadlineDay);
+          }
+          if (project.status === "awaiting-builder" || project.status === "procurement") return;
+          if (!constructionProjectHasAwardedContracts(project)) return;
+          procurementContractsForProject(project.id).forEach(function (contract) {
+            if (contract.status !== "awarded") return;
+            if (contract.material) settleConstructionMaterial(project, contract, elapsed);
+            else settleConstructionService(project, contract);
+          });
+          if (!constructionProjectHasDeliveredContracts(project)) return;
+          if (project.status === "ready-to-build" || project.status === "delayed") project.status = "building";
+          if (project.status !== "building") return;
+          const durationMinutes = Math.max(1, Math.round((constructionProjectDefinition(project).buildTimeDays || 1) * 1440 * project.builderDurationMultiplier));
+          const laborRate = project.laborRequired > 0 ? project.laborRequired / durationMinutes : 1 / durationMinutes;
+          project.laborDelivered = Math.min(project.laborRequired, project.laborDelivered + laborRate * elapsed);
+          project.buildProgress = project.laborRequired > 0 ? Math.min(1, project.laborDelivered / project.laborRequired) : 1;
+          if (project.buildProgress >= 1) completeConstructionProject(project);
+        });
+      }
+
+      function appendConstructionContracts(project) {
+        Object.keys(project.requirements).forEach(function (material) {
+          const contract = {
+            id: allocateProcurementContractId(),
+            projectId: project.id,
+            category: "mine-supply",
+            material: material,
+            service: null,
+            quantity: project.requirements[material],
+            delivered: 0,
+            providerId: null,
+            status: "open",
+            createdDay: state.day,
+            deadlineDay: project.deadlineDay
+          };
+          state.procurementContracts.push(contract);
+          project.procurementContractIds.push(contract.id);
+        });
+        [
+          { category: "logistics", service: "warehouse-staging" },
+          { category: "hauling", service: "site-delivery" }
+        ].forEach(function (service) {
+          const contract = {
+            id: allocateProcurementContractId(),
+            projectId: project.id,
+            category: service.category,
+            material: null,
+            service: service.service,
+            quantity: 1,
+            delivered: 0,
+            providerId: null,
+            status: "open",
+            createdDay: state.day,
+            deadlineDay: project.deadlineDay
+          };
+          state.procurementContracts.push(contract);
+          project.procurementContractIds.push(contract.id);
+        });
+      }
+
+      function openConstructionProject(options) {
+        if (state.constructionProjects.length >= CONFIG.maxConstructionProjects) return null;
+        const definition = CONFIG.buildingDefinitions[options.buildingId];
+        if (!definition) return null;
+        const point = options.point || {};
+        const requirements = normalizeRequirementStore(definition.resources);
+        const project = {
+          id: allocateConstructionProjectId(),
+          proposalId: options.proposalId || null,
+          buildingId: definition.id,
+          ownerId: options.ownerId || "player",
+          route: options.route || "town",
+          siteKind: options.siteKind || "town",
+          siteParcelId: options.siteParcelId || null,
+          x: Number.isFinite(point.x) ? point.x : null,
+          y: Number.isFinite(point.y) ? point.y : null,
+          w: Number.isFinite(point.w) ? point.w : definition.footprint.w,
+          h: Number.isFinite(point.h) ? point.h : definition.footprint.h,
+          doorX: Number.isFinite(point.doorX) ? point.doorX : point.x,
+          doorY: Number.isFinite(point.doorY) ? point.doorY : point.y,
+          level: 1,
+          status: "awaiting-builder",
+          requirements: requirements,
+          delivered: normalizeDeliveredStore({}, requirements),
+          laborRequired: Math.max(0, Math.round(definition.labor || 0)),
+          laborDelivered: 0,
+          buildProgress: 0,
+          procurementContractIds: [],
+          builderBidId: null,
+          builderId: null,
+          builderMultiplier: 1,
+          builderDurationMultiplier: 1,
+          builderCost: Math.round(options.cost || definition.baseCost),
+          materialCostPaid: 0,
+          serviceCostPaid: 0,
+          cost: Math.round(options.cost || definition.baseCost),
+          housingCapacity: definition.housingCapacity || 0,
+          createdDay: state.day,
+          deadlineDay: state.day + Math.max(1, Math.round(definition.buildTimeDays || 1)) + 3,
+          delayDays: 0,
+          completedDay: null,
+          buildingRecordId: null
+        };
+        state.constructionProjects.push(project);
+        CONFIG.constructionBuilders.filter(function (builder) {
+          return project.ownerId === "crowe" ? builder.id === "crowe-construction" : builder.level >= definition.requiredBuilderLevel;
+        }).forEach(function (builder) {
+          state.constructionBids.push({
+            id: allocateConstructionBidId(),
+            projectId: project.id,
+            builderId: builder.id,
+            builderLabel: builder.label,
+            requiredBuilderLevel: definition.requiredBuilderLevel,
+            price: Math.round(project.cost * builder.priceMultiplier),
+            durationDays: Math.max(1, Math.round(definition.buildTimeDays * builder.durationMultiplier)),
+            status: "open"
+          });
+        });
+        appendConstructionContracts(project);
+        return project;
       }
 
       function approveDevelopmentProposal(proposalId) {
@@ -5048,83 +5419,22 @@
           return;
         }
         const definition = projectBuildingDefinitionFor(proposal);
-        const projectRequirements = normalizeRequirementStore(definition.resources);
-        const project = {
-          id: allocateConstructionProjectId(),
+        const point = proposal.lot || {};
+        const project = openConstructionProject({
           proposalId: proposal.id,
           buildingId: definition.id,
           ownerId: proposal.owner || "player",
-          level: 1,
-          status: "awaiting-builder",
-          requirements: projectRequirements,
-          delivered: normalizeDeliveredStore({}, projectRequirements),
-          laborRequired: definition.labor,
-          laborDelivered: 0,
-          buildProgress: 0,
-          procurementContractIds: [],
-          builderBidId: null,
-          cost: Number.isFinite(proposal.cost) ? Math.round(proposal.cost) : definition.baseCost,
-          housingCapacity: definition.housingCapacity,
-          createdDay: state.day,
-          deadlineDay: state.day + definition.buildTimeDays + 3
-        };
-        state.constructionProjects.push(project);
-        CONFIG.constructionBuilders.filter(function (builder) {
-          return builder.level >= definition.requiredBuilderLevel;
-        }).forEach(function (builder) {
-          state.constructionBids.push({
-            id: allocateConstructionBidId(),
-            projectId: project.id,
-            builderId: builder.id,
-            builderLabel: builder.label,
-            requiredBuilderLevel: definition.requiredBuilderLevel,
-            price: Math.round(project.cost * builder.priceMultiplier),
-            durationDays: Math.max(1, Math.round(definition.buildTimeDays * builder.durationMultiplier)),
-            status: "open"
-          });
+          route: proposal.status === "purchased" ? "town-infrastructure" : "town-hall",
+          siteKind: "town",
+          point: point,
+          cost: Number.isFinite(proposal.cost) ? Math.round(proposal.cost) : definition.baseCost
         });
-        Object.keys(project.requirements).forEach(function (material) {
-          const contract = {
-            id: allocateProcurementContractId(),
-            projectId: project.id,
-            category: "mine-supply",
-            material: material,
-            service: null,
-            quantity: project.requirements[material],
-            delivered: 0,
-            providerId: null,
-            status: "open",
-            createdDay: state.day,
-            deadlineDay: project.deadlineDay
-          };
-          state.procurementContracts.push(contract);
-          project.procurementContractIds.push(contract.id);
-        });
-        [
-          { category: "logistics", service: "warehouse-staging" },
-          { category: "hauling", service: "site-delivery" }
-        ].forEach(function (service) {
-          const contract = {
-            id: allocateProcurementContractId(),
-            projectId: project.id,
-            category: service.category,
-            material: null,
-            service: service.service,
-            quantity: 1,
-            delivered: 0,
-            providerId: null,
-            status: "open",
-            createdDay: state.day,
-            deadlineDay: project.deadlineDay
-          };
-          state.procurementContracts.push(contract);
-          project.procurementContractIds.push(contract.id);
-        });
+        if (!project) return;
         proposal.status = "under-construction";
         proposal.stage = "fenced";
         proposal.projectId = project.id;
         proposal.buildingId = definition.id;
-        setContext("Construction project opened", definition.label + " is fenced. Builder bids, mine supply, warehouse staging, and site hauling are now tracked as separate contracts.", "success");
+        setContext("Construction project opened", definition.label + " is fenced. Builder bids, material supply, warehouse staging, and site hauling are now tracked as separate contracts.", "success");
         saveState(true);
         renderInterface();
       }
@@ -5135,13 +5445,27 @@
         if (!bid || bid.status !== "open") return;
         const project = state.constructionProjects.find(function (record) { return record.id === bid.projectId; });
         if (!project || project.status !== "awaiting-builder") return;
+        if (project.ownerId !== "crowe" && state.cash < bid.price) {
+          setContext("Builder award blocked", "The company cannot fund this builder bid yet. Cash settlement happens when the bid is awarded.", "danger");
+          renderInterface();
+          return;
+        }
+        if (project.ownerId !== "crowe") {
+          state.cash -= bid.price;
+          project.builderCost = bid.price;
+        }
         state.constructionBids.forEach(function (record) {
           if (record.projectId === project.id && record.status === "open") record.status = record.id === bid.id ? "awarded" : "rejected";
         });
         bid.status = "awarded";
         project.builderBidId = bid.id;
+        project.builderId = bid.builderId;
+        const builder = CONFIG.constructionBuilders.find(function (record) { return record.id === bid.builderId; });
+        project.builderMultiplier = builder ? builder.priceMultiplier : 1;
+        project.builderDurationMultiplier = builder ? builder.durationMultiplier : 1;
         project.status = "procurement";
-        setContext("Builder awarded", bid.builderLabel + " won the construction contract. Procurement can now be assigned without changing the project requirements.", "success");
+        project.deadlineDay = state.day + bid.durationDays + 3;
+        setContext("Builder awarded", bid.builderLabel + " won the construction contract. Procurement can now be assigned; delivery and service contracts settle against inventory and cash.", "success");
         saveState(true);
         renderInterface();
       }
@@ -5151,14 +5475,11 @@
         const contract = state.procurementContracts.find(function (record) { return record.id === contractId; });
         if (!contract || contract.status !== "open") return;
         const project = state.constructionProjects.find(function (record) { return record.id === contract.projectId; });
-        if (!project || !["procurement", "ready-to-build"].includes(project.status)) return;
+        if (!project || !["procurement", "ready-to-build", "delayed"].includes(project.status)) return;
         contract.providerId = "player-company";
         contract.status = "awarded";
-        const projectContracts = procurementContractsForProject(project.id);
-        if (projectContracts.length && projectContracts.every(function (record) { return record.status === "awarded" || record.status === "fulfilled"; })) {
-          project.status = "ready-to-build";
-        }
-        setContext("Procurement contract awarded", (contract.material ? materialNames[contract.material] : proposalDisplayText(contract.service, "Service")) + " is assigned to your company. Delivery and payment settlement are the next construction step.", "success");
+        if (constructionProjectHasAwardedContracts(project)) project.status = "ready-to-build";
+        setContext("Procurement contract awarded", (contract.material ? materialNames[contract.material] : proposalDisplayText(contract.service, "Service")) + " is assigned to your company. Time will now settle delivery, labor, and completion.", "success");
         saveState(true);
         renderInterface();
       }
@@ -5168,8 +5489,9 @@
         const labels = {
           "awaiting-builder": "Builder bids open",
           procurement: "Procurement contracts open",
-          "ready-to-build": "Ready for construction",
+          "ready-to-build": "Delivery in progress",
           building: "Construction in progress",
+          delayed: "Delayed — contracts or labor blocked",
           completed: "Completed",
           cancelled: "Cancelled"
         };
@@ -5177,15 +5499,16 @@
       }
 
       function projectContractLabel(contract) {
-        if (contract.material) return materialNames[contract.material] + " supply · " + contract.quantity + " t";
-        return proposalDisplayText(contract.service, "Service") + " contract";
+        if (contract.material) return materialNames[contract.material] + " supply · " + contract.quantity + " t · " + round1(contract.delivered).toFixed(1) + " delivered";
+        return proposalDisplayText(contract.service, "Service") + " contract" + (contract.status === "fulfilled" ? " · settled" : "");
       }
 
       function proposalProjectActionMarkup(proposal) {
         const project = projectForProposal(proposal.id);
         if (!project) {
           if (proposal.status === "draft") {
-            return '<div class="townhall-project-actions"><strong>Development route</strong><p>Town Hall approval is required before the building design and contract desk can open.</p><button type="button" data-project-action="approve" data-proposal-id="' + detailText(proposal.id) + '">Approve site</button></div>';
+            const residential = String(proposal.type).toLowerCase() === "residential";
+            return '<div class="townhall-project-actions"><strong>Development route</strong><p>' + (residential ? "Town Hall site approval is required before the housing plan can enter construction." : "Town infrastructure uses a purchase agreement before the shared construction route opens.") + '</p><button type="button" data-project-action="' + (residential ? "approve" : "purchase") + '" data-proposal-id="' + detailText(proposal.id) + '">' + (residential ? "Approve site" : "Purchase agreement") + '</button></div>';
           }
           if (["approved", "purchased"].includes(proposal.status)) {
             return '<div class="townhall-project-actions"><strong>Development route</strong><p>The lot is authorized. Select the building design and snapshot the project requirements.</p><button type="button" data-project-action="create-project" data-proposal-id="' + detailText(proposal.id) + '">Select design &amp; create project</button></div>';
@@ -5194,18 +5517,19 @@
         }
         const builderBids = constructionBidsForProject(project.id);
         const procurement = procurementContractsForProject(project.id);
+        const definition = projectBuildingDefinitionFor(proposal);
         let actions = '<div class="townhall-project-actions"><strong>Project ' + detailText(project.id) + ' · ' + detailText(projectStatusText(project)) + '</strong>' +
-          '<p>' + detailText(projectBuildingDefinitionFor(proposal).label) + ' · ' + project.laborRequired + ' labor · $' + project.cost + ' snapshot</p>';
+          '<p>' + detailText(definition.label) + ' · ' + round1(project.laborDelivered).toFixed(1) + '/' + project.laborRequired + ' labor · deadline day ' + project.deadlineDay + '</p>';
         if (project.status === "awaiting-builder") {
-          actions += '<div class="townhall-contract-list"><small>Builder bids</small>' + builderBids.map(function (bid) {
+          actions += '<div class="townhall-contract-list"><small>Builder bids · award settles the builder cost</small>' + builderBids.map(function (bid) {
             return '<span><b>' + detailText(bid.builderLabel) + '</b><em>$' + bid.price + ' · ' + bid.durationDays + ' days</em><button type="button" data-project-action="award-builder" data-bid-id="' + detailText(bid.id) + '">Award bid</button></span>';
           }).join("") + '</div>';
         } else {
           const openContracts = procurement.filter(function (contract) { return contract.status === "open"; });
-          actions += '<div class="townhall-contract-list"><small>Procurement, logistics &amp; hauling</small>' +
+          actions += '<div class="townhall-contract-list"><small>Procurement, logistics &amp; hauling · inventory and cash settle over time</small>' +
             (openContracts.length ? openContracts.map(function (contract) {
               return '<span><b>' + detailText(projectContractLabel(contract)) + '</b><em>' + detailText(contract.category) + '</em><button type="button" data-project-action="bid-procurement" data-procurement-id="' + detailText(contract.id) + '">Bid this contract</button></span>';
-            }).join("") : '<p>All project contracts have a provider. Delivery and construction progress are next.</p>') + '</div>';
+            }).join("") : '<p>All project contracts have a provider. Delivery, labor, and completion are time-based.</p>') + '</div>';
         }
         return actions + '</div>';
       }

@@ -1911,3 +1911,86 @@ test("Crowe uses the same construction record and contract stages", async () => 
   assert.equal(project.status, "ready-to-build");
   assert.ok(saved.procurementContracts.filter((contract) => contract.projectId === project.id).every((contract) => contract.status === "awarded" || contract.status === "fulfilled"));
 });
+
+test("a rented shop can consume a housed worker and returns that worker on sale", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const baseSave = {
+    version: 14,
+    worldLayoutVersion: 2,
+    day: 4,
+    minutes: 480,
+    cash: 1000,
+    player: { x: 37, y: 141 },
+    selected: { type: "building", id: "townhall", x: 37, y: 141 },
+    location: "townhall",
+    developedBuildings: [{
+      id: "building-shop-workforce",
+      projectId: "project-shop-workforce",
+      buildingId: "town-shop",
+      type: "commercial",
+      ownerId: "player",
+      status: "completed",
+      x: 49,
+      y: 150,
+      w: 2,
+      h: 2,
+      doorX: 50,
+      doorY: 149,
+      residentIds: [],
+      workerIds: [],
+      workerSlots: 1,
+      rentPerDay: 35,
+      salePrice: 50,
+      tenantId: "tenant-shop-workforce",
+      tenantName: "Pinebarrow shopkeeper",
+      completedDay: 3,
+    }],
+    residents: [{
+      id: "resident-shop-workforce",
+      houseId: "building-house-workforce",
+      name: "Ada Pine",
+      status: "worker",
+      workforceId: "workforce-shop-workforce",
+      createdDay: 3,
+    }],
+    workforce: [{
+      id: "workforce-shop-workforce",
+      residentId: "resident-shop-workforce",
+      status: "available",
+      jobType: null,
+      jobId: null,
+      createdDay: 3,
+    }],
+  };
+  const hall = createEngineHarness(baseSave, engineSource);
+  const details = hall.element("pb7-location-details");
+  assert.match(details.innerHTML, /Shop building-shop-workforce/);
+  details.emit("click", {
+    target: {
+      closest(selector) {
+        return selector === "[data-workforce-action]"
+          ? { dataset: { workforceAction: "assign", workerId: "workforce-shop-workforce", jobType: "shop", jobId: "building-shop-workforce" } }
+          : null;
+      },
+    },
+  });
+  const assigned = hall.saved();
+  assert.equal(assigned.workforce[0].status, "assigned");
+  assert.equal(assigned.workforce[0].jobType, "shop");
+  assert.equal(assigned.developedBuildings[0].operatingStatus, "operating");
+
+  const property = createEngineHarness({ ...assigned, location: "development", developmentId: "building-shop-workforce" }, engineSource);
+  property.element("pb7-location-details").emit("click", {
+    target: {
+      closest(selector) {
+        return selector === "[data-property-action]"
+          ? { dataset: { propertyAction: "sell", buildingId: "building-shop-workforce" } }
+          : null;
+      },
+    },
+  });
+  const sold = property.saved();
+  assert.equal(sold.developedBuildings[0].ownerId, "town");
+  assert.equal(sold.workforce[0].status, "available");
+  assert.equal(sold.workforce[0].jobType, null);
+});

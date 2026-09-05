@@ -3843,8 +3843,17 @@
           const free = capacity - used;
           if (free <= .01) return;
           mine.material = mineMaterialForLevel(mine);
+          const dedicated = mineRequiresDedicatedWorker(mine);
+          const assignedWorkers = workersAssignedTo("mine", mine.id);
+          if (dedicated && assignedWorkers < 1) {
+            mine.lastProductionStatus = "no-worker";
+            return;
+          }
+          mine.lastProductionStatus = "running";
+          const workerCount = dedicated ? assignedWorkers : state.workers;
+          const multiplier = CONFIG.workerOutputMultiplierByCount[Math.min(4, Math.max(0, workerCount))] || 1;
           const cargoPerRaw = (1 - mine.ratio) + mine.ratio * dirtKeptShare;
-          const staffedOutput = CONFIG.mineOutputByLevel[mine.level] * CONFIG.workerOutputMultiplierByCount[state.workers];
+          const staffedOutput = CONFIG.mineOutputByLevel[mine.level] * multiplier;
           const raw = Math.min(staffedOutput, free / cargoPerRaw);
           mine.stockMaterial += raw * (1 - mine.ratio);
           mine.stockDirt += raw * mine.ratio * dirtKeptShare;
@@ -3857,14 +3866,17 @@
       }
 
       function advanceGameTime(minutes) {
-        state.minutes += minutes;
+        const elapsed = Math.max(0, Number(minutes) || 0);
+        state.minutes += elapsed;
         while (state.minutes >= 24 * 60) {
           state.minutes -= 24 * 60;
           state.day += 1;
           processTownBusinessOpenings();
           applyDailyMarket();
           processDailyLease();
+          processPropertyRent();
         }
+        if (elapsed > 0) processConstructionProjects(elapsed);
       }
 
       function processDailyLease() {
@@ -3974,6 +3986,10 @@
 
       function unloadWarehouse() {
         if (!state.warehouse || state.location !== "warehouse" || !atStructureDoor(state.warehouse)) return;
+        if (warehouseRequiresDedicatedWorker(state.warehouse) && workersAssignedTo("warehouse", state.warehouse.id) < 1) {
+          setContext("Warehouse idle", "This warehouse needs one assigned worker before it can handle loading or unloading.", "danger");
+          return;
+        }
         let free = warehouseCapacity() - usedStore(state.warehouse.storage);
         cargoKeys.forEach(function (key) {
           if (free <= .01) return;
@@ -3987,6 +4003,10 @@
 
       function loadWarehouse() {
         if (!state.warehouse || state.location !== "warehouse" || !atStructureDoor(state.warehouse)) return;
+        if (warehouseRequiresDedicatedWorker(state.warehouse) && workersAssignedTo("warehouse", state.warehouse.id) < 1) {
+          setContext("Warehouse idle", "This warehouse needs one assigned worker before it can handle loading or unloading.", "danger");
+          return;
+        }
         let free = freeCargo();
         cargoKeys.forEach(function (key) {
           if (free <= .01) return;
@@ -4020,14 +4040,41 @@
       }
 
       function hireMineWorker() {
-        const cost = nextWorkerCost();
-        if (state.location !== "market" || !state.mine || state.workers >= CONFIG.maxWorkers || state.cash < cost) return;
-        state.cash -= cost;
-        state.workers += 1;
-        const oldMultiplier = CONFIG.workerOutputMultiplierByCount[state.workers - 1];
-        const newMultiplier = CONFIG.workerOutputMultiplierByCount[state.workers];
-        const addedPercent = Math.round((newMultiplier - oldMultiplier) * 100);
-        setContext("Permanent mine worker hired", state.workers + " worker" + (state.workers === 1 ? " now supports" : "s now support") + " your mine. This hire adds " + addedPercent + "% base production; the crew now produces at " + Math.round(newMultiplier * 100) + "% and appears beside the mine.");
+        if (state.location !== "market" || !state.mine || state.workers >= CONFIG.maxWorkers) return;
+        if (state.legacyConstructionMode) {
+          const cost = nextWorkerCost();
+          if (state.cash < cost) return;
+          state.cash -= cost;
+          state.workers += 1;
+          const oldMultiplier = CONFIG.workerOutputMultiplierByCount[state.workers - 1];
+          const newMultiplier = CONFIG.workerOutputMultiplierByCount[state.workers];
+          const addedPercent = Math.round((newMultiplier - oldMultiplier) * 100);
+          setContext("Permanent mine worker hired", state.workers + " worker" + (state.workers === 1 ? " now supports" : "s now support") + " your mine. This hire adds " + addedPercent + "% base production; the crew now produces at " + Math.round(newMultiplier * 100) + "% and appears beside the mine.");
+          return;
+        }
+        const assigned = workersAssignedTo("mine", state.mine.id);
+        if (assigned >= 1) {
+          setContext("Mine already staffed", "One worker already staffs this mine. Reassign that worker from Town Hall before choosing another.", "warning");
+          return;
+        }
+        let worker = availableWorkforce()[0];
+        if (!worker) {
+          const candidate = state.residents.find(function (resident) { return resident.status === "candidate"; });
+          if (candidate) {
+            if (!hireResidentRecord(candidate, "mine", state.mine.id)) {
+              setContext("Hiring blocked", "The next resident hire costs $" + nextWorkerCost() + ".", "danger");
+              return;
+            }
+            worker = state.workforce.find(function (record) { return record.residentId === candidate.id; });
+          }
+        }
+        if (!worker || !assignWorkforceToJob(worker.id, "mine", state.mine.id)) {
+          setContext("No mine worker", "Hire a housed resident at Town Hall, then assign one worker to this mine.", "danger");
+          return;
+        }
+        const resident = residentForWorkforce(worker);
+        setContext("Mine staffed", (resident ? resident.name : "A worker") + " now staffs this mine. Production can run again.", "success");
+        saveState(true);
       }
 
       function absoluteGameMinutes() {

@@ -3742,13 +3742,15 @@
       function unassignWorkforce(workerId) {
         const worker = state.workforce.find(function (record) { return record.id === workerId; });
         if (!worker || worker.status !== "assigned") return false;
+        const previousJobType = worker.jobType;
+        const previousJobId = worker.jobId;
         worker.status = "available";
         worker.jobType = null;
         worker.jobId = null;
         const resident = residentForWorkforce(worker);
         if (resident) resident.employerId = null;
-        if (worker.jobType === "shop") {
-          const shop = state.developedBuildings.find(function (building) { return building.id === worker.jobId; });
+        if (previousJobType === "shop") {
+          const shop = state.developedBuildings.find(function (building) { return building.id === previousJobId; });
           if (shop) shop.operatingStatus = "unstaffed";
         }
         syncWorkerMirror();

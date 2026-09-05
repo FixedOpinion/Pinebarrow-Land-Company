@@ -26,7 +26,7 @@
       const STARTER_TREE = { x: PLAYER_ROAD_X + 3, y: TOWN_TOP - 3 };
       const CLAIM_SECTION_DEPTHS = [0, 42, 84];
       const CLAIM_SECTION_ENDS = [41, 83, CLAIM_DEPTH - 1];
-      const SAVE_VERSION = 13;
+      const SAVE_VERSION = 14;
       const MAIN_STREET_TOP = 142;
       const MAIN_STREET_BOTTOM = 146;
       const TOWN_SIDE_STREET_WIDTH = 2;
@@ -79,6 +79,12 @@
         maxConstructionProjects: 64,
         maxConstructionBids: 192,
         maxProcurementContracts: 384,
+        maxDevelopedBuildings: 128,
+        maxResidents: 128,
+        maxWorkforce: 32,
+        constructionDeliveryTonsPerHour: 2,
+        constructionEmergencyPriceMultiplier: 1.35,
+        constructionServiceCosts: { logistics: 32, hauling: 48 },
         constructionMaterials: ["logs", "stone", "clay", "coal", "iron", "copper", "tin", "quartz", "silver", "gold", "sapphire"],
         buildingDefinitions: {
           "worker-house": {
@@ -115,6 +121,30 @@
             resources: { logs: 30, stone: 20 },
             labor: 4,
             buildTimeDays: 3,
+            housingCapacity: 0
+          },
+          "mine": {
+            id: "mine",
+            label: "Mine",
+            type: "mine",
+            footprint: { w: 2, h: 2 },
+            requiredBuilderLevel: 1,
+            baseCost: 140,
+            resources: { logs: 12, stone: 10 },
+            labor: 2,
+            buildTimeDays: 2,
+            housingCapacity: 0
+          },
+          "warehouse": {
+            id: "warehouse",
+            label: "Warehouse",
+            type: "warehouse",
+            footprint: { w: 2, h: 2 },
+            requiredBuilderLevel: 1,
+            baseCost: 260,
+            resources: { logs: 18, stone: 12 },
+            labor: 2,
+            buildTimeDays: 2,
             housingCapacity: 0
           }
         },
@@ -256,6 +286,7 @@
           path: [],
           pendingArrival: null,
           location: null,
+          developmentId: null,
           menuOpen: false,
           selected: null,
           overview: false,
@@ -316,6 +347,13 @@
           nextProjectId: 1,
           nextConstructionBidId: 1,
           nextProcurementContractId: 1,
+          developedBuildings: [],
+          nextDevelopedBuildingId: 1,
+          residents: [],
+          nextResidentId: 1,
+          workforce: [],
+          nextWorkforceId: 1,
+          legacyConstructionMode: false,
           wasteToCrowe: 0,
           day: 1,
           minutes: 8 * 60,
@@ -1323,7 +1361,7 @@
         project.proposalId = typeof project.proposalId === "string" ? project.proposalId : null;
         project.buildingId = typeof project.buildingId === "string" ? project.buildingId : "town-shop";
         project.ownerId = typeof project.ownerId === "string" && project.ownerId ? project.ownerId : "player";
-        const allowedStatuses = ["awaiting-builder", "procurement", "ready-to-build", "building", "completed", "cancelled"];
+        const allowedStatuses = ["awaiting-builder", "procurement", "ready-to-build", "building", "delayed", "completed", "cancelled"];
         project.status = allowedStatuses.includes(project.status) ? project.status : "awaiting-builder";
         project.requirements = normalizeRequirementStore(project.requirements);
         project.delivered = normalizeDeliveredStore(project.delivered, project.requirements);
@@ -1338,7 +1376,25 @@
         project.level = Number.isFinite(project.level) ? Math.max(1, Math.round(project.level)) : 1;
         project.createdDay = Number.isFinite(project.createdDay) ? Math.max(1, Math.round(project.createdDay)) : 1;
         project.deadlineDay = Number.isFinite(project.deadlineDay) ? Math.max(project.createdDay, Math.round(project.deadlineDay)) : project.createdDay;
+        project.route = typeof project.route === "string" && project.route ? project.route : "town";
+        project.siteKind = typeof project.siteKind === "string" && project.siteKind ? project.siteKind : "town";
+        project.siteParcelId = typeof project.siteParcelId === "string" ? project.siteParcelId : null;
+        project.x = Number.isFinite(project.x) ? Math.round(project.x) : null;
+        project.y = Number.isFinite(project.y) ? Math.round(project.y) : null;
+        project.w = Number.isFinite(project.w) ? Math.max(1, Math.round(project.w)) : 2;
+        project.h = Number.isFinite(project.h) ? Math.max(1, Math.round(project.h)) : 2;
+        project.doorX = Number.isFinite(project.doorX) ? Math.round(project.doorX) : project.x;
+        project.doorY = Number.isFinite(project.doorY) ? Math.round(project.doorY) : project.y;
         project.builderBidId = typeof project.builderBidId === "string" ? project.builderBidId : null;
+        project.builderId = typeof project.builderId === "string" ? project.builderId : null;
+        project.builderMultiplier = Number.isFinite(project.builderMultiplier) ? Math.max(.1, project.builderMultiplier) : 1;
+        project.builderDurationMultiplier = Number.isFinite(project.builderDurationMultiplier) ? Math.max(.1, project.builderDurationMultiplier) : 1;
+        project.builderCost = Number.isFinite(project.builderCost) ? Math.max(0, Math.round(project.builderCost)) : project.cost;
+        project.materialCostPaid = Number.isFinite(project.materialCostPaid) ? Math.max(0, Math.round(project.materialCostPaid)) : 0;
+        project.serviceCostPaid = Number.isFinite(project.serviceCostPaid) ? Math.max(0, Math.round(project.serviceCostPaid)) : 0;
+        project.delayDays = Number.isFinite(project.delayDays) ? Math.max(0, Math.round(project.delayDays)) : 0;
+        project.completedDay = Number.isFinite(project.completedDay) ? Math.max(0, Math.round(project.completedDay)) : null;
+        project.buildingRecordId = typeof project.buildingRecordId === "string" ? project.buildingRecordId : null;
         return project;
       }
 
@@ -1371,6 +1427,86 @@
         contract.createdDay = Number.isFinite(contract.createdDay) ? Math.max(1, Math.round(contract.createdDay)) : 1;
         contract.deadlineDay = Number.isFinite(contract.deadlineDay) ? Math.max(contract.createdDay, Math.round(contract.deadlineDay)) : contract.createdDay;
         return contract;
+      }
+
+      
+      function allocateDevelopedBuildingId() {
+        let id = "";
+        do {
+          id = "building-" + state.nextDevelopedBuildingId;
+          state.nextDevelopedBuildingId += 1;
+        } while (state.developedBuildings.some(function (building) { return building && building.id === id; }));
+        return id;
+      }
+
+      function allocateResidentId() {
+        let id = "";
+        do {
+          id = "resident-" + state.nextResidentId;
+          state.nextResidentId += 1;
+        } while (state.residents.some(function (resident) { return resident && resident.id === id; }));
+        return id;
+      }
+
+      function allocateWorkforceId() {
+        let id = "";
+        do {
+          id = "workforce-" + state.nextWorkforceId;
+          state.nextWorkforceId += 1;
+        } while (state.workforce.some(function (worker) { return worker && worker.id === id; }));
+        return id;
+      }
+
+      function normalizeDevelopedBuilding(record) {
+        if (!record || typeof record !== "object") return null;
+        const building = Object.assign({}, record);
+        if (typeof building.id !== "string" || !building.id) building.id = allocateDevelopedBuildingId();
+        building.buildingId = typeof building.buildingId === "string" && building.buildingId ? building.buildingId : "town-shop";
+        building.type = typeof building.type === "string" && building.type ? building.type : "commercial";
+        building.ownerId = typeof building.ownerId === "string" && building.ownerId ? building.ownerId : "player";
+        building.status = ["completed", "for-sale", "sold"].includes(building.status) ? building.status : "completed";
+        building.x = Number.isFinite(building.x) ? Math.round(building.x) : 0;
+        building.y = Number.isFinite(building.y) ? Math.round(building.y) : 0;
+        building.w = Number.isFinite(building.w) ? Math.max(1, Math.round(building.w)) : 2;
+        building.h = Number.isFinite(building.h) ? Math.max(1, Math.round(building.h)) : 2;
+        building.doorX = Number.isFinite(building.doorX) ? Math.round(building.doorX) : building.x;
+        building.doorY = Number.isFinite(building.doorY) ? Math.round(building.doorY) : building.y;
+        building.residentIds = Array.isArray(building.residentIds) ? building.residentIds.filter(function (id) { return typeof id === "string"; }) : [];
+        building.workerIds = Array.isArray(building.workerIds) ? building.workerIds.filter(function (id) { return typeof id === "string"; }) : [];
+        building.workerSlots = Number.isFinite(building.workerSlots) ? Math.max(0, Math.round(building.workerSlots)) : 0;
+        building.rentPerDay = Number.isFinite(building.rentPerDay) ? Math.max(0, Math.round(building.rentPerDay)) : 0;
+        building.salePrice = Number.isFinite(building.salePrice) ? Math.max(0, Math.round(building.salePrice)) : 0;
+        building.forSale = Boolean(building.forSale || building.status === "for-sale");
+        building.tenantId = typeof building.tenantId === "string" ? building.tenantId : null;
+        building.tenantName = typeof building.tenantName === "string" ? building.tenantName : null;
+        building.projectId = typeof building.projectId === "string" ? building.projectId : null;
+        building.completedDay = Number.isFinite(building.completedDay) ? Math.max(1, Math.round(building.completedDay)) : 1;
+        return building;
+      }
+
+      function normalizeResident(record) {
+        if (!record || typeof record !== "object") return null;
+        const resident = Object.assign({}, record);
+        if (typeof resident.id !== "string" || !resident.id) resident.id = allocateResidentId();
+        resident.houseId = typeof resident.houseId === "string" ? resident.houseId : null;
+        resident.name = typeof resident.name === "string" && resident.name ? resident.name : "Pinebarrow Resident";
+        resident.status = ["candidate", "worker", "tenant", "evicted"].includes(resident.status) ? resident.status : "candidate";
+        resident.workforceId = typeof resident.workforceId === "string" ? resident.workforceId : null;
+        resident.employerId = typeof resident.employerId === "string" ? resident.employerId : null;
+        resident.createdDay = Number.isFinite(resident.createdDay) ? Math.max(1, Math.round(resident.createdDay)) : 1;
+        return resident;
+      }
+
+      function normalizeWorkforce(record) {
+        if (!record || typeof record !== "object") return null;
+        const worker = Object.assign({}, record);
+        if (typeof worker.id !== "string" || !worker.id) worker.id = allocateWorkforceId();
+        worker.residentId = typeof worker.residentId === "string" ? worker.residentId : null;
+        worker.status = ["available", "assigned", "inactive"].includes(worker.status) ? worker.status : "available";
+        worker.jobType = typeof worker.jobType === "string" ? worker.jobType : null;
+        worker.jobId = typeof worker.jobId === "string" ? worker.jobId : null;
+        worker.createdDay = Number.isFinite(worker.createdDay) ? Math.max(1, Math.round(worker.createdDay)) : 1;
+        return worker;
       }
 
       function isLegacyPlayerPoint(x, y) {
@@ -1609,7 +1745,42 @@
             return contract && typeof contract.id === "string" && materialNames[contract.material] && Number.isFinite(contract.quantity) && Number.isFinite(contract.delivered) && typeof contract.mineId === "string";
           }).slice(0, CONFIG.maxCompanyContracts) : [];
           state.townBusinesses = saved.townBusinesses && typeof saved.townBusinesses === "object" ? saved.townBusinesses : {};
+          state.legacyConstructionMode = saved.version < 14 || saved.legacyConstructionMode === true;
           state.nextProjectId = Math.max(1, Math.round(saved.nextProjectId || 1));
+          state.nextDevelopedBuildingId = Math.max(1, Math.round(saved.nextDevelopedBuildingId || 1));
+          state.nextResidentId = Math.max(1, Math.round(saved.nextResidentId || 1));
+          state.nextWorkforceId = Math.max(1, Math.round(saved.nextWorkforceId || 1));
+          state.developmentId = typeof saved.developmentId === "string" ? saved.developmentId : null;
+          state.developedBuildings = [];
+          const savedDevelopedBuildings = Array.isArray(saved.developedBuildings) ? saved.developedBuildings : [];
+          const developedBuildingIds = new Set();
+          savedDevelopedBuildings.slice(0, CONFIG.maxDevelopedBuildings).forEach(function (record) {
+            const building = normalizeDevelopedBuilding(record);
+            if (!building) return;
+            if (developedBuildingIds.has(building.id)) building.id = allocateDevelopedBuildingId();
+            developedBuildingIds.add(building.id);
+            state.developedBuildings.push(building);
+          });
+          state.residents = [];
+          const savedResidents = Array.isArray(saved.residents) ? saved.residents : [];
+          const residentIds = new Set();
+          savedResidents.slice(0, CONFIG.maxResidents).forEach(function (record) {
+            const resident = normalizeResident(record);
+            if (!resident) return;
+            if (residentIds.has(resident.id)) resident.id = allocateResidentId();
+            residentIds.add(resident.id);
+            state.residents.push(resident);
+          });
+          state.workforce = [];
+          const savedWorkforce = Array.isArray(saved.workforce) ? saved.workforce : [];
+          const workforceIds = new Set();
+          savedWorkforce.slice(0, CONFIG.maxWorkforce).forEach(function (record) {
+            const worker = normalizeWorkforce(record);
+            if (!worker) return;
+            if (workforceIds.has(worker.id)) worker.id = allocateWorkforceId();
+            workforceIds.add(worker.id);
+            state.workforce.push(worker);
+          });
           state.nextConstructionBidId = Math.max(1, Math.round(saved.nextConstructionBidId || 1));
           state.nextProcurementContractId = Math.max(1, Math.round(saved.nextProcurementContractId || 1));
           state.constructionProjects = [];
@@ -1646,6 +1817,9 @@
             const proposal = state.proposals.find(function (record) { return record.id === project.proposalId; });
             if (proposal && !proposal.projectId) proposal.projectId = project.id;
           });
+          if (!state.legacyConstructionMode && state.workforce.length) {
+            state.workers = Math.max(0, Math.min(CONFIG.maxWorkers, state.workforce.filter(function (worker) { return worker.status !== "inactive"; }).length));
+          }
           processTownBusinessOpenings();
           if (saved.version <= 4 && !state.prospectorHired && (state.prospectsUsedToday > 0 || state.surveyParcels.length || state.mineParcels.length)) {
             state.prospectorHired = true;
@@ -1778,12 +1952,20 @@
           nextProjectId: state.nextProjectId,
           nextConstructionBidId: state.nextConstructionBidId,
           nextProcurementContractId: state.nextProcurementContractId,
+          developedBuildings: state.developedBuildings,
+          nextDevelopedBuildingId: state.nextDevelopedBuildingId,
+          residents: state.residents,
+          nextResidentId: state.nextResidentId,
+          workforce: state.workforce,
+          nextWorkforceId: state.nextWorkforceId,
+          legacyConstructionMode: state.legacyConstructionMode,
           wasteToCrowe: state.wasteToCrowe,
           day: state.day,
           minutes: state.minutes,
           player: state.player,
           selected: state.selected,
           location: state.location,
+          developmentId: state.developmentId,
           overview: state.overview,
           zoomIndex: state.zoomIndex,
           contextTitle: state.contextTitle,

@@ -2,13 +2,25 @@
 
 ## Unreleased
 
-### Project/construction foundation — v23
+### Shared project/construction economy — v24
+
+- Advanced save schema to v14 with completed-building, resident, workforce, site-project, delivery, settlement, deadline, and completion records.
+- Routed new mine and warehouse construction through the same Town Hall builder, material, logistics, and hauling project pipeline instead of cash-only construction.
+- Settled project materials from company cargo, staffed warehouses, and mine stock, with explicit cash emergency procurement and service settlement.
+- Added timed construction delivery, labor progress, deadline/delayed state, completed mine/warehouse records, and completed town property ownership.
+- Added worker-house residents, explicit hiring, one-worker-per-house staffing, mine/warehouse assignment, no-worker production stoppage, and reassignment-safe workforce actions.
+- Added rentable shops with daily rent, sale-at-any-time, and recoverable town buy-back records.
+- Put Crowe's workshop through the same project, builder, procurement, delivery, and completion path.
+- Added 39 focused Node regressions for settlement, completion, site projects, staffing, property lifecycle, and Crowe.
+- Full production build, lint, and browser smoke verification remain the merge gate for this draft branch.
+
+### Project/construction foundation — v23 (superseded by v24)
 
 - Added save schema v13 records for development construction projects, builder bids, and procurement contracts.
 - Added Town Hall actions for residential site approval, project creation, builder bid award, and mine-supply/logistics/hauling contract assignment.
 - Kept worker houses as housing-capacity records in the project definition; a completed house does not create a worker directly.
 - Recorded the future town-infrastructure purchase-agreement route and Crowe buildings as shared project routes.
-- This checkpoint does not yet consume mine/warehouse inventory, advance construction time, create residents, or complete buildings.
+- This was the data/UI foundation; v24 completes the missing economic, workforce, property, and Crowe execution paths.
 
 ### Checkpoint E — single-player world layout
 

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Project/construction foundation — v23
+
+- Added save schema v13 records for development construction projects, builder bids, and procurement contracts.
+- Added Town Hall actions for residential site approval, project creation, builder bid award, and mine-supply/logistics/hauling contract assignment.
+- Kept worker houses as housing-capacity records in the project definition; a completed house does not create a worker directly.
+- Recorded the future town-infrastructure purchase-agreement route and Crowe buildings as shared project routes.
+- This checkpoint does not yet consume mine/warehouse inventory, advance construction time, create residents, or complete buildings.
+
 ### Checkpoint E — single-player world layout
 
 - Reoriented the campaign so the player's development frontier occupies the full area north of Pinebarrow, while the southern frontier is reserved for Crowe's later expansion.

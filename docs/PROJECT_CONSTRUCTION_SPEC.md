@@ -197,5 +197,5 @@ A test profile can now:
 8. hire housed residents, assign one worker per mine or warehouse, stop unstaffed production safely, and reassign without duplicate staffing;
 9. collect shop rent, sell property, recover a sold property, and preserve all records through save/reload.
 
-The branch has 39 focused Node regressions passing. Production build, lint, and browser smoke verification remain the final merge gate.
+The branch has 40 focused Node regressions passing. Production build, lint, and browser smoke verification remain the final merge gate.
 

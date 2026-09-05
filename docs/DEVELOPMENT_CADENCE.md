@@ -10,7 +10,7 @@ Pinebarrow development must survive interrupted chats and usage limits. GitHub i
 - Current live-engine baseline before new mechanics: `f36a8aa5611998066bf19bf02ba735d3dad08044`
 - Reference-only Workforce branch: `phase-5-workforce` / PR #4 (closed as superseded 2026-09-05)
 - Deferred mine-planning branch: `phase-4b-mine-foundation`
-- Next code branch: create `phase-5r-workforce-reconciliation` from the then-current `main`
+- Active 5R branch: `phase-5r-workforce-reconciliation` (created from current `main`)
 
 The old Workforce branch and deferred mine branch are recovery evidence. Neither should be merged wholesale.
 

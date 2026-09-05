@@ -2,11 +2,11 @@
 
 Pinebarrow Land Company is a browser-based mining, logistics, and town-development game. The player prospects land, develops mines, manages trucks and warehouses, trades materials, fulfills contracts, and helps Pinebarrow grow into a city.
 
-## Play
+## Play the live game
 
-The production game is hosted at:
+**[▶ Open Pinebarrow Land Company](https://pinebarrow-land-company.fixedopinion.chatgpt.site)**
 
-https://pinebarrow-land-company.fixedopinion.chatgpt.site
+Live production address: `https://pinebarrow-land-company.fixedopinion.chatgpt.site`
 
 The hosted Site is a deployment target. This repository is the editable source of truth.
 

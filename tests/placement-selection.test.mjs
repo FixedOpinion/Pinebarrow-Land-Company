@@ -129,6 +129,7 @@ test("pointer cancellation clears the transient selection without committing it"
   target.emit("pointermove", { pointerId: 12, tileX: 5, tileY: 5, preventDefault() {} });
   target.emit("pointercancel", { pointerId: 12, preventDefault() {} });
   assert.deepEqual(cancelled, ["idle"]);
+  assert.deepEqual(target.released, [12]);
   assert.equal(controller.session.anchor, null);
   assert.equal(controller.session.geometry.cells.length, 0);
   assert.equal(commitSelection(controller.session), null);

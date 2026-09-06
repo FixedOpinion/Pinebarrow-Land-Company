@@ -1,6 +1,6 @@
 # Pinebarrow Land Company — Placement, Footprint, and Builder Complexity
 
-**Status:** C2.1 implemented; C2.2 is the next runtime checkpoint
+**Status:** C2.2 implemented; C2.3 is the next runtime checkpoint
 **Baseline:** v24 branch `e34553cded3ecf3944fa1ba6c588fb6f8bf14149`
 **Related scope:** `docs/FULL_GAME_CONTENT_CONTRACT.md`
 
@@ -230,3 +230,12 @@ C2.1 is implemented in `public/pinebarrow-placement.js` and loaded before the ga
 Focused verification: 6 selector tests passed. Full repository verification before this checkpoint: production build passed, 47 tests passed, and lint passed with the existing one warning in `public/pinebarrow-engine.js:7161`.
 
 Next: **C2.2 — footprint/complexity configuration, builder capability filtering, cost/labor/time estimates, and proposal snapshots**.
+
+
+## C2.2 checkpoint record
+
+C2.2 is implemented in public/pinebarrow-footprints.js and loaded before the game engine after the shared selector module. It provides data-first footprint designs, Builder I through City Planner capability bands, qualification filtering, area/frontage/route estimates, and immutable proposal snapshots. It deliberately does not switch mine, warehouse, road, or house actions over to the selector yet.
+
+Focused verification: 4 footprint/complexity tests passed. Full repository verification: production build passed, 51 tests passed, and lint passed with the existing one warning in public/pinebarrow-engine.js:7161.
+
+Next: C2.3 — player-selected mine and warehouse footprints, legacy compatibility, and removal of new auto-adjacent warehouse creation.

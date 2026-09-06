@@ -1,6 +1,6 @@
 # Pinebarrow Land Company — Placement, Footprint, and Builder Complexity
 
-**Status:** Design contract for checkpoint C2; runtime implementation not started
+**Status:** C2.1 implemented; C2.2 is the next runtime checkpoint
 **Baseline:** v24 branch `e34553cded3ecf3944fa1ba6c588fb6f8bf14149`
 **Related scope:** `docs/FULL_GAME_CONTENT_CONTRACT.md`
 
@@ -221,3 +221,12 @@ To protect the work from usage limits, C2 is split into these independently comm
 
 No C2 checkpoint should add School or research behavior yet. It must only create the placement and project foundation those later buildings will use.
 
+
+
+## C2.1 checkpoint record
+
+C2.1 is implemented in `public/pinebarrow-placement.js` and loaded before the game engine. It provides shared area/corridor geometry, diagonal grid normalization, capability validation, rotation, cancellation, pointer capture/release, and a reusable pointer controller. It deliberately does not change mine, warehouse, road, or house placement behavior yet.
+
+Focused verification: 6 selector tests passed. Full repository verification before this checkpoint: production build passed, 47 tests passed, and lint passed with the existing one warning in `public/pinebarrow-engine.js:7161`.
+
+Next: **C2.2 — footprint/complexity configuration, builder capability filtering, cost/labor/time estimates, and proposal snapshots**.

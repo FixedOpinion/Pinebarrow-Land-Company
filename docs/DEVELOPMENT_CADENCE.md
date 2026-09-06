@@ -192,3 +192,6 @@ The full-content sequence is:
 - **C13:** full integration, exact-SHA merge/deployment, and live smoke verification.
 
 If a usage limit interrupts work, resume from the last verified GitHub SHA and the next recorded checkpoint. Do not reconstruct unfinished code from chat. The next runtime checkpoint after the v24 merge gate is **C2 — Physical lots and residential playability**.
+
+
+C2 placement work is governed by `docs/PLACEMENT_AND_FOOTPRINT_SPEC.md`. The first runtime slice is **C2.1**, shared transient grid selection and validation. Do not modify mine, warehouse, road, or house placement independently before C2.1 exists.

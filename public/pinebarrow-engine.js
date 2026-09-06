@@ -26,7 +26,7 @@
       const STARTER_TREE = { x: PLAYER_ROAD_X + 3, y: TOWN_TOP - 3 };
       const CLAIM_SECTION_DEPTHS = [0, 42, 84];
       const CLAIM_SECTION_ENDS = [41, 83, CLAIM_DEPTH - 1];
-      const SAVE_VERSION = 12;
+      const SAVE_VERSION = 14;
       const MAIN_STREET_TOP = 142;
       const MAIN_STREET_BOTTOM = 146;
       const TOWN_SIDE_STREET_WIDTH = 2;
@@ -76,6 +76,86 @@
         maxActiveProspects: 2,
         maxProposals: 64,
         maxResidentialProposals: 4,
+        maxConstructionProjects: 64,
+        maxConstructionBids: 192,
+        maxProcurementContracts: 384,
+        maxDevelopedBuildings: 128,
+        maxResidents: 128,
+        maxWorkforce: 32,
+        constructionDeliveryTonsPerHour: 2,
+        constructionEmergencyPriceMultiplier: 1.35,
+        constructionServiceCosts: { logistics: 32, hauling: 48 },
+        constructionMaterials: ["logs", "stone", "clay", "coal", "iron", "copper", "tin", "quartz", "silver", "gold", "sapphire"],
+        buildingDefinitions: {
+          "worker-house": {
+            id: "worker-house",
+            label: "Workforce House",
+            type: "residential",
+            footprint: { w: 2, h: 2 },
+            requiredBuilderLevel: 1,
+            baseCost: 280,
+            resources: { logs: 20, stone: 15 },
+            labor: 2,
+            buildTimeDays: 2,
+            housingCapacity: 1,
+            workerSlots: 0
+          },
+          "town-shop": {
+            id: "town-shop",
+            label: "Rentable Town Shop",
+            type: "commercial",
+            footprint: { w: 2, h: 2 },
+            requiredBuilderLevel: 1,
+            baseCost: 520,
+            resources: { logs: 35, stone: 25 },
+            labor: 4,
+            buildTimeDays: 3,
+            housingCapacity: 0,
+            workerSlots: 1
+          },
+          "crowe-workshop": {
+            id: "crowe-workshop",
+            label: "Crowe Operations Building",
+            type: "crowe",
+            footprint: { w: 2, h: 2 },
+            requiredBuilderLevel: 2,
+            baseCost: 460,
+            resources: { logs: 30, stone: 20 },
+            labor: 4,
+            buildTimeDays: 3,
+            housingCapacity: 0,
+            workerSlots: 2
+          },
+          "mine": {
+            id: "mine",
+            label: "Mine",
+            type: "mine",
+            footprint: { w: 2, h: 2 },
+            requiredBuilderLevel: 1,
+            baseCost: 140,
+            resources: { logs: 12, stone: 10 },
+            labor: 2,
+            buildTimeDays: 2,
+            housingCapacity: 0
+          },
+          "warehouse": {
+            id: "warehouse",
+            label: "Warehouse",
+            type: "warehouse",
+            footprint: { w: 2, h: 2 },
+            requiredBuilderLevel: 1,
+            baseCost: 260,
+            resources: { logs: 18, stone: 12 },
+            labor: 2,
+            buildTimeDays: 2,
+            housingCapacity: 0
+          }
+        },
+        constructionBuilders: [
+          { id: "pinebarrow-builders", label: "Pinebarrow Builders", level: 1, priceMultiplier: 1, durationMultiplier: 1 },
+          { id: "county-works", label: "County Works Cooperative", level: 2, priceMultiplier: 1.18, durationMultiplier: .9 },
+          { id: "crowe-construction", label: "Crowe Construction", level: 3, priceMultiplier: 1.08, durationMultiplier: .75 }
+        ],
         maxMineLevel: 8,
         mineUpgradeCosts: { 1: 260, 2: 390, 3: 560, 4: 780, 5: 1060, 6: 1420, 7: 1880 },
         mineOutputByLevel: { 1: 1, 2: 1.18, 3: 1.38, 4: 1.6, 5: 1.82, 6: 2.02, 7: 2.22, 8: 2.4 },
@@ -209,6 +289,7 @@
           path: [],
           pendingArrival: null,
           location: null,
+          developmentId: null,
           menuOpen: false,
           selected: null,
           overview: false,
@@ -263,6 +344,19 @@
           companyContracts: [],
           nextCompanyContractId: 1,
           townBusinesses: {},
+          constructionProjects: [],
+          constructionBids: [],
+          procurementContracts: [],
+          nextProjectId: 1,
+          nextConstructionBidId: 1,
+          nextProcurementContractId: 1,
+          developedBuildings: [],
+          nextDevelopedBuildingId: 1,
+          residents: [],
+          nextResidentId: 1,
+          workforce: [],
+          nextWorkforceId: 1,
+          legacyConstructionMode: false,
           wasteToCrowe: 0,
           day: 1,
           minutes: 8 * 60,
@@ -1216,6 +1310,209 @@
         return proposal;
       }
 
+      function allocateConstructionProjectId() {
+        let id = "";
+        do {
+          id = "project-" + state.nextProjectId;
+          state.nextProjectId += 1;
+        } while (state.constructionProjects.some(function (project) { return project && project.id === id; }));
+        return id;
+      }
+
+      function allocateConstructionBidId() {
+        let id = "";
+        do {
+          id = "builder-bid-" + state.nextConstructionBidId;
+          state.nextConstructionBidId += 1;
+        } while (state.constructionBids.some(function (bid) { return bid && bid.id === id; }));
+        return id;
+      }
+
+      function allocateProcurementContractId() {
+        let id = "";
+        do {
+          id = "procurement-" + state.nextProcurementContractId;
+          state.nextProcurementContractId += 1;
+        } while (state.procurementContracts.some(function (contract) { return contract && contract.id === id; }));
+        return id;
+      }
+
+      function normalizeRequirementStore(source) {
+        const result = {};
+        const input = source && typeof source === "object" ? source : {};
+        CONFIG.constructionMaterials.forEach(function (material) {
+          const amount = Number(input[material]);
+          if (Number.isFinite(amount) && amount > 0) result[material] = Math.round(amount * 10) / 10;
+        });
+        return result;
+      }
+
+      function normalizeDeliveredStore(source, requirements) {
+        const result = {};
+        const input = source && typeof source === "object" ? source : {};
+        Object.keys(requirements || {}).forEach(function (material) {
+          const amount = Number(input[material]);
+          result[material] = Number.isFinite(amount) ? Math.max(0, Math.min(requirements[material], Math.round(amount * 10) / 10)) : 0;
+        });
+        return result;
+      }
+
+      function normalizeConstructionProject(record) {
+        if (!record || typeof record !== "object") return null;
+        const project = Object.assign({}, record);
+        if (typeof project.id !== "string" || !project.id) project.id = allocateConstructionProjectId();
+        project.proposalId = typeof project.proposalId === "string" ? project.proposalId : null;
+        project.buildingId = typeof project.buildingId === "string" ? project.buildingId : "town-shop";
+        project.ownerId = typeof project.ownerId === "string" && project.ownerId ? project.ownerId : "player";
+        const allowedStatuses = ["awaiting-builder", "procurement", "ready-to-build", "building", "delayed", "completed", "cancelled"];
+        project.status = allowedStatuses.includes(project.status) ? project.status : "awaiting-builder";
+        project.requirements = normalizeRequirementStore(project.requirements);
+        project.delivered = normalizeDeliveredStore(project.delivered, project.requirements);
+        project.procurementContractIds = Array.isArray(project.procurementContractIds)
+          ? project.procurementContractIds.filter(function (id) { return typeof id === "string"; })
+          : [];
+        project.laborRequired = Number.isFinite(project.laborRequired) ? Math.max(0, Math.round(project.laborRequired)) : 0;
+        project.laborDelivered = Number.isFinite(project.laborDelivered) ? Math.max(0, Math.min(project.laborRequired, Math.round(project.laborDelivered))) : 0;
+        project.buildProgress = Number.isFinite(project.buildProgress) ? Math.max(0, Math.min(1, project.buildProgress)) : 0;
+        project.cost = Number.isFinite(project.cost) ? Math.max(0, Math.round(project.cost)) : 0;
+        project.housingCapacity = Number.isFinite(project.housingCapacity) ? Math.max(0, Math.round(project.housingCapacity)) : 0;
+        project.level = Number.isFinite(project.level) ? Math.max(1, Math.round(project.level)) : 1;
+        project.createdDay = Number.isFinite(project.createdDay) ? Math.max(1, Math.round(project.createdDay)) : 1;
+        project.deadlineDay = Number.isFinite(project.deadlineDay) ? Math.max(project.createdDay, Math.round(project.deadlineDay)) : project.createdDay;
+        project.route = typeof project.route === "string" && project.route ? project.route : "town";
+        project.siteKind = typeof project.siteKind === "string" && project.siteKind ? project.siteKind : "town";
+        project.siteParcelId = typeof project.siteParcelId === "string" ? project.siteParcelId : null;
+        project.x = Number.isFinite(project.x) ? Math.round(project.x) : null;
+        project.y = Number.isFinite(project.y) ? Math.round(project.y) : null;
+        project.w = Number.isFinite(project.w) ? Math.max(1, Math.round(project.w)) : 2;
+        project.h = Number.isFinite(project.h) ? Math.max(1, Math.round(project.h)) : 2;
+        project.doorX = Number.isFinite(project.doorX) ? Math.round(project.doorX) : project.x;
+        project.doorY = Number.isFinite(project.doorY) ? Math.round(project.doorY) : project.y;
+        project.builderBidId = typeof project.builderBidId === "string" ? project.builderBidId : null;
+        project.builderId = typeof project.builderId === "string" ? project.builderId : null;
+        project.builderMultiplier = Number.isFinite(project.builderMultiplier) ? Math.max(.1, project.builderMultiplier) : 1;
+        project.builderDurationMultiplier = Number.isFinite(project.builderDurationMultiplier) ? Math.max(.1, project.builderDurationMultiplier) : 1;
+        project.builderCost = Number.isFinite(project.builderCost) ? Math.max(0, Math.round(project.builderCost)) : project.cost;
+        project.materialCostPaid = Number.isFinite(project.materialCostPaid) ? Math.max(0, Math.round(project.materialCostPaid)) : 0;
+        project.serviceCostPaid = Number.isFinite(project.serviceCostPaid) ? Math.max(0, Math.round(project.serviceCostPaid)) : 0;
+        project.delayDays = Number.isFinite(project.delayDays) ? Math.max(0, Math.round(project.delayDays)) : 0;
+        project.completedDay = Number.isFinite(project.completedDay) ? Math.max(0, Math.round(project.completedDay)) : null;
+        project.buildingRecordId = typeof project.buildingRecordId === "string" ? project.buildingRecordId : null;
+        return project;
+      }
+
+      function normalizeConstructionBid(record) {
+        if (!record || typeof record !== "object") return null;
+        const bid = Object.assign({}, record);
+        if (typeof bid.id !== "string" || !bid.id) bid.id = allocateConstructionBidId();
+        bid.projectId = typeof bid.projectId === "string" ? bid.projectId : null;
+        bid.builderId = typeof bid.builderId === "string" ? bid.builderId : "unassigned-builder";
+        bid.builderLabel = typeof bid.builderLabel === "string" && bid.builderLabel ? bid.builderLabel : bid.builderId;
+        bid.requiredBuilderLevel = Number.isFinite(bid.requiredBuilderLevel) ? Math.max(1, Math.round(bid.requiredBuilderLevel)) : 1;
+        bid.price = Number.isFinite(bid.price) ? Math.max(0, Math.round(bid.price)) : 0;
+        bid.durationDays = Number.isFinite(bid.durationDays) ? Math.max(1, Math.round(bid.durationDays)) : 1;
+        bid.status = ["open", "awarded", "rejected", "withdrawn"].includes(bid.status) ? bid.status : "open";
+        return bid;
+      }
+
+      function normalizeProcurementContract(record) {
+        if (!record || typeof record !== "object") return null;
+        const contract = Object.assign({}, record);
+        if (typeof contract.id !== "string" || !contract.id) contract.id = allocateProcurementContractId();
+        contract.projectId = typeof contract.projectId === "string" ? contract.projectId : null;
+        contract.category = typeof contract.category === "string" && contract.category ? contract.category : "mine-supply";
+        contract.material = typeof contract.material === "string" ? contract.material : null;
+        contract.service = typeof contract.service === "string" ? contract.service : null;
+        contract.providerId = typeof contract.providerId === "string" && contract.providerId ? contract.providerId : null;
+        contract.quantity = Number.isFinite(contract.quantity) ? Math.max(0, Math.round(contract.quantity * 10) / 10) : 0;
+        contract.delivered = Number.isFinite(contract.delivered) ? Math.max(0, Math.min(contract.quantity, Math.round(contract.delivered * 10) / 10)) : 0;
+        contract.status = ["open", "awarded", "fulfilled", "cancelled"].includes(contract.status) ? contract.status : "open";
+        contract.createdDay = Number.isFinite(contract.createdDay) ? Math.max(1, Math.round(contract.createdDay)) : 1;
+        contract.deadlineDay = Number.isFinite(contract.deadlineDay) ? Math.max(contract.createdDay, Math.round(contract.deadlineDay)) : contract.createdDay;
+        return contract;
+      }
+
+      
+      function allocateDevelopedBuildingId() {
+        let id = "";
+        do {
+          id = "building-" + state.nextDevelopedBuildingId;
+          state.nextDevelopedBuildingId += 1;
+        } while (state.developedBuildings.some(function (building) { return building && building.id === id; }));
+        return id;
+      }
+
+      function allocateResidentId() {
+        let id = "";
+        do {
+          id = "resident-" + state.nextResidentId;
+          state.nextResidentId += 1;
+        } while (state.residents.some(function (resident) { return resident && resident.id === id; }));
+        return id;
+      }
+
+      function allocateWorkforceId() {
+        let id = "";
+        do {
+          id = "workforce-" + state.nextWorkforceId;
+          state.nextWorkforceId += 1;
+        } while (state.workforce.some(function (worker) { return worker && worker.id === id; }));
+        return id;
+      }
+
+      function normalizeDevelopedBuilding(record) {
+        if (!record || typeof record !== "object") return null;
+        const building = Object.assign({}, record);
+        if (typeof building.id !== "string" || !building.id) building.id = allocateDevelopedBuildingId();
+        building.buildingId = typeof building.buildingId === "string" && building.buildingId ? building.buildingId : "town-shop";
+        building.type = typeof building.type === "string" && building.type ? building.type : "commercial";
+        building.ownerId = typeof building.ownerId === "string" && building.ownerId ? building.ownerId : "player";
+        building.status = ["completed", "for-sale", "sold"].includes(building.status) ? building.status : "completed";
+        building.x = Number.isFinite(building.x) ? Math.round(building.x) : 0;
+        building.y = Number.isFinite(building.y) ? Math.round(building.y) : 0;
+        building.w = Number.isFinite(building.w) ? Math.max(1, Math.round(building.w)) : 2;
+        building.h = Number.isFinite(building.h) ? Math.max(1, Math.round(building.h)) : 2;
+        building.doorX = Number.isFinite(building.doorX) ? Math.round(building.doorX) : building.x;
+        building.doorY = Number.isFinite(building.doorY) ? Math.round(building.doorY) : building.y;
+        building.residentIds = Array.isArray(building.residentIds) ? building.residentIds.filter(function (id) { return typeof id === "string"; }) : [];
+        building.workerIds = Array.isArray(building.workerIds) ? building.workerIds.filter(function (id) { return typeof id === "string"; }) : [];
+        const definition = CONFIG.buildingDefinitions[building.buildingId] || {};
+        building.workerSlots = Number.isFinite(building.workerSlots) ? Math.max(0, Math.round(building.workerSlots)) : Math.max(0, Math.round(definition.workerSlots || 0));
+        building.rentPerDay = Number.isFinite(building.rentPerDay) ? Math.max(0, Math.round(building.rentPerDay)) : 0;
+        building.salePrice = Number.isFinite(building.salePrice) ? Math.max(0, Math.round(building.salePrice)) : 0;
+        building.forSale = Boolean(building.forSale || building.status === "for-sale");
+        building.tenantId = typeof building.tenantId === "string" ? building.tenantId : null;
+        building.tenantName = typeof building.tenantName === "string" ? building.tenantName : null;
+        building.projectId = typeof building.projectId === "string" ? building.projectId : null;
+        building.completedDay = Number.isFinite(building.completedDay) ? Math.max(1, Math.round(building.completedDay)) : 1;
+        return building;
+      }
+
+      function normalizeResident(record) {
+        if (!record || typeof record !== "object") return null;
+        const resident = Object.assign({}, record);
+        if (typeof resident.id !== "string" || !resident.id) resident.id = allocateResidentId();
+        resident.houseId = typeof resident.houseId === "string" ? resident.houseId : null;
+        resident.name = typeof resident.name === "string" && resident.name ? resident.name : "Pinebarrow Resident";
+        resident.status = ["candidate", "worker", "tenant", "evicted"].includes(resident.status) ? resident.status : "candidate";
+        resident.workforceId = typeof resident.workforceId === "string" ? resident.workforceId : null;
+        resident.employerId = typeof resident.employerId === "string" ? resident.employerId : null;
+        resident.createdDay = Number.isFinite(resident.createdDay) ? Math.max(1, Math.round(resident.createdDay)) : 1;
+        return resident;
+      }
+
+      function normalizeWorkforce(record) {
+        if (!record || typeof record !== "object") return null;
+        const worker = Object.assign({}, record);
+        if (typeof worker.id !== "string" || !worker.id) worker.id = allocateWorkforceId();
+        worker.residentId = typeof worker.residentId === "string" ? worker.residentId : null;
+        worker.status = ["available", "assigned", "inactive"].includes(worker.status) ? worker.status : "available";
+        worker.jobType = typeof worker.jobType === "string" ? worker.jobType : null;
+        worker.jobId = typeof worker.jobId === "string" ? worker.jobId : null;
+        worker.createdDay = Number.isFinite(worker.createdDay) ? Math.max(1, Math.round(worker.createdDay)) : 1;
+        return worker;
+      }
+
       function isLegacyPlayerPoint(x, y) {
         return Number.isFinite(x) && Number.isFinite(y) && x >= LEGACY_PLAYER_LEFT && x < LEGACY_PLAYER_RIGHT && y >= SOUTH_TOP && y < WORLD_HEIGHT;
       }
@@ -1452,6 +1749,93 @@
             return contract && typeof contract.id === "string" && materialNames[contract.material] && Number.isFinite(contract.quantity) && Number.isFinite(contract.delivered) && typeof contract.mineId === "string";
           }).slice(0, CONFIG.maxCompanyContracts) : [];
           state.townBusinesses = saved.townBusinesses && typeof saved.townBusinesses === "object" ? saved.townBusinesses : {};
+          state.legacyConstructionMode = false;
+          state.nextProjectId = Math.max(1, Math.round(saved.nextProjectId || 1));
+          state.nextDevelopedBuildingId = Math.max(1, Math.round(saved.nextDevelopedBuildingId || 1));
+          state.nextResidentId = Math.max(1, Math.round(saved.nextResidentId || 1));
+          state.nextWorkforceId = Math.max(1, Math.round(saved.nextWorkforceId || 1));
+          state.developmentId = typeof saved.developmentId === "string" ? saved.developmentId : null;
+          state.developedBuildings = [];
+          const savedDevelopedBuildings = Array.isArray(saved.developedBuildings) ? saved.developedBuildings : [];
+          const developedBuildingIds = new Set();
+          savedDevelopedBuildings.slice(0, CONFIG.maxDevelopedBuildings).forEach(function (record) {
+            const building = normalizeDevelopedBuilding(record);
+            if (!building) return;
+            if (developedBuildingIds.has(building.id)) building.id = allocateDevelopedBuildingId();
+            developedBuildingIds.add(building.id);
+            state.developedBuildings.push(building);
+          });
+          state.residents = [];
+          const savedResidents = Array.isArray(saved.residents) ? saved.residents : [];
+          const residentIds = new Set();
+          savedResidents.slice(0, CONFIG.maxResidents).forEach(function (record) {
+            const resident = normalizeResident(record);
+            if (!resident) return;
+            if (residentIds.has(resident.id)) resident.id = allocateResidentId();
+            residentIds.add(resident.id);
+            state.residents.push(resident);
+          });
+          state.workforce = [];
+          const savedWorkforce = Array.isArray(saved.workforce) ? saved.workforce : [];
+          const workforceIds = new Set();
+          savedWorkforce.slice(0, CONFIG.maxWorkforce).forEach(function (record) {
+            const worker = normalizeWorkforce(record);
+            if (!worker) return;
+            if (workforceIds.has(worker.id)) worker.id = allocateWorkforceId();
+            workforceIds.add(worker.id);
+            state.workforce.push(worker);
+          });
+          if (saved.version < 14 && !state.workforce.length && state.workers > 0) {
+            for (let workerIndex = 0; workerIndex < Math.min(CONFIG.maxWorkers, state.workers); workerIndex += 1) {
+              state.workforce.push({
+                id: allocateWorkforceId(),
+                residentId: null,
+                status: "available",
+                jobType: null,
+                jobId: null,
+                createdDay: state.day
+              });
+            }
+          }
+          state.nextConstructionBidId = Math.max(1, Math.round(saved.nextConstructionBidId || 1));
+          state.nextProcurementContractId = Math.max(1, Math.round(saved.nextProcurementContractId || 1));
+          state.constructionProjects = [];
+          state.constructionBids = [];
+          state.procurementContracts = [];
+          const savedConstructionProjects = Array.isArray(saved.constructionProjects) ? saved.constructionProjects : [];
+          const projectIds = new Set();
+          savedConstructionProjects.slice(0, CONFIG.maxConstructionProjects).forEach(function (record) {
+            const project = normalizeConstructionProject(record);
+            if (!project) return;
+            if (projectIds.has(project.id)) project.id = allocateConstructionProjectId();
+            projectIds.add(project.id);
+            state.constructionProjects.push(project);
+          });
+          const savedConstructionBids = Array.isArray(saved.constructionBids) ? saved.constructionBids : [];
+          const bidIds = new Set();
+          savedConstructionBids.slice(0, CONFIG.maxConstructionBids).forEach(function (record) {
+            const bid = normalizeConstructionBid(record);
+            if (!bid || !projectIds.has(bid.projectId)) return;
+            if (bidIds.has(bid.id)) bid.id = allocateConstructionBidId();
+            bidIds.add(bid.id);
+            state.constructionBids.push(bid);
+          });
+          const savedProcurementContracts = Array.isArray(saved.procurementContracts) ? saved.procurementContracts : [];
+          const procurementIds = new Set();
+          savedProcurementContracts.slice(0, CONFIG.maxProcurementContracts).forEach(function (record) {
+            const contract = normalizeProcurementContract(record);
+            if (!contract || !projectIds.has(contract.projectId)) return;
+            if (procurementIds.has(contract.id)) contract.id = allocateProcurementContractId();
+            procurementIds.add(contract.id);
+            state.procurementContracts.push(contract);
+          });
+          state.constructionProjects.forEach(function (project) {
+            const proposal = state.proposals.find(function (record) { return record.id === project.proposalId; });
+            if (proposal && !proposal.projectId) proposal.projectId = project.id;
+          });
+          if (!state.legacyConstructionMode && state.workforce.length) {
+            state.workers = Math.max(0, Math.min(CONFIG.maxWorkers, state.workforce.filter(function (worker) { return worker.status !== "inactive"; }).length));
+          }
           processTownBusinessOpenings();
           if (saved.version <= 4 && !state.prospectorHired && (state.prospectsUsedToday > 0 || state.surveyParcels.length || state.mineParcels.length)) {
             state.prospectorHired = true;
@@ -1578,12 +1962,26 @@
           companyContracts: state.companyContracts,
           nextCompanyContractId: state.nextCompanyContractId,
           townBusinesses: state.townBusinesses,
+          constructionProjects: state.constructionProjects,
+          constructionBids: state.constructionBids,
+          procurementContracts: state.procurementContracts,
+          nextProjectId: state.nextProjectId,
+          nextConstructionBidId: state.nextConstructionBidId,
+          nextProcurementContractId: state.nextProcurementContractId,
+          developedBuildings: state.developedBuildings,
+          nextDevelopedBuildingId: state.nextDevelopedBuildingId,
+          residents: state.residents,
+          nextResidentId: state.nextResidentId,
+          workforce: state.workforce,
+          nextWorkforceId: state.nextWorkforceId,
+          legacyConstructionMode: state.legacyConstructionMode,
           wasteToCrowe: state.wasteToCrowe,
           day: state.day,
           minutes: state.minutes,
           player: state.player,
           selected: state.selected,
           location: state.location,
+          developmentId: state.developmentId,
           overview: state.overview,
           zoomIndex: state.zoomIndex,
           contextTitle: state.contextTitle,
@@ -2108,6 +2506,23 @@
           return x >= building.x && x < building.x + building.w && y >= building.y && y < building.y + building.h;
         }) || null;
         if (coreBuilding) return coreBuilding;
+        const developed = state.developedBuildings.find(function (building) {
+          return building && building.status !== "sold" && x >= building.x && x < building.x + building.w && y >= building.y && y < building.y + building.h;
+        });
+        if (developed) {
+          const definition = CONFIG.buildingDefinitions[developed.buildingId] || {};
+          return {
+            id: "development-" + developed.id,
+            developmentId: developed.id,
+            label: definition.label || "Developed building",
+            x: developed.x,
+            y: developed.y,
+            w: developed.w,
+            h: developed.h,
+            doorX: developed.doorX,
+            doorY: developed.doorY
+          };
+        }
         return businessLots.find(function (business) {
           const record = state.townBusinesses[business.id];
           return record && (record.status === "announced" || record.status === "open") && x >= business.x && x < business.x + business.w && y >= business.y && y < business.y + business.h;
@@ -2250,6 +2665,14 @@
       }
 
       function relocatePlayerFromTownBuilding() {
+        const savedDevelopment = state.location === "development" && state.developmentId
+          ? state.developedBuildings.find(function (building) { return building.id === state.developmentId; })
+          : null;
+        if (savedDevelopment) {
+          state.player = { x: savedDevelopment.doorX, y: savedDevelopment.doorY };
+          state.selected = { type: "building", x: savedDevelopment.x, y: savedDevelopment.y, buildingId: "development-" + savedDevelopment.id };
+          return true;
+        }
         const savedLocationBuilding = townBuildingById(state.location);
         if (savedLocationBuilding) {
           state.player = { x: savedLocationBuilding.doorX, y: savedLocationBuilding.doorY };
@@ -2383,7 +2806,9 @@
       }
 
       function isStructureCell(x, y) {
-        return Boolean(mineAt(x, y) || warehouseAt(x, y));
+        return Boolean(mineAt(x, y) || warehouseAt(x, y) || state.developedBuildings.some(function (building) {
+          return building && building.status !== "sold" && x >= building.x && x < building.x + building.w && y >= building.y && y < building.y + building.h;
+        }));
       }
 
       function isPassable(x, y) {
@@ -2516,7 +2941,7 @@
       }
 
       function travelToBuilding(building) {
-        queueTravel(buildingDoorTargets(building), { type: "building", buildingId: building.id }, building.label);
+        queueTravel(buildingDoorTargets(building), { type: "building", buildingId: building.id, developmentId: building.developmentId || null }, building.label);
       }
 
       function adjacentPassableTargets(x, y) {
@@ -2638,6 +3063,14 @@
         }
         if (arrival.type === "building") {
           state.location = arrival.buildingId;
+          if (arrival.developmentId) {
+            state.location = "development";
+            state.developmentId = arrival.developmentId;
+            const developed = state.developedBuildings.find(function (building) { return building.id === arrival.developmentId; });
+            setContext((developed && developed.ownerId === "player" ? "Company property" : "Town property"), developed ? (CONFIG.buildingDefinitions[developed.buildingId] || {}).label || "Developed building" : "Developed building");
+            return;
+          }
+          state.developmentId = null;
           if (arrival.buildingId === "market") {
             if (!state.mine && state.mines.length) selectActiveMine(state.mines[0]);
             setContext("Market", "Choose Marketplace to post player-priced sell offers, or Company Contracts to assign a repeating truck to one matching mine. Permanent mine workers are still hired at this counter.");
@@ -3158,12 +3591,18 @@
       function buildMine() {
         const permitted = state.mineParcel && (state.mineParcel.status === "leased" || state.mineParcel.status === "owned");
         const existingMine = state.mineParcel && state.mines.find(function (mine) { return mine.parcelId === state.mineParcel.id; });
-        if (!permitted || existingMine || !parcelCleared(state.mineParcel) || !besideParcel(state.mineParcel) || state.cash < CONFIG.mineBuildCost) return;
+        const existingProject = state.mineParcel && siteProjectFor("mine", state.mineParcel.id);
+        if (!permitted || existingMine || existingProject || !parcelCleared(state.mineParcel) || !besideParcel(state.mineParcel)) return;
         if (state.mines.length >= mineSlotLimit()) {
           const nextUnlock = CONFIG.mineSlotUnlockDays[state.mines.length] || CONFIG.mineSlotUnlockDays[CONFIG.mineSlotUnlockDays.length - 1];
           setContext("Mine slot locked", "Your company can operate " + mineSlotLimit() + " mine" + (mineSlotLimit() === 1 ? "" : "s") + " today. The next operating permit unlocks on Day " + nextUnlock + ".");
           return;
         }
+        if (!state.legacyConstructionMode) {
+          createSiteConstructionProject("mine", state.mineParcel);
+          return;
+        }
+        if (state.cash < CONFIG.mineBuildCost) return;
         state.cash -= CONFIG.mineBuildCost;
         const newMine = {
           id: allocateSiteId("mine"),
@@ -3217,6 +3656,260 @@
         return materialNames[state.mine.material] + " at forest depth " + state.mine.depth + " · stockpile " + round1(mineStockUsed()).toFixed(1) + " / " + mineCapacity().toFixed(1) + " t · " + round1(state.mine.stockMaterial).toFixed(1) + " material and " + round1(state.mine.stockDirt).toFixed(1) + " dirt · " + state.workers + " hired worker" + (state.workers === 1 ? "" : "s") + (nextMaterial !== state.mine.material ? " · next drill tier: " + materialNames[nextMaterial] + "." : ".");
       }
 
+      function createSiteConstructionProject(siteKind, parcel) {
+        if (state.legacyConstructionMode || !parcel) return false;
+        const existing = siteProjectFor(siteKind, parcel.id);
+        if (existing) {
+          setContext("Project already open", "This site is already tracked by " + existing.id + ". Visit Town Hall to award the builder and bid the supply, logistics, and hauling contracts.", "warning");
+          return false;
+        }
+        const definition = CONFIG.buildingDefinitions[siteKind];
+        if (!definition) return false;
+        const project = openConstructionProject({
+          buildingId: siteKind,
+          ownerId: "player",
+          route: "resource-infrastructure",
+          siteKind: siteKind,
+          siteParcelId: parcel.id,
+          point: {
+            x: parcel.x,
+            y: parcel.y,
+            w: definition.footprint.w,
+            h: definition.footprint.h,
+            doorX: state.player.x,
+            doorY: state.player.y
+          },
+          cost: definition.baseCost
+        });
+        if (!project) return false;
+        parcel.constructionProjectId = project.id;
+        setContext(siteKind === "mine" ? "Mine project opened" : "Warehouse project opened", definition.label + " now follows the shared builder, supply, logistics, and hauling pipeline. Take the project to Town Hall for contract bids.", "success");
+        return true;
+      }
+
+      function workersAssignedTo(jobType, jobId) {
+        return state.workforce.filter(function (worker) {
+          return worker.status === "assigned" && worker.jobType === jobType && worker.jobId === jobId;
+        }).length;
+      }
+
+      function availableWorkforce() {
+        return state.workforce.filter(function (worker) { return worker.status === "available"; });
+      }
+
+      function syncWorkerMirror() {
+        state.workers = Math.max(0, Math.min(CONFIG.maxWorkers, state.workforce.filter(function (worker) {
+          return worker.status !== "inactive";
+        }).length));
+      }
+
+      function residentForWorkforce(worker) {
+        return worker && worker.residentId ? state.residents.find(function (resident) { return resident.id === worker.residentId; }) : null;
+      }
+
+      function targetCanReceiveWorker(jobType, jobId) {
+        if (workersAssignedTo(jobType, jobId) >= 1) return false;
+        if (jobType === "mine") {
+          return state.mines.some(function (mine) { return mine.id === jobId; });
+        }
+        if (jobType === "warehouse") {
+          return state.warehouses.some(function (warehouse) { return warehouse.id === jobId; });
+        }
+        if (jobType === "shop") {
+          return state.developedBuildings.some(function (building) {
+            return building.id === jobId && building.type === "commercial" && building.ownerId === "player" && building.tenantId && !building.forSale;
+          });
+        }
+        return false;
+      }
+
+      function assignWorkforceToJob(workerId, jobType, jobId) {
+        const worker = state.workforce.find(function (record) { return record.id === workerId; });
+        if (!worker || worker.status !== "available" || !targetCanReceiveWorker(jobType, jobId)) return false;
+        worker.status = "assigned";
+        worker.jobType = jobType;
+        worker.jobId = jobId;
+        const resident = residentForWorkforce(worker);
+        if (resident) resident.employerId = jobType + ":" + jobId;
+        if (jobType === "shop") {
+          const shop = state.developedBuildings.find(function (building) { return building.id === jobId; });
+          if (shop) shop.operatingStatus = "operating";
+        }
+        syncWorkerMirror();
+        return true;
+      }
+
+      function unassignWorkforce(workerId) {
+        const worker = state.workforce.find(function (record) { return record.id === workerId; });
+        if (!worker || worker.status !== "assigned") return false;
+        const previousJobType = worker.jobType;
+        const previousJobId = worker.jobId;
+        worker.status = "available";
+        worker.jobType = null;
+        worker.jobId = null;
+        const resident = residentForWorkforce(worker);
+        if (resident) resident.employerId = null;
+        if (previousJobType === "shop") {
+          const shop = state.developedBuildings.find(function (building) { return building.id === previousJobId; });
+          if (shop) shop.operatingStatus = "unstaffed";
+        }
+        syncWorkerMirror();
+        return true;
+      }
+
+      function hireResidentRecord(resident, assignJobType, assignJobId) {
+        if (!resident || resident.status !== "candidate" || state.workforce.length >= CONFIG.maxWorkforce || state.workers >= CONFIG.maxWorkers) return false;
+        const cost = nextWorkerCost();
+        if (state.cash < cost) return false;
+        state.cash -= cost;
+        const worker = {
+          id: allocateWorkforceId(),
+          residentId: resident.id,
+          status: "available",
+          jobType: null,
+          jobId: null,
+          createdDay: state.day
+        };
+        state.workforce.push(worker);
+        resident.status = "worker";
+        resident.workforceId = worker.id;
+        if (assignJobType && assignJobId) assignWorkforceToJob(worker.id, assignJobType, assignJobId);
+        syncWorkerMirror();
+        return true;
+      }
+
+      function hireResident(residentId) {
+        if (state.location !== "townhall") return;
+        const resident = state.residents.find(function (record) { return record.id === residentId; });
+        if (!resident || resident.status !== "candidate") return;
+        if (!hireResidentRecord(resident)) {
+          setContext("Hiring blocked", "The company needs housing candidates, available workforce capacity, and $" + nextWorkerCost() + " to hire this resident.", "danger");
+          return;
+        }
+        setContext("Resident hired", resident.name + " joined the company workforce and is available for one mine or warehouse assignment.", "success");
+        saveState(true);
+        renderInterface();
+      }
+
+      function assignResidentToJob(workerId, jobType, jobId) {
+        if (state.location !== "townhall" || !assignWorkforceToJob(workerId, jobType, jobId)) return;
+        const worker = state.workforce.find(function (record) { return record.id === workerId; });
+        const targetLabel = jobType === "mine" ? "mine" : "warehouse";
+        setContext("Worker assigned", (worker && residentForWorkforce(worker) ? residentForWorkforce(worker).name : "The resident") + " now staffs the " + targetLabel + " and production or handling may resume.", "success");
+        saveState(true);
+        renderInterface();
+      }
+
+      function mineRequiresDedicatedWorker(mine) {
+        return Boolean(mine && mine.constructionProjectId && !state.legacyConstructionMode);
+      }
+
+      function warehouseRequiresDedicatedWorker(warehouse) {
+        return Boolean(warehouse && warehouse.constructionProjectId && !state.legacyConstructionMode);
+      }
+
+      function processPropertyRent() {
+        if (state.legacyConstructionMode) return;
+        state.developedBuildings.forEach(function (building) {
+          if (!building || building.type !== "commercial" || building.ownerId !== "player" || building.forSale || !building.tenantId) return;
+          const rent = Math.max(0, Number(building.rentPerDay) || 0);
+          if (!rent || building.lastRentDay === state.day) return;
+          state.cash += rent;
+          building.lastRentDay = state.day;
+          building.operatingStatus = workersAssignedTo("shop", building.id) >= building.workerSlots ? "operating" : "unstaffed";
+          building.rentCollected = Math.max(0, Number(building.rentCollected) || 0) + rent;
+        });
+      }
+
+      function leaseDevelopedShop(buildingId) {
+        if (state.location !== "development") return;
+        const building = state.developedBuildings.find(function (record) { return record.id === buildingId; });
+        if (!building || building.type !== "commercial" || building.ownerId !== "player" || building.forSale || building.tenantId) return;
+        building.tenantId = "tenant-" + building.id;
+        building.tenantName = "Pinebarrow shopkeeper";
+        setContext("Shop leased", building.tenantName + " took the shop. Rent of $" + building.rentPerDay + " is collected each day while you retain ownership.", "success");
+        saveState(true);
+        renderInterface();
+      }
+
+      function sellDevelopedBuilding(buildingId) {
+        if (state.location !== "development") return;
+        const building = state.developedBuildings.find(function (record) { return record.id === buildingId; });
+        if (!building || building.ownerId !== "player") return;
+        const occupants = state.residents.filter(function (resident) { return resident.houseId === building.id && resident.status !== "evicted"; });
+        if (building.type === "residential" && occupants.length) {
+          setContext("Sale blocked", "Move the resident out of this house before selling it; the company will not silently orphan housing or a workforce assignment.", "danger");
+          return;
+        }
+        state.workforce.filter(function (worker) { return worker.status === "assigned" && worker.jobType === "shop" && worker.jobId === building.id; }).forEach(function (worker) {
+          unassignWorkforce(worker.id);
+        });
+        const salePrice = Math.max(1, Number(building.salePrice) || 0);
+        state.cash += salePrice;
+        building.ownerId = "town";
+        building.status = "for-sale";
+        building.forSale = true;
+        building.tenantId = null;
+        building.tenantName = null;
+        building.operatingStatus = "town-held";
+        setContext("Property sold", "The town bought back " + building.buildingId + " for $" + salePrice + ". It remains recoverable as a buy-back property.", "success");
+        saveState(true);
+        renderInterface();
+      }
+
+      function buyBackDevelopedBuilding(buildingId) {
+        if (state.location !== "development") return;
+        const building = state.developedBuildings.find(function (record) { return record.id === buildingId; });
+        if (!building || building.ownerId !== "town" || !building.forSale) return;
+        const price = Math.max(1, Number(building.salePrice) || 0);
+        if (state.cash < price) {
+          setContext("Buy-back blocked", "The company needs $" + price + " to recover this property.", "danger");
+          return;
+        }
+        state.cash -= price;
+        building.ownerId = "player";
+        building.status = "completed";
+        building.forSale = false;
+        setContext("Property recovered", "The company bought the property back from the town and retained its existing building record.", "success");
+        saveState(true);
+        renderInterface();
+      }
+
+      function ensureCroweDevelopmentProject() {
+        if (state.legacyConstructionMode || state.day < 3) return;
+        const existingProject = state.constructionProjects.find(function (project) {
+          return project.buildingId === "crowe-workshop" && !["cancelled"].includes(project.status);
+        });
+        const existingBuilding = state.developedBuildings.some(function (building) {
+          return building.buildingId === "crowe-workshop";
+        });
+        if (existingProject || existingBuilding) return;
+        const project = openConstructionProject({
+          buildingId: "crowe-workshop",
+          ownerId: "crowe",
+          route: "crowe",
+          siteKind: "crowe",
+          siteParcelId: "crowe-development",
+          point: { x: 43, y: SOUTH_TOP + 7, w: 2, h: 2, doorX: 45, doorY: SOUTH_TOP + 6 },
+          cost: CONFIG.buildingDefinitions["crowe-workshop"].baseCost
+        });
+        if (!project) return;
+        const bid = constructionBidsForProject(project.id)[0];
+        if (bid) {
+          bid.status = "awarded";
+          project.builderBidId = bid.id;
+          project.builderId = bid.builderId;
+          project.builderCost = 0;
+          project.builderDurationMultiplier = .75;
+          project.status = "ready-to-build";
+          project.deadlineDay = state.day + bid.durationDays + 3;
+        }
+        procurementContractsForProject(project.id).forEach(function (contract) {
+          contract.providerId = "crowe-construction";
+          contract.status = "awarded";
+        });
+      }
+
       function produceMines() {
         if (!state.mines.length) return;
         const dirtKeptShare = state.shaker ? .15 : 1;
@@ -3226,8 +3919,17 @@
           const free = capacity - used;
           if (free <= .01) return;
           mine.material = mineMaterialForLevel(mine);
+          const dedicated = mineRequiresDedicatedWorker(mine);
+          const assignedWorkers = workersAssignedTo("mine", mine.id);
+          if (dedicated && assignedWorkers < 1) {
+            mine.lastProductionStatus = "no-worker";
+            return;
+          }
+          mine.lastProductionStatus = "running";
+          const workerCount = dedicated ? assignedWorkers : state.workers;
+          const multiplier = CONFIG.workerOutputMultiplierByCount[Math.min(4, Math.max(0, workerCount))] || 1;
           const cargoPerRaw = (1 - mine.ratio) + mine.ratio * dirtKeptShare;
-          const staffedOutput = CONFIG.mineOutputByLevel[mine.level] * CONFIG.workerOutputMultiplierByCount[state.workers];
+          const staffedOutput = CONFIG.mineOutputByLevel[mine.level] * multiplier;
           const raw = Math.min(staffedOutput, free / cargoPerRaw);
           mine.stockMaterial += raw * (1 - mine.ratio);
           mine.stockDirt += raw * mine.ratio * dirtKeptShare;
@@ -3240,14 +3942,17 @@
       }
 
       function advanceGameTime(minutes) {
-        state.minutes += minutes;
+        const elapsed = Math.max(0, Number(minutes) || 0);
+        state.minutes += elapsed;
         while (state.minutes >= 24 * 60) {
           state.minutes -= 24 * 60;
           state.day += 1;
           processTownBusinessOpenings();
           applyDailyMarket();
           processDailyLease();
+          processPropertyRent();
         }
+        if (elapsed > 0) processConstructionProjects(elapsed);
       }
 
       function processDailyLease() {
@@ -3310,7 +4015,13 @@
 
       function buildWarehouse() {
         const existingWarehouse = state.warehouseParcel && state.warehouses.find(function (warehouse) { return warehouse.parcelId === state.warehouseParcel.id; });
-        if (!state.warehouseParcel || state.warehouseParcel.status !== "owned" || existingWarehouse || !parcelCleared(state.warehouseParcel) || !besideParcel(state.warehouseParcel) || state.cash < CONFIG.warehouseBuildCost) return;
+        const existingProject = state.warehouseParcel && siteProjectFor("warehouse", state.warehouseParcel.id);
+        if (!state.warehouseParcel || state.warehouseParcel.status !== "owned" || existingWarehouse || existingProject || !parcelCleared(state.warehouseParcel) || !besideParcel(state.warehouseParcel)) return;
+        if (!state.legacyConstructionMode) {
+          createSiteConstructionProject("warehouse", state.warehouseParcel);
+          return;
+        }
+        if (state.cash < CONFIG.warehouseBuildCost) return;
         state.cash -= CONFIG.warehouseBuildCost;
         const newWarehouse = {
           id: allocateSiteId("warehouse"),
@@ -3351,6 +4062,10 @@
 
       function unloadWarehouse() {
         if (!state.warehouse || state.location !== "warehouse" || !atStructureDoor(state.warehouse)) return;
+        if (warehouseRequiresDedicatedWorker(state.warehouse) && workersAssignedTo("warehouse", state.warehouse.id) < 1) {
+          setContext("Warehouse idle", "This warehouse needs one assigned worker before it can handle loading or unloading.", "danger");
+          return;
+        }
         let free = warehouseCapacity() - usedStore(state.warehouse.storage);
         cargoKeys.forEach(function (key) {
           if (free <= .01) return;
@@ -3364,6 +4079,10 @@
 
       function loadWarehouse() {
         if (!state.warehouse || state.location !== "warehouse" || !atStructureDoor(state.warehouse)) return;
+        if (warehouseRequiresDedicatedWorker(state.warehouse) && workersAssignedTo("warehouse", state.warehouse.id) < 1) {
+          setContext("Warehouse idle", "This warehouse needs one assigned worker before it can handle loading or unloading.", "danger");
+          return;
+        }
         let free = freeCargo();
         cargoKeys.forEach(function (key) {
           if (free <= .01) return;
@@ -3397,14 +4116,41 @@
       }
 
       function hireMineWorker() {
-        const cost = nextWorkerCost();
-        if (state.location !== "market" || !state.mine || state.workers >= CONFIG.maxWorkers || state.cash < cost) return;
-        state.cash -= cost;
-        state.workers += 1;
-        const oldMultiplier = CONFIG.workerOutputMultiplierByCount[state.workers - 1];
-        const newMultiplier = CONFIG.workerOutputMultiplierByCount[state.workers];
-        const addedPercent = Math.round((newMultiplier - oldMultiplier) * 100);
-        setContext("Permanent mine worker hired", state.workers + " worker" + (state.workers === 1 ? " now supports" : "s now support") + " your mine. This hire adds " + addedPercent + "% base production; the crew now produces at " + Math.round(newMultiplier * 100) + "% and appears beside the mine.");
+        if (state.location !== "market" || !state.mine || state.workers >= CONFIG.maxWorkers) return;
+        if (state.legacyConstructionMode) {
+          const cost = nextWorkerCost();
+          if (state.cash < cost) return;
+          state.cash -= cost;
+          state.workers += 1;
+          const oldMultiplier = CONFIG.workerOutputMultiplierByCount[state.workers - 1];
+          const newMultiplier = CONFIG.workerOutputMultiplierByCount[state.workers];
+          const addedPercent = Math.round((newMultiplier - oldMultiplier) * 100);
+          setContext("Permanent mine worker hired", state.workers + " worker" + (state.workers === 1 ? " now supports" : "s now support") + " your mine. This hire adds " + addedPercent + "% base production; the crew now produces at " + Math.round(newMultiplier * 100) + "% and appears beside the mine.");
+          return;
+        }
+        const assigned = workersAssignedTo("mine", state.mine.id);
+        if (assigned >= 1) {
+          setContext("Mine already staffed", "One worker already staffs this mine. Reassign that worker from Town Hall before choosing another.", "warning");
+          return;
+        }
+        let worker = availableWorkforce()[0];
+        if (!worker) {
+          const candidate = state.residents.find(function (resident) { return resident.status === "candidate"; });
+          if (candidate) {
+            if (!hireResidentRecord(candidate, "mine", state.mine.id)) {
+              setContext("Hiring blocked", "The next resident hire costs $" + nextWorkerCost() + ".", "danger");
+              return;
+            }
+            worker = state.workforce.find(function (record) { return record.residentId === candidate.id; });
+          }
+        }
+        if (!worker || !assignWorkforceToJob(worker.id, "mine", state.mine.id)) {
+          setContext("No mine worker", "Hire a housed resident at Town Hall, then assign one worker to this mine.", "danger");
+          return;
+        }
+        const resident = residentForWorkforce(worker);
+        setContext("Mine staffed", (resident ? resident.name : "A worker") + " now staffs this mine. Production can run again.", "success");
+        saveState(true);
       }
 
       function absoluteGameMinutes() {
@@ -4588,6 +5334,582 @@
         return value.trim().replace(/[-_]+/g, " ").replace(/\b\w/g, function (character) { return character.toUpperCase(); });
       }
 
+      function projectForProposal(proposalId) {
+        return state.constructionProjects.find(function (project) { return project.proposalId === proposalId; }) || null;
+      }
+
+      function siteProjectFor(siteKind, siteParcelId) {
+        return state.constructionProjects.find(function (project) {
+          return project.siteKind === siteKind && project.siteParcelId === siteParcelId &&
+            !["completed", "cancelled"].includes(project.status);
+        }) || null;
+      }
+
+      function constructionBidsForProject(projectId) {
+        return state.constructionBids.filter(function (bid) { return bid.projectId === projectId; });
+      }
+
+      function procurementContractsForProject(projectId) {
+        return state.procurementContracts.filter(function (contract) { return contract.projectId === projectId; });
+      }
+
+      function proposalLotKey(proposal) {
+        if (!proposal || !proposal.lot) return "";
+        return [proposal.lot.x, proposal.lot.y, proposal.lot.w, proposal.lot.h].join(",");
+      }
+
+      function projectBuildingDefinitionFor(proposal) {
+        const requestedId = proposal && typeof proposal.buildingId === "string" ? proposal.buildingId : "";
+        if (requestedId && CONFIG.buildingDefinitions[requestedId]) return CONFIG.buildingDefinitions[requestedId];
+        const type = proposal && typeof proposal.type === "string" ? proposal.type.toLowerCase() : "";
+        const owner = proposal && typeof proposal.owner === "string" ? proposal.owner.toLowerCase() : "";
+        if (owner === "crowe" || type === "crowe") return CONFIG.buildingDefinitions["crowe-workshop"];
+        if (type === "residential") return CONFIG.buildingDefinitions["worker-house"];
+        return CONFIG.buildingDefinitions["town-shop"];
+      }
+
+      function constructionProjectHasAwardedContracts(project) {
+        const contracts = procurementContractsForProject(project.id);
+        return contracts.length > 0 && contracts.every(function (contract) {
+          return ["awarded", "fulfilled"].includes(contract.status);
+        });
+      }
+
+      function constructionContractIsComplete(contract) {
+        return contract.status === "fulfilled" || (contract.quantity > 0 && contract.delivered >= contract.quantity - .01);
+      }
+
+      function constructionProjectHasDeliveredContracts(project) {
+        const contracts = procurementContractsForProject(project.id);
+        return contracts.length > 0 && contracts.every(constructionContractIsComplete);
+      }
+
+      function constructionProjectDefinition(project) {
+        return CONFIG.buildingDefinitions[project.buildingId] || CONFIG.buildingDefinitions["town-shop"];
+      }
+
+      function takeConstructionInventory(material, amount) {
+        let remaining = Math.max(0, amount);
+        let taken = 0;
+        const take = function (store, key) {
+          if (!store || remaining <= .01) return;
+          const available = Math.max(0, Number(store[key]) || 0);
+          const amountTaken = Math.min(available, remaining);
+          if (amountTaken <= 0) return;
+          store[key] = Math.round((available - amountTaken) * 10) / 10;
+          remaining -= amountTaken;
+          taken += amountTaken;
+        };
+        take(state.cargo, material);
+        state.warehouses.forEach(function (warehouse) {
+          if (remaining <= .01 || !warehouse || !warehouse.storage) return;
+          if (!state.legacyConstructionMode && workersAssignedTo("warehouse", warehouse.id) < 1) return;
+          take(warehouse.storage, material);
+        });
+        if (material === "stone" || material === "logs") {
+          state.mines.forEach(function (mine) {
+            if (remaining <= .01 || !mine || mine.material !== material) return;
+            if (!state.legacyConstructionMode && mine.constructionProjectId && workersAssignedTo("mine", mine.id) < 1) return;
+            const available = Math.max(0, Number(mine.stockMaterial) || 0);
+            const amountTaken = Math.min(available, remaining);
+            if (amountTaken <= 0) return;
+            mine.stockMaterial = Math.round((available - amountTaken) * 10) / 10;
+            remaining -= amountTaken;
+            taken += amountTaken;
+          });
+        }
+        return taken;
+      }
+
+      function constructionEmergencyUnitPrice(material) {
+        return Math.max(1, Math.round((Number(basePrices[material]) || 25) * CONFIG.constructionEmergencyPriceMultiplier));
+      }
+
+      function settleConstructionMaterial(project, contract, minutes) {
+        if (contract.status !== "awarded" || !contract.material) return;
+        const remaining = Math.max(0, contract.quantity - contract.delivered);
+        if (remaining <= .01) {
+          contract.status = "fulfilled";
+          return;
+        }
+        const rate = Math.max(.1, CONFIG.constructionDeliveryTonsPerHour * Math.max(1, minutes) / 60);
+        const requested = Math.min(remaining, rate);
+        let delivered = project.ownerId === "crowe" ? requested : takeConstructionInventory(contract.material, requested);
+        const shortfall = Math.max(0, requested - delivered);
+        if (shortfall > .01 && project.ownerId !== "crowe") {
+          const emergencyCost = Math.ceil(shortfall * constructionEmergencyUnitPrice(contract.material));
+          if (state.cash >= emergencyCost) {
+            state.cash -= emergencyCost;
+            project.materialCostPaid += emergencyCost;
+            delivered += shortfall;
+            contract.emergencyTons = Math.round(((contract.emergencyTons || 0) + shortfall) * 10) / 10;
+          }
+        }
+        if (delivered <= 0) return;
+        contract.delivered = Math.min(contract.quantity, Math.round((contract.delivered + delivered) * 10) / 10);
+        project.delivered[contract.material] = contract.delivered;
+        if (contract.delivered >= contract.quantity - .01) {
+          contract.delivered = contract.quantity;
+          contract.status = "fulfilled";
+        }
+      }
+
+      function settleConstructionService(project, contract) {
+        if (contract.status !== "awarded") return;
+        const cost = project.ownerId === "crowe" ? 0 : (CONFIG.constructionServiceCosts[contract.category] || 0);
+        if (cost > 0) {
+          if (state.cash < cost) return;
+          state.cash -= cost;
+          project.serviceCostPaid += cost;
+        }
+        contract.settledCost = cost;
+        contract.delivered = contract.quantity;
+        contract.status = "fulfilled";
+      }
+
+      function constructionProjectSitePoint(project) {
+        const proposal = project.proposalId && state.proposals.find(function (record) { return record.id === project.proposalId; });
+        const lot = proposal && proposal.lot;
+        return {
+          x: Number.isFinite(project.x) ? project.x : (lot && Number.isFinite(lot.x) ? lot.x : 0),
+          y: Number.isFinite(project.y) ? project.y : (lot && Number.isFinite(lot.y) ? lot.y : 0),
+          w: project.w || (lot && lot.w) || 2,
+          h: project.h || (lot && lot.h) || 2,
+          doorX: Number.isFinite(project.doorX) ? project.doorX : (lot && Number.isFinite(lot.doorX) ? lot.doorX : project.x),
+          doorY: Number.isFinite(project.doorY) ? project.doorY : (lot && Number.isFinite(lot.doorY) ? lot.doorY : project.y)
+        };
+      }
+
+      function createCompletedBuildingFromProject(project) {
+        if (project.buildingRecordId) return;
+        const definition = constructionProjectDefinition(project);
+        const point = constructionProjectSitePoint(project);
+        if (project.siteKind === "mine") {
+          const parcel = state.mineParcels.find(function (record) { return record.id === project.siteParcelId; });
+          if (!parcel || state.mines.some(function (mine) { return mine.constructionProjectId === project.id || mine.parcelId === parcel.id; })) {
+            project.buildingRecordId = project.buildingRecordId || null;
+            return;
+          }
+          const mine = {
+            id: allocateSiteId("mine"),
+            parcelId: parcel.id,
+            constructionProjectId: project.id,
+            x: point.x,
+            y: point.y,
+            w: point.w,
+            h: point.h,
+            level: 1,
+            baseMaterial: parcel.material || "stone",
+            material: parcel.material || "stone",
+            depth: Number(parcel.depth) || 0,
+            ratio: Number(parcel.ratio) || .5,
+            stockMaterial: 0,
+            stockDirt: 0,
+            doorX: point.doorX,
+            doorY: point.doorY
+          };
+          mine.material = mineMaterialForLevel(mine);
+          state.mines.push(mine);
+          parcel.mineId = mine.id;
+          project.buildingRecordId = mine.id;
+          return;
+        }
+        if (project.siteKind === "warehouse") {
+          const parcel = state.warehouseParcels.find(function (record) { return record.id === project.siteParcelId; });
+          if (!parcel || state.warehouses.some(function (warehouse) { return warehouse.constructionProjectId === project.id || warehouse.parcelId === parcel.id; })) {
+            project.buildingRecordId = project.buildingRecordId || null;
+            return;
+          }
+          const warehouse = {
+            id: allocateSiteId("warehouse"),
+            parcelId: parcel.id,
+            constructionProjectId: project.id,
+            x: point.x,
+            y: point.y,
+            w: point.w,
+            h: point.h,
+            level: 1,
+            storage: emptyMaterialStore(),
+            doorX: point.doorX,
+            doorY: point.doorY
+          };
+          state.warehouses.push(warehouse);
+          parcel.warehouseId = warehouse.id;
+          project.buildingRecordId = warehouse.id;
+          return;
+        }
+        const existing = state.developedBuildings.find(function (building) { return building.projectId === project.id; });
+        if (existing) {
+          project.buildingRecordId = existing.id;
+          return;
+        }
+        const buildingId = allocateDevelopedBuildingId();
+        const building = {
+          id: buildingId,
+          projectId: project.id,
+          buildingId: definition.id,
+          type: definition.type,
+          ownerId: project.ownerId || "player",
+          status: "completed",
+          x: point.x,
+          y: point.y,
+          w: point.w,
+          h: point.h,
+          doorX: point.doorX,
+          doorY: point.doorY,
+          residentIds: [],
+          workerIds: [],
+          workerSlots: Math.max(0, Math.round(definition.workerSlots || 0)),
+          rentPerDay: definition.type === "commercial" ? 35 : 0,
+          salePrice: Math.max(definition.baseCost, Math.round((project.cost || definition.baseCost) * 1.15)),
+          forSale: false,
+          tenantId: null,
+          tenantName: null,
+          completedDay: state.day
+        };
+        state.developedBuildings.push(building);
+        project.buildingRecordId = building.id;
+        if (definition.type === "residential") {
+          const resident = {
+            id: allocateResidentId(),
+            houseId: building.id,
+            name: "Pinebarrow Resident " + state.nextResidentId,
+            status: "candidate",
+            workforceId: null,
+            employerId: null,
+            createdDay: state.day
+          };
+          state.residents.push(resident);
+          building.residentIds.push(resident.id);
+        }
+        if (definition.type === "commercial" && project.ownerId === "crowe") {
+          building.ownerId = "crowe";
+        }
+      }
+
+      function completeConstructionProject(project) {
+        if (project.status === "completed") return;
+        createCompletedBuildingFromProject(project);
+        project.status = "completed";
+        project.buildProgress = 1;
+        project.laborDelivered = project.laborRequired;
+        project.completedDay = state.day;
+        const proposal = project.proposalId && state.proposals.find(function (record) { return record.id === project.proposalId; });
+        if (proposal) {
+          proposal.status = "completed";
+          proposal.stage = "completed";
+          proposal.completedDay = state.day;
+        }
+      }
+
+      function processConstructionProjects(minutes) {
+        if (state.legacyConstructionMode) return;
+        ensureCroweDevelopmentProject();
+        const elapsed = Math.max(1, Number(minutes) || 1);
+        state.constructionProjects.slice().forEach(function (project) {
+          if (!project || ["completed", "cancelled"].includes(project.status)) return;
+          if (state.day > project.deadlineDay && !["awaiting-builder", "procurement"].includes(project.status) && project.status !== "delayed") {
+            project.status = "delayed";
+            project.delayDays = Math.max(1, state.day - project.deadlineDay);
+          }
+          if (project.status === "awaiting-builder") return;
+          if (project.status === "procurement") {
+            if (constructionProjectHasAwardedContracts(project)) project.status = "ready-to-build";
+            else return;
+          }
+          if (!constructionProjectHasAwardedContracts(project)) return;
+          procurementContractsForProject(project.id).forEach(function (contract) {
+            if (contract.status !== "awarded") return;
+            if (contract.material) settleConstructionMaterial(project, contract, elapsed);
+            else settleConstructionService(project, contract);
+          });
+          if (!constructionProjectHasDeliveredContracts(project)) return;
+          if (project.status === "ready-to-build" || project.status === "delayed") project.status = "building";
+          if (project.status !== "building") return;
+          const durationMinutes = Math.max(1, Math.round((constructionProjectDefinition(project).buildTimeDays || 1) * 1440 * project.builderDurationMultiplier));
+          const laborRate = project.laborRequired > 0 ? project.laborRequired / durationMinutes : 1 / durationMinutes;
+          project.laborDelivered = Math.min(project.laborRequired, project.laborDelivered + laborRate * elapsed);
+          project.buildProgress = project.laborRequired > 0 ? Math.min(1, project.laborDelivered / project.laborRequired) : 1;
+          if (project.buildProgress >= 1) completeConstructionProject(project);
+        });
+      }
+
+      function appendConstructionContracts(project) {
+        Object.keys(project.requirements).forEach(function (material) {
+          const contract = {
+            id: allocateProcurementContractId(),
+            projectId: project.id,
+            category: "mine-supply",
+            material: material,
+            service: null,
+            quantity: project.requirements[material],
+            delivered: 0,
+            providerId: null,
+            status: "open",
+            createdDay: state.day,
+            deadlineDay: project.deadlineDay
+          };
+          state.procurementContracts.push(contract);
+          project.procurementContractIds.push(contract.id);
+        });
+        [
+          { category: "logistics", service: "warehouse-staging" },
+          { category: "hauling", service: "site-delivery" }
+        ].forEach(function (service) {
+          const contract = {
+            id: allocateProcurementContractId(),
+            projectId: project.id,
+            category: service.category,
+            material: null,
+            service: service.service,
+            quantity: 1,
+            delivered: 0,
+            providerId: null,
+            status: "open",
+            createdDay: state.day,
+            deadlineDay: project.deadlineDay
+          };
+          state.procurementContracts.push(contract);
+          project.procurementContractIds.push(contract.id);
+        });
+      }
+
+      function openConstructionProject(options) {
+        if (state.constructionProjects.length >= CONFIG.maxConstructionProjects) return null;
+        const definition = CONFIG.buildingDefinitions[options.buildingId];
+        if (!definition) return null;
+        const point = options.point || {};
+        const requirements = normalizeRequirementStore(definition.resources);
+        const project = {
+          id: allocateConstructionProjectId(),
+          proposalId: options.proposalId || null,
+          buildingId: definition.id,
+          ownerId: options.ownerId || "player",
+          route: options.route || "town",
+          siteKind: options.siteKind || "town",
+          siteParcelId: options.siteParcelId || null,
+          x: Number.isFinite(point.x) ? point.x : null,
+          y: Number.isFinite(point.y) ? point.y : null,
+          w: Number.isFinite(point.w) ? point.w : definition.footprint.w,
+          h: Number.isFinite(point.h) ? point.h : definition.footprint.h,
+          doorX: Number.isFinite(point.doorX) ? point.doorX : point.x,
+          doorY: Number.isFinite(point.doorY) ? point.doorY : point.y,
+          level: 1,
+          status: "awaiting-builder",
+          requirements: requirements,
+          delivered: normalizeDeliveredStore({}, requirements),
+          laborRequired: Math.max(0, Math.round(definition.labor || 0)),
+          laborDelivered: 0,
+          buildProgress: 0,
+          procurementContractIds: [],
+          builderBidId: null,
+          builderId: null,
+          builderMultiplier: 1,
+          builderDurationMultiplier: 1,
+          builderCost: Math.round(options.cost || definition.baseCost),
+          materialCostPaid: 0,
+          serviceCostPaid: 0,
+          cost: Math.round(options.cost || definition.baseCost),
+          housingCapacity: definition.housingCapacity || 0,
+          createdDay: state.day,
+          deadlineDay: state.day + Math.max(1, Math.round(definition.buildTimeDays || 1)) + 3,
+          delayDays: 0,
+          completedDay: null,
+          buildingRecordId: null
+        };
+        state.constructionProjects.push(project);
+        CONFIG.constructionBuilders.filter(function (builder) {
+          return project.ownerId === "crowe" ? builder.id === "crowe-construction" : builder.level >= definition.requiredBuilderLevel;
+        }).forEach(function (builder) {
+          state.constructionBids.push({
+            id: allocateConstructionBidId(),
+            projectId: project.id,
+            builderId: builder.id,
+            builderLabel: builder.label,
+            requiredBuilderLevel: definition.requiredBuilderLevel,
+            price: Math.round(project.cost * builder.priceMultiplier),
+            durationDays: Math.max(1, Math.round(definition.buildTimeDays * builder.durationMultiplier)),
+            status: "open"
+          });
+        });
+        appendConstructionContracts(project);
+        return project;
+      }
+
+      function approveDevelopmentProposal(proposalId) {
+        if (state.location !== "townhall") return;
+        const proposal = state.proposals.find(function (record) { return record.id === proposalId; });
+        if (!proposal || proposal.status !== "draft") return;
+        if (!proposal.lot || !proposal.footprint) {
+          setContext("Approval blocked", "This proposal needs a valid lot and footprint before Town Hall can approve it.", "danger");
+          renderInterface();
+          return;
+        }
+        const lotKey = proposalLotKey(proposal);
+        const conflict = state.proposals.find(function (record) {
+          return record.id !== proposal.id && proposalLotKey(record) === lotKey &&
+            ["approved", "purchased", "under-construction", "completed"].includes(record.status);
+        });
+        if (conflict) {
+          setContext("Approval blocked", "That lot is already controlled by another active development proposal.", "danger");
+          renderInterface();
+          return;
+        }
+        proposal.status = "approved";
+        proposal.owner = proposal.owner || "player";
+        proposal.stage = "coming-soon";
+        proposal.approval = { route: "town-hall", approvedDay: state.day };
+        setContext("Site approved", proposalDisplayText(proposal.use, "Development") + " may now select a building design and request bids.", "success");
+        saveState(true);
+        renderInterface();
+      }
+
+      function purchaseDevelopmentProposal(proposalId) {
+        if (state.location !== "townhall") return;
+        const proposal = state.proposals.find(function (record) { return record.id === proposalId; });
+        if (!proposal || proposal.status !== "draft" || String(proposal.type).toLowerCase() === "residential") return;
+        proposal.status = "purchased";
+        proposal.owner = proposal.owner || "player";
+        proposal.stage = "coming-soon";
+        proposal.purchaseAgreement = { route: "town-infrastructure", purchasedDay: state.day, price: Number.isFinite(proposal.cost) ? proposal.cost : null };
+        setContext("Purchase agreement recorded", proposalDisplayText(proposal.use, "Town improvement") + " skips site approval and now follows the shared construction route.", "success");
+        saveState(true);
+        renderInterface();
+      }
+
+      function createConstructionProject(proposalId) {
+        if (state.location !== "townhall") return;
+        const proposal = state.proposals.find(function (record) { return record.id === proposalId; });
+        if (!proposal || !["approved", "purchased"].includes(proposal.status)) return;
+        if (projectForProposal(proposalId)) {
+          setContext("Project already exists", "This proposal already has a construction project in the company ledger.", "warning");
+          renderInterface();
+          return;
+        }
+        const definition = projectBuildingDefinitionFor(proposal);
+        const point = proposal.lot || {};
+        const project = openConstructionProject({
+          proposalId: proposal.id,
+          buildingId: definition.id,
+          ownerId: proposal.owner || "player",
+          route: proposal.status === "purchased" ? "town-infrastructure" : "town-hall",
+          siteKind: "town",
+          point: point,
+          cost: Number.isFinite(proposal.cost) ? Math.round(proposal.cost) : definition.baseCost
+        });
+        if (!project) return;
+        proposal.status = "under-construction";
+        proposal.stage = "fenced";
+        proposal.projectId = project.id;
+        proposal.buildingId = definition.id;
+        setContext("Construction project opened", definition.label + " is fenced. Builder bids, material supply, warehouse staging, and site hauling are now tracked as separate contracts.", "success");
+        saveState(true);
+        renderInterface();
+      }
+
+      function awardConstructionBid(bidId) {
+        if (state.location !== "townhall") return;
+        const bid = state.constructionBids.find(function (record) { return record.id === bidId; });
+        if (!bid || bid.status !== "open") return;
+        const project = state.constructionProjects.find(function (record) { return record.id === bid.projectId; });
+        if (!project || project.status !== "awaiting-builder") return;
+        if (project.ownerId !== "crowe" && state.cash < bid.price) {
+          setContext("Builder award blocked", "The company cannot fund this builder bid yet. Cash settlement happens when the bid is awarded.", "danger");
+          renderInterface();
+          return;
+        }
+        if (project.ownerId !== "crowe") {
+          state.cash -= bid.price;
+          project.builderCost = bid.price;
+        }
+        state.constructionBids.forEach(function (record) {
+          if (record.projectId === project.id && record.status === "open") record.status = record.id === bid.id ? "awarded" : "rejected";
+        });
+        bid.status = "awarded";
+        project.builderBidId = bid.id;
+        project.builderId = bid.builderId;
+        const builder = CONFIG.constructionBuilders.find(function (record) { return record.id === bid.builderId; });
+        project.builderMultiplier = builder ? builder.priceMultiplier : 1;
+        project.builderDurationMultiplier = builder ? builder.durationMultiplier : 1;
+        project.status = "procurement";
+        project.deadlineDay = state.day + bid.durationDays + 3;
+        setContext("Builder awarded", bid.builderLabel + " won the construction contract. Procurement can now be assigned; delivery and service contracts settle against inventory and cash.", "success");
+        saveState(true);
+        renderInterface();
+      }
+
+      function bidOnProcurementContract(contractId) {
+        if (state.location !== "townhall") return;
+        const contract = state.procurementContracts.find(function (record) { return record.id === contractId; });
+        if (!contract || contract.status !== "open") return;
+        const project = state.constructionProjects.find(function (record) { return record.id === contract.projectId; });
+        if (!project || !["procurement", "ready-to-build", "delayed"].includes(project.status)) return;
+        contract.providerId = "player-company";
+        contract.status = "awarded";
+        if (constructionProjectHasAwardedContracts(project)) project.status = "ready-to-build";
+        setContext("Procurement contract awarded", (contract.material ? materialNames[contract.material] : proposalDisplayText(contract.service, "Service")) + " is assigned to your company. Time will now settle delivery, labor, and completion.", "success");
+        saveState(true);
+        renderInterface();
+      }
+
+      function projectStatusText(project) {
+        if (!project) return "No project";
+        const labels = {
+          "awaiting-builder": "Builder bids open",
+          procurement: "Procurement contracts open",
+          "ready-to-build": "Delivery in progress",
+          building: "Construction in progress",
+          delayed: "Delayed — contracts or labor blocked",
+          completed: "Completed",
+          cancelled: "Cancelled"
+        };
+        return labels[project.status] || proposalDisplayText(project.status, "Project");
+      }
+
+      function projectContractLabel(contract) {
+        if (contract.material) return materialNames[contract.material] + " supply · " + contract.quantity + " t · " + round1(contract.delivered).toFixed(1) + " delivered";
+        return proposalDisplayText(contract.service, "Service") + " contract" + (contract.status === "fulfilled" ? " · settled" : "");
+      }
+
+      function proposalProjectActionMarkup(proposal) {
+        const project = projectForProposal(proposal.id);
+        if (!project) {
+          if (proposal.status === "draft") {
+            const residential = String(proposal.type).toLowerCase() === "residential";
+            return '<div class="townhall-project-actions"><strong>Development route</strong><p>' + (residential ? "Town Hall site approval is required before the housing plan can enter construction." : "Town infrastructure uses a purchase agreement before the shared construction route opens.") + '</p><button type="button" data-project-action="' + (residential ? "approve" : "purchase") + '" data-proposal-id="' + detailText(proposal.id) + '">' + (residential ? "Approve site" : "Purchase agreement") + '</button></div>';
+          }
+          if (["approved", "purchased"].includes(proposal.status)) {
+            return '<div class="townhall-project-actions"><strong>Development route</strong><p>The lot is authorized. Select the building design and snapshot the project requirements.</p><button type="button" data-project-action="create-project" data-proposal-id="' + detailText(proposal.id) + '">Select design &amp; create project</button></div>';
+          }
+          return '<div class="townhall-project-actions"><strong>Development route</strong><p>No construction project is linked to this proposal yet.</p></div>';
+        }
+        const builderBids = constructionBidsForProject(project.id);
+        const procurement = procurementContractsForProject(project.id);
+        const definition = projectBuildingDefinitionFor(proposal);
+        let actions = '<div class="townhall-project-actions"><strong>Project ' + detailText(project.id) + ' · ' + detailText(projectStatusText(project)) + '</strong>' +
+          '<p>' + detailText(definition.label) + ' · ' + round1(project.laborDelivered).toFixed(1) + '/' + project.laborRequired + ' labor · deadline day ' + project.deadlineDay + '</p>';
+        if (project.status === "awaiting-builder") {
+          actions += '<div class="townhall-contract-list"><small>Builder bids · award settles the builder cost</small>' + builderBids.map(function (bid) {
+            return '<span><b>' + detailText(bid.builderLabel) + '</b><em>$' + bid.price + ' · ' + bid.durationDays + ' days</em><button type="button" data-project-action="award-builder" data-bid-id="' + detailText(bid.id) + '">Award bid</button></span>';
+          }).join("") + '</div>';
+        } else {
+          const openContracts = procurement.filter(function (contract) { return contract.status === "open"; });
+          actions += '<div class="townhall-contract-list"><small>Procurement, logistics &amp; hauling · inventory and cash settle over time</small>' +
+            (openContracts.length ? openContracts.map(function (contract) {
+              return '<span><b>' + detailText(projectContractLabel(contract)) + '</b><em>' + detailText(contract.category) + '</em><button type="button" data-project-action="bid-procurement" data-procurement-id="' + detailText(contract.id) + '">Bid this contract</button></span>';
+            }).join("") : '<p>All project contracts have a provider. Delivery, labor, and completion are time-based.</p>') + '</div>';
+        }
+        return actions + '</div>';
+      }
+
+      function handleProjectAction(action, id) {
+        if (action === "approve") approveDevelopmentProposal(id);
+        else if (action === "purchase") purchaseDevelopmentProposal(id);
+        else if (action === "create-project") createConstructionProject(id);
+        else if (action === "award-builder") awardConstructionBid(id);
+        else if (action === "bid-procurement") bidOnProcurementContract(id);
+      }
+
       function townHallResidentialBoardMarkup() {
         const allResidential = state.proposals.filter(function (proposal) {
           return proposal && typeof proposal.type === "string" && proposal.type.toLowerCase() === "residential";
@@ -4623,6 +5945,7 @@
               '<span><small>OWNER</small><b>' + detailText(owner) + '</b></span>' +
               '<span><small>STABLE ID</small><b>' + detailText(proposal.id) + '</b></span>' +
             '</div>' +
+            proposalProjectActionMarkup(proposal) +
           '</article>');
         }
         const overflow = Math.max(0, allResidential.length - CONFIG.maxResidentialProposals);
@@ -4630,6 +5953,95 @@
           '<div class="townhall-prospect-grid">' + cards.join("") + '</div>' +
           (overflow ? '<p class="townhall-proposal-overflow">' + overflow + ' additional saved proposal record' + (overflow === 1 ? ' is' : 's are') + ' preserved outside the current Town Hall limit.</p>' : '') +
         '</section>';
+      }
+
+      function standaloneProjectActionMarkup(project) {
+        const definition = constructionProjectDefinition(project);
+        const builderBids = constructionBidsForProject(project.id);
+        const procurement = procurementContractsForProject(project.id);
+        let html = '<div class="townhall-project-actions"><strong>' + detailText(definition.label) + ' · ' + detailText(projectStatusText(project)) + '</strong><p>Project ' + detailText(project.id) + ' · labor ' + round1(project.laborDelivered).toFixed(1) + '/' + project.laborRequired + ' · deadline day ' + project.deadlineDay + '</p>';
+        if (project.status === "awaiting-builder") {
+          html += '<div class="townhall-contract-list"><small>Builder bids</small>' + builderBids.map(function (bid) {
+            return '<span><b>' + detailText(bid.builderLabel) + '</b><em>$' + bid.price + ' · ' + bid.durationDays + ' days</em><button type="button" data-project-action="award-builder" data-bid-id="' + detailText(bid.id) + '">Award bid</button></span>';
+          }).join("") + '</div>';
+        } else {
+          const openContracts = procurement.filter(function (contract) { return contract.status === "open"; });
+          html += '<div class="townhall-contract-list"><small>Supply, logistics &amp; hauling</small>' +
+            (openContracts.length ? openContracts.map(function (contract) {
+              return '<span><b>' + detailText(projectContractLabel(contract)) + '</b><em>' + detailText(contract.category) + '</em><button type="button" data-project-action="bid-procurement" data-procurement-id="' + detailText(contract.id) + '">Bid this contract</button></span>';
+            }).join("") : '<p>All contracts have providers. Delivery, settlement, labor, and completion run with time.</p>') + '</div>';
+        }
+        return html + '</div>';
+      }
+
+      function townHallProjectLedgerMarkup() {
+        const projects = state.constructionProjects.filter(function (project) { return !project.proposalId; });
+        if (!projects.length) return "";
+        return '<section class="townhall-prospect-board townhall-project-ledger" aria-label="Infrastructure projects"><header><span>Infrastructure projects</span><strong>' + projects.length + ' tracked</strong></header><div class="townhall-contract-list">' + projects.map(standaloneProjectActionMarkup).join("") + '</div></section>';
+      }
+
+      function townHallWorkforceBoardMarkup() {
+        const houses = state.developedBuildings.filter(function (building) { return building.buildingId === "worker-house" && building.status !== "sold"; });
+        const candidates = state.residents.filter(function (resident) { return resident.status === "candidate"; });
+        const workers = state.workforce.filter(function (worker) { return worker.status !== "inactive"; });
+        const mineTargets = state.mines.filter(function (mine) { return workersAssignedTo("mine", mine.id) < 1; });
+        const warehouseTargets = state.warehouses.filter(function (warehouse) { return workersAssignedTo("warehouse", warehouse.id) < 1; });
+        const shopTargets = state.developedBuildings.filter(function (building) {
+          return building.type === "commercial" && building.ownerId === "player" && building.tenantId && !building.forSale && workersAssignedTo("shop", building.id) < building.workerSlots;
+        });
+        let html = '<section class="townhall-prospect-board townhall-workforce-board" aria-label="Workforce management"><header><span>Workforce management</span><strong>' + state.workers + ' / ' + CONFIG.maxWorkers + ' workers</strong></header>';
+        html += '<p class="townhall-proposal-overflow">' + houses.length + ' completed workforce house' + (houses.length === 1 ? "" : "s") + ' · ' + candidates.length + ' resident candidate' + (candidates.length === 1 ? "" : "s") + '. Each house holds one resident; each mine or warehouse takes one assigned worker.</p>';
+        if (candidates.length) {
+          html += '<div class="townhall-contract-list"><small>Resident hiring</small>' + candidates.map(function (resident) {
+            return '<span><b>' + detailText(resident.name) + '</b><em>candidate · house ' + detailText(resident.houseId || "unassigned") + '</em><button type="button" data-workforce-action="hire-resident" data-resident-id="' + detailText(resident.id) + '">Hire for $' + nextWorkerCost() + '</button></span>';
+          }).join("") + '</div>';
+        }
+        if (workers.length) {
+          html += '<div class="townhall-contract-list"><small>Assignments</small>' + workers.map(function (worker) {
+            const resident = residentForWorkforce(worker);
+            if (worker.status === "assigned") {
+              return '<span><b>' + detailText(resident ? resident.name : worker.id) + '</b><em>' + detailText(worker.jobType + " · " + worker.jobId) + '</em><button type="button" data-workforce-action="unassign" data-worker-id="' + detailText(worker.id) + '">Unassign</button></span>';
+            }
+            const buttons = mineTargets.map(function (mine) {
+              return '<button type="button" data-workforce-action="assign" data-worker-id="' + detailText(worker.id) + '" data-job-type="mine" data-job-id="' + detailText(mine.id) + '">Mine ' + detailText(mine.id) + '</button>';
+            }).concat(warehouseTargets.map(function (warehouse) {
+              return '<button type="button" data-workforce-action="assign" data-worker-id="' + detailText(worker.id) + '" data-job-type="warehouse" data-job-id="' + detailText(warehouse.id) + '">Warehouse ' + detailText(warehouse.id) + '</button>';
+            })).concat(shopTargets.map(function (shop) {
+              return '<button type="button" data-workforce-action="assign" data-worker-id="' + detailText(worker.id) + '" data-job-type="shop" data-job-id="' + detailText(shop.id) + '">Shop ' + detailText(shop.id) + '</button>';
+            })).join("");
+            return '<span><b>' + detailText(resident ? resident.name : worker.id) + '</b><em>available</em>' + (buttons || '<em>No open mine or warehouse slot</em>') + '</span>';
+          }).join("") + '</div>';
+        }
+        return html + '</section>';
+      }
+
+      function developmentDetailsMarkup() {
+        const building = state.developedBuildings.find(function (record) { return record.id === state.developmentId; });
+        if (!building) return detailCards([["Property", "No completed development selected"]]);
+        const definition = constructionProjectDefinition({ buildingId: building.buildingId });
+        const residents = building.residentIds.map(function (id) { return state.residents.find(function (resident) { return resident.id === id; }); }).filter(Boolean);
+        let html = detailCards([
+          ["Building", definition.label],
+          ["Owner", building.ownerId === "player" ? "Your company" : "Town / Crowe"],
+          ["Status", building.forSale ? "For buy-back" : building.status],
+          ["Residents", residents.length ? residents.map(function (resident) { return resident.name + " · " + resident.status; }).join(", ") : "None"],
+          ["Tenant", building.tenantName || "Vacant"],
+          ["Workers", building.workerSlots ? workersAssignedTo("shop", building.id) + " / " + building.workerSlots : "Not applicable"],
+          ["Operating status", building.operatingStatus || (building.type === "commercial" ? "unstaffed" : "not applicable")],
+          ["Rent", building.rentPerDay ? "$" + building.rentPerDay + " / day" : "Not applicable"],
+          ["Sale value", "$" + building.salePrice]
+        ]);
+        html += '<div class="townhall-project-actions">';
+        if (building.ownerId === "player" && building.type === "commercial" && !building.tenantId && !building.forSale) {
+          html += '<button type="button" data-property-action="lease" data-building-id="' + detailText(building.id) + '">Lease shop</button>';
+        }
+        if (building.ownerId === "player" && !building.forSale) {
+          html += '<button type="button" data-property-action="sell" data-building-id="' + detailText(building.id) + '">Sell property</button>';
+        }
+        if (building.ownerId === "town" && building.forSale) {
+          html += '<button type="button" data-property-action="buy-back" data-building-id="' + detailText(building.id) + '">Buy back for $' + building.salePrice + '</button>';
+        }
+        return html + '</div>';
       }
 
       function renderLocationDetails() {
@@ -4644,7 +6056,8 @@
           newsstand: "Newsstand",
           cleared: "Field crew",
           "mine-site": "Construction site",
-          "warehouse-site": "Construction site"
+          "warehouse-site": "Construction site",
+          development: "Property management"
         };
         el.locationKicker.textContent = defaultKickers[state.location] || "Available here";
 
@@ -4674,7 +6087,13 @@
             ["Stone market", "$" + prices.stone + "/t"],
             ["Approved stone", approval ? approval.stoneTons.toFixed(1) + " t · $" + approval.stoneCost : "None"],
             ["Contract total", approval ? "$" + approval.totalCost : "Not quoted"]
-          ]) + townHallProspectBoardMarkup() + townHallResidentialBoardMarkup();
+          ]) + townHallProspectBoardMarkup() + townHallResidentialBoardMarkup() + townHallProjectLedgerMarkup() + townHallWorkforceBoardMarkup();
+          return;
+        }
+
+        if (state.location === "development") {
+          el.locationDetails.hidden = false;
+          el.locationDetails.innerHTML = developmentDetailsMarkup();
           return;
         }
 
@@ -4685,7 +6104,8 @@
           const linkedWarehouse = warehouseParcel && state.warehouses.find(function (warehouse) { return warehouse.parcelId === warehouseParcel.id; });
           const currentHaul = activeHaulForMine(state.mine);
           const companyContract = activeCompanyContractForMine(state.mine);
-          const staffedOutput = CONFIG.mineOutputByLevel[state.mine.level] * CONFIG.workerOutputMultiplierByCount[state.workers];
+          const dedicatedWorkers = mineRequiresDedicatedWorker(state.mine) ? workersAssignedTo("mine", state.mine.id) : state.workers;
+          const staffedOutput = CONFIG.mineOutputByLevel[state.mine.level] * (CONFIG.workerOutputMultiplierByCount[Math.min(4, Math.max(0, dedicatedWorkers))] || 1);
           const nextUnlockLevel = nextMaterialUnlockLevel(state.mine);
           el.locationKicker.textContent = "Mine " + mineIndex + " operations";
           el.locationDetails.hidden = false;
@@ -4697,8 +6117,8 @@
             ["Stockpile", round1(mineStockUsed()).toFixed(1) + " / " + mineCapacity().toFixed(1) + " t"],
             ["Material / dirt", round1(state.mine.stockMaterial).toFixed(1) + " / " + round1(state.mine.stockDirt).toFixed(1) + " t"],
             ["Dirt ratio", Math.round(state.mine.ratio * 100) + "%"],
-            ["Production", round1(staffedOutput).toFixed(1) + " raw t/cycle"],
-            ["Workers", String(state.workers)],
+            ["Production", state.mine.lastProductionStatus === "no-worker" ? "Stopped · no worker" : round1(staffedOutput).toFixed(1) + " raw t/cycle"],
+            ["Workers", String(dedicatedWorkers) + (mineRequiresDedicatedWorker(state.mine) ? " assigned" : " company-wide")],
             ["Contract truck", companyContract ? companyContract.truckSize.toUpperCase() + " · " + round1(companyContract.delivered).toFixed(1) + "/" + companyContract.quantity + " t" : currentHaul ? CONFIG.haulers[currentHaul.size].label + " · " + haulMinutesRemaining(currentHaul) + " min" : "Hire through Market contracts"],
             ["Warehouse", linkedWarehouse ? "Warehouse " + (state.warehouses.indexOf(linkedWarehouse) + 1) + " · Lv" + linkedWarehouse.level : warehouseParcel ? "Land prepared" : "Not connected"],
             ["Depth ore band", mineBandForDepth(state.mine.depth).materials.map(function (material) { return materialNames[material]; }).join(" · ")],
@@ -4720,6 +6140,7 @@
             ["Free space", round1(Math.max(0, warehouseCapacity() - stored)).toFixed(1) + " t"],
             ["Inventory", cargoSummary(state.warehouse.storage)],
             ["Connected mine", linkedMine ? "Mine " + (state.mines.indexOf(linkedMine) + 1) + " · " + materialNames[linkedMine.material] : "No mine link"],
+            ["Workers", warehouseRequiresDedicatedWorker(state.warehouse) ? String(workersAssignedTo("warehouse", state.warehouse.id)) + " assigned" : "Legacy shared crew"],
             ["Next capacity", state.warehouse.level >= CONFIG.maxWarehouseLevel ? "Maximum" : CONFIG.warehouseCapacityByLevel[state.warehouse.level + 1] + " t"]
           ]);
           return;
@@ -4733,7 +6154,7 @@
             ["Survey", materialNames[state.mineParcel.material] + " · " + Math.round(state.mineParcel.ratio * 100) + "% dirt"],
             ["Claim depth", (state.mineParcel.depth || 0) + " tiles"],
             ["Prepared", clearedCells + " / 4 tiles"]
-          ]);
+          ]) + (siteProjectFor("mine", state.mineParcel.id) ? standaloneProjectActionMarkup(siteProjectFor("mine", state.mineParcel.id)) : "");
           return;
         }
 
@@ -4749,7 +6170,7 @@
             ["Prepared", clearedCells + " / 4 tiles"],
             ["Connected mine", linkedMine ? "Mine " + (state.mines.indexOf(linkedMine) + 1) : "No mine link"],
             ["Build cost", "$" + CONFIG.warehouseBuildCost]
-          ]);
+          ]) + (siteProjectFor("warehouse", state.warehouseParcel.id) ? standaloneProjectActionMarkup(siteProjectFor("warehouse", state.warehouseParcel.id)) : "");
         }
       }
 
@@ -4808,6 +6229,12 @@
         root.dataset.townPerimeterStreets = String(TOWN_PERIMETER_STREET_YS.length);
         root.dataset.townFutureLots = String(businessLots.filter(function (business) { return !state.townBusinesses[business.id]; }).length);
         root.dataset.townPlannedLotCapacity = String(TOWN_PLANNED_LOT_CAPACITY);
+        root.dataset.constructionProjectCount = String(state.constructionProjects.length);
+        root.dataset.constructionOpenBidCount = String(state.constructionBids.filter(function (bid) { return bid.status === "open"; }).length);
+        root.dataset.constructionOpenProcurementCount = String(state.procurementContracts.filter(function (contract) { return contract.status === "open"; }).length);
+        root.dataset.completedBuildingCount = String(state.developedBuildings.length);
+        root.dataset.residentCount = String(state.residents.length);
+        root.dataset.workforceCount = String(state.workforce.filter(function (worker) { return worker.status !== "inactive"; }).length);
         root.dataset.managementMineCount = String(state.mines.length);
         root.dataset.managementWarehouseCount = String(state.warehouses.length);
         root.dataset.managementActiveContracts = String(state.companyContracts.filter(function (contract) { return contract.status === "active"; }).length);
@@ -4841,6 +6268,8 @@
         const minePermitted = state.mineParcel && (state.mineParcel.status === "leased" || state.mineParcel.status === "owned");
         const parcelMine = state.mineParcel && state.mines.find(function (mine) { return mine.parcelId === state.mineParcel.id; });
         const parcelWarehouse = state.warehouseParcel && state.warehouses.find(function (warehouse) { return warehouse.parcelId === state.warehouseParcel.id; });
+        const mineProject = state.mineParcel && siteProjectFor("mine", state.mineParcel.id);
+        const warehouseProject = state.warehouseParcel && siteProjectFor("warehouse", state.warehouseParcel.id);
         const mineUpgradeCost = state.mine && state.mine.level < CONFIG.maxMineLevel ? CONFIG.mineUpgradeCosts[state.mine.level] : 0;
         const warehouseUpgradeCost = state.warehouse && state.warehouse.level < CONFIG.maxWarehouseLevel ? CONFIG.warehouseUpgradeCosts[state.warehouse.level] : 0;
 
@@ -4850,13 +6279,17 @@
           ? "Prospector employed · " + prospectsRemaining() + "/" + CONFIG.prospectsPerDay + " left today"
           : "Hire permanent prospector · $" + CONFIG.prospectorCost;
         const workerCost = nextWorkerCost();
+        const canUseAvailableWorker = !state.legacyConstructionMode && availableWorkforce().length > 0;
+        const canHireResidentForMine = !state.legacyConstructionMode && state.residents.some(function (resident) { return resident.status === "candidate"; }) && state.cash >= workerCost;
         el.hireWorker.hidden = state.location !== "market";
-        el.hireWorker.disabled = !state.mine || state.workers >= CONFIG.maxWorkers || state.cash < workerCost;
+        el.hireWorker.disabled = !state.mine || state.workers >= CONFIG.maxWorkers || (!state.legacyConstructionMode && !canUseAvailableWorker && !canHireResidentForMine) || (state.legacyConstructionMode && state.cash < workerCost);
         el.hireWorker.textContent = !state.mine
           ? "Build a mine before hiring a worker"
           : state.workers >= CONFIG.maxWorkers
-            ? "Mine crew full · " + CONFIG.maxWorkers + " workers"
-            : "Hire permanent worker " + (state.workers + 1) + "/" + CONFIG.maxWorkers + " · $" + workerCost;
+            ? "Workforce full · " + CONFIG.maxWorkers + " workers"
+            : canUseAvailableWorker
+              ? "Assign available worker to mine"
+              : "Hire resident for mine · $" + workerCost;
         el.marketplace.hidden = state.location !== "market";
         el.marketplace.disabled = false;
         el.contracts.hidden = state.location !== "market";
@@ -4960,11 +6393,11 @@
         el.buyWarehouseLand.disabled = state.cash < CONFIG.warehouseLandPrice;
         el.buyWarehouseLand.textContent = "Buy warehouse land · $" + CONFIG.warehouseLandPrice;
 
-        el.buildMine.hidden = !atConstructionEdge || !minePermitted || Boolean(parcelMine);
-        el.buildMine.disabled = !parcelCleared(state.mineParcel) || !besideParcel(state.mineParcel) || state.cash < CONFIG.mineBuildCost || state.mines.length >= mineSlotLimit();
-        el.buildMine.textContent = "Build mine " + (state.mines.length + 1) + "/" + mineSlotLimit() + " · $" + CONFIG.mineBuildCost;
+        el.buildMine.hidden = !atConstructionEdge || !minePermitted || Boolean(parcelMine) || Boolean(mineProject);
+        el.buildMine.disabled = !parcelCleared(state.mineParcel) || !besideParcel(state.mineParcel) || (state.legacyConstructionMode && state.cash < CONFIG.mineBuildCost) || state.mines.length >= mineSlotLimit();
+        el.buildMine.textContent = state.legacyConstructionMode ? "Build mine " + (state.mines.length + 1) + "/" + mineSlotLimit() + " · $" + CONFIG.mineBuildCost : "Open mine construction project";
         el.loadMine.hidden = state.location !== "mine";
-        el.loadMine.disabled = !state.mine || !atStructureDoor(state.mine) || mineStockUsed() <= .01 || freeCargo() <= .01;
+        el.loadMine.disabled = !state.mine || !atStructureDoor(state.mine) || (mineRequiresDedicatedWorker(state.mine) && workersAssignedTo("mine", state.mine.id) < 1) || mineStockUsed() <= .01 || freeCargo() <= .01;
         el.upgradeMine.hidden = state.location !== "mine" || !state.mine;
         const nextSeamLevel = state.mine ? nextMaterialUnlockLevel(state.mine) : null;
         el.upgradeMine.textContent = state.mine && state.mine.level < CONFIG.maxMineLevel
@@ -4974,13 +6407,13 @@
         const upgradeChangesContractSeam = state.mine && activeCompanyContractForMine(state.mine) && mineMaterialForLevel(state.mine, state.mine.level + 1) !== state.mine.material;
         el.upgradeMine.disabled = !state.mine || state.mine.level >= CONFIG.maxMineLevel || state.cash < mineUpgradeCost || Boolean(upgradeChangesContractSeam) || (state.mine.level >= 3 && (!activeMineParcel || activeMineParcel.status !== "owned"));
 
-        el.buildWarehouse.hidden = !atConstructionEdge || !(state.warehouseParcel && state.warehouseParcel.status === "owned") || Boolean(parcelWarehouse);
-        el.buildWarehouse.disabled = !parcelCleared(state.warehouseParcel) || !besideParcel(state.warehouseParcel) || state.cash < CONFIG.warehouseBuildCost;
-        el.buildWarehouse.textContent = "Build starter warehouse · $" + CONFIG.warehouseBuildCost;
+        el.buildWarehouse.hidden = !atConstructionEdge || !(state.warehouseParcel && state.warehouseParcel.status === "owned") || Boolean(parcelWarehouse) || Boolean(warehouseProject);
+        el.buildWarehouse.disabled = !parcelCleared(state.warehouseParcel) || !besideParcel(state.warehouseParcel) || (state.legacyConstructionMode && state.cash < CONFIG.warehouseBuildCost);
+        el.buildWarehouse.textContent = state.legacyConstructionMode ? "Build starter warehouse · $" + CONFIG.warehouseBuildCost : "Open warehouse construction project";
         el.unloadWarehouse.hidden = state.location !== "warehouse" || !state.warehouse;
-        el.unloadWarehouse.disabled = !state.warehouse || usedCargo() <= .01 || usedStore(state.warehouse.storage) >= warehouseCapacity() - .01;
+        el.unloadWarehouse.disabled = !state.warehouse || (warehouseRequiresDedicatedWorker(state.warehouse) && workersAssignedTo("warehouse", state.warehouse.id) < 1) || usedCargo() <= .01 || usedStore(state.warehouse.storage) >= warehouseCapacity() - .01;
         el.loadWarehouse.hidden = state.location !== "warehouse" || !state.warehouse;
-        el.loadWarehouse.disabled = !state.warehouse || usedStore(state.warehouse.storage) <= .01 || freeCargo() <= .01;
+        el.loadWarehouse.disabled = !state.warehouse || (warehouseRequiresDedicatedWorker(state.warehouse) && workersAssignedTo("warehouse", state.warehouse.id) < 1) || usedStore(state.warehouse.storage) <= .01 || freeCargo() <= .01;
         el.upgradeWarehouse.hidden = state.location !== "warehouse" || !state.warehouse;
         el.upgradeWarehouse.textContent = state.warehouse && state.warehouse.level < CONFIG.maxWarehouseLevel ? "Warehouse Lv" + (state.warehouse.level + 1) + " · " + CONFIG.warehouseCapacityByLevel[state.warehouse.level + 1] + " t · $" + warehouseUpgradeCost : "Warehouse at max level · Lv" + CONFIG.maxWarehouseLevel;
         el.upgradeWarehouse.disabled = !state.warehouse || state.warehouse.level >= CONFIG.maxWarehouseLevel || state.cash < warehouseUpgradeCost;
@@ -5694,6 +7127,59 @@
         ctx.restore();
       }
 
+      function drawDevelopedBuilding(building, colors) {
+        if (!building || building.status === "sold") return;
+        const point = screenPoint(building.x, building.y);
+        const width = building.w * drawView.scale;
+        const height = building.h * drawView.scale;
+        const definition = CONFIG.buildingDefinitions[building.buildingId] || {};
+        const fill = building.ownerId === "crowe" ? "#754c48" : definition.type === "residential" ? "#866d56" : "#52736e";
+        ctx.save();
+        ctx.shadowColor = colors.shadow;
+        ctx.shadowBlur = Math.max(2, drawView.scale * .42);
+        ctx.fillStyle = fill;
+        roundedPath(point.x, point.y, width, height, Math.max(2, drawView.scale * .22));
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = building.forSale ? "#f0bb42" : "#c7d7d6";
+        ctx.lineWidth = Math.max(1, drawView.scale * .06);
+        ctx.stroke();
+        ctx.fillStyle = "#e9f0eb";
+        ctx.fillRect(point.x + width * .2, point.y + height * .18, width * .18, height * .22);
+        ctx.fillRect(point.x + width * .62, point.y + height * .18, width * .18, height * .22);
+        ctx.fillStyle = "#1b252d";
+        ctx.fillRect(point.x + width * .43, point.y + height * .62, width * .14, height * .38);
+        if (drawView.scale >= 4) {
+          ctx.font = "600 " + Math.max(8, drawView.scale * .38) + "px ui-monospace, monospace";
+          ctx.textAlign = "center";
+          ctx.fillStyle = "#f7f2e8";
+          ctx.fillText(definition.label || "PROPERTY", point.x + width / 2, point.y + height + drawView.scale * .55);
+        }
+        ctx.restore();
+      }
+
+      function drawConstructionProjectSite(project, colors) {
+        if (!project || ["completed", "cancelled"].includes(project.status) || !Number.isFinite(project.x) || !Number.isFinite(project.y)) return;
+        const point = screenPoint(project.x, project.y);
+        const width = (project.w || 2) * drawView.scale;
+        const height = (project.h || 2) * drawView.scale;
+        ctx.save();
+        ctx.setLineDash([Math.max(2, drawView.scale * .22), Math.max(2, drawView.scale * .14)]);
+        ctx.strokeStyle = project.status === "delayed" ? "#e06b5d" : "#e7c26b";
+        ctx.lineWidth = Math.max(1, drawView.scale * .08);
+        ctx.strokeRect(point.x, point.y, width, height);
+        ctx.setLineDash([]);
+        ctx.fillStyle = "rgba(231,194,107,.22)";
+        ctx.fillRect(point.x, point.y, width, height);
+        if (drawView.scale >= 4) {
+          ctx.font = "600 " + Math.max(8, drawView.scale * .34) + "px ui-monospace, monospace";
+          ctx.textAlign = "center";
+          ctx.fillStyle = project.status === "delayed" ? "#ffd1c7" : "#fff0b7";
+          ctx.fillText("SITE · " + Math.round(project.buildProgress * 100) + "%", point.x + width / 2, point.y + height / 2 + drawView.scale * .12);
+        }
+        ctx.restore();
+      }
+
       function drawWorkforce(colors) {
         if (state.prospectorHired) {
           const prospectingHere = state.location === "cleared" && state.selected && state.selected.type === "cleared" && prospectsRemaining() > 0;
@@ -5701,14 +7187,15 @@
           const prospectorY = prospectingHere ? state.selected.y + .18 : buildings[0].doorY + .18;
           drawRosterToken(prospectorX, prospectorY, "P", "#ffd75e", colors);
         }
-        if (!state.mine || state.workers <= 0) return;
+        const activeMineWorkers = state.mine ? (mineRequiresDedicatedWorker(state.mine) ? workersAssignedTo("mine", state.mine.id) : state.workers) : 0;
+        if (!state.mine || activeMineWorkers <= 0) return;
         const positions = [
           { x: state.mine.x - .08, y: state.mine.y + .45 },
           { x: state.mine.x + state.mine.w + .08, y: state.mine.y + .7 },
           { x: state.mine.x + .45, y: state.mine.y - .08 },
           { x: state.mine.x + 1.55, y: state.mine.y + state.mine.h + .08 }
         ];
-        for (let index = 0; index < state.workers; index += 1) {
+        for (let index = 0; index < Math.min(4, activeMineWorkers); index += 1) {
           drawRosterToken(positions[index].x, positions[index].y, "W", "#70e1c1", colors);
         }
       }
@@ -6226,6 +7713,8 @@
           else if (record.status === "open") drawBuilding(business, colors);
           else if (record.status === "announced") drawComingSoonBusiness(business, colors);
         });
+        state.developedBuildings.forEach(function (building) { drawDevelopedBuilding(building, colors); });
+        state.constructionProjects.forEach(function (project) { drawConstructionProjectSite(project, colors); });
         state.mineParcels.forEach(function (parcel, index) {
           const occupied = state.mines.some(function (mine) { return mine.parcelId === parcel.id; });
           if (!occupied) drawParcel(parcel, colors, "Mine land " + (index + 1));
@@ -6448,6 +7937,40 @@
       el.prospect.addEventListener("click", prospectSelectedTile);
       el.selectProspect1.addEventListener("click", function () { selectSurveyParcelById(el.selectProspect1.dataset.prospectId); });
       el.selectProspect2.addEventListener("click", function () { selectSurveyParcelById(el.selectProspect2.dataset.prospectId); });
+      if (el.locationDetails) {
+        el.locationDetails.addEventListener("click", function (event) {
+          const projectButton = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-project-action]") : null;
+          if (projectButton) {
+            const action = projectButton.dataset.projectAction;
+            const id = action === "award-builder" ? projectButton.dataset.bidId
+              : action === "bid-procurement" ? projectButton.dataset.procurementId
+                : projectButton.dataset.proposalId;
+            handleProjectAction(action, id);
+            return;
+          }
+          const workforceButton = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-workforce-action]") : null;
+          if (workforceButton) {
+            const action = workforceButton.dataset.workforceAction;
+            if (action === "hire-resident") hireResident(workforceButton.dataset.residentId);
+            else if (action === "assign") assignResidentToJob(workforceButton.dataset.workerId, workforceButton.dataset.jobType, workforceButton.dataset.jobId);
+            else if (action === "unassign") {
+              if (unassignWorkforce(workforceButton.dataset.workerId)) {
+                setContext("Worker unassigned", "The worker is available for another mine or warehouse assignment.", "success");
+                saveState(true);
+                renderInterface();
+              }
+            }
+            return;
+          }
+          const propertyButton = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-property-action]") : null;
+          if (propertyButton) {
+            const action = propertyButton.dataset.propertyAction;
+            if (action === "lease") leaseDevelopedShop(propertyButton.dataset.buildingId);
+            else if (action === "sell") sellDevelopedBuilding(propertyButton.dataset.buildingId);
+            else if (action === "buy-back") buyBackDevelopedBuilding(propertyButton.dataset.buildingId);
+          }
+        });
+      }
       el.lease.addEventListener("click", leaseMineLand);
       el.buyLand.addEventListener("click", buyMineLand);
       el.buyWarehouseLand.addEventListener("click", buyWarehouseLand);

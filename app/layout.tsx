@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://pinebarrow-land-company.fixedopinion.chatgpt.site"),
-  title: "Pinebarrow Land Company · v22 Test",
+  title: "Pinebarrow Land Company · v24 Project Economy",
   description:
     "Clear forest, prospect mineral land, build roads, and grow a mining company in a living arcade town.",
   openGraph: {

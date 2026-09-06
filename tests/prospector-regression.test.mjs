@@ -42,6 +42,10 @@ class FakeElement {
     await Promise.all((this.listeners.get("click") ?? []).map((listener) => listener({})));
   }
 
+  emit(type, event = {}) {
+    for (const listener of this.listeners.get(type) ?? []) listener(event);
+  }
+
   setAttribute(name, value) {
     this[name] = String(value);
   }
@@ -268,7 +272,7 @@ test("two independent prospects survive save/reload and neither replaces the oth
   };
 
   const migrated = createEngineHarness(oldSave, engineSource);
-  assert.equal(migrated.saved().version, 12);
+  assert.equal(migrated.saved().version, 14);
   assert.equal(migrated.saved().worldLayoutVersion, 2);
   assert.deepEqual(migrated.saved().player, firstTile);
   assert.equal(migrated.saved().prospectsUsedToday, 0);
@@ -486,7 +490,7 @@ test("generic proposal records persist across save and reload without activating
   }, engineSource);
 
   const saved = game.saved();
-  assert.equal(saved.version, 12);
+  assert.equal(saved.version, 14);
   assert.equal(saved.proposals.length, 3);
   assert.deepEqual(saved.proposals, proposals);
   assert.equal(saved.nextProposalId, 4);
@@ -589,7 +593,7 @@ test("leasing a survey immediately frees the prospector for another mine claim",
   assert.equal(nextClaim.saved().prospectsUsedToday, 2);
 });
 
-test("a saved second parcel can build another mine and drill into better deep material", async () => {
+test("a saved second parcel opens a project for a new mine", async () => {
   const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
   const firstParcel = { id: "claim-1", x: 76, y: 168, w: 2, h: 2, status: "owned", material: "stone", ratio: 0.45, leaseCredit: 420, mineId: "mine-2" };
   const secondParcel = { id: "claim-3", x: 76, y: 227, w: 2, h: 2, status: "leased", material: "quartz", ratio: 0.55, depth: 60, leaseCredit: 45 };
@@ -626,16 +630,13 @@ test("a saved second parcel can build another mine and drill into better deep ma
   assert.equal(game.element("pb7-build-mine").hidden, false);
   assert.equal(game.element("pb7-build-mine").disabled, false);
   game.element("pb7-build-mine").click();
-  assert.equal(game.saved().mines.length, 2);
-  assert.equal(game.saved().mines[1].material, "quartz");
-
-  game.element("pb7-upgrade-mine").click();
-  game.element("pb7-upgrade-mine").click();
-  assert.equal(game.saved().mines[1].level, 3);
-  assert.equal(game.saved().mines[1].material, "silver");
+  assert.equal(game.saved().mines.length, 1);
+  assert.equal(game.saved().cash, 2000);
+  assert.equal(game.saved().constructionProjects.length, 1);
+  assert.equal(game.saved().constructionProjects[0].siteKind, "mine");
 });
 
-test("an owned second warehouse parcel remains buildable after loading its profile", async () => {
+test("an owned second warehouse parcel opens a project after loading its profile", async () => {
   const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
   const firstParcel = { id: "warehouse-land-1", mineParcelId: "claim-1", x: 78, y: 168, w: 2, h: 2, status: "owned", warehouseId: "warehouse-2" };
   const secondParcel = { id: "warehouse-land-3", mineParcelId: "claim-4", x: 80, y: 227, w: 2, h: 2, status: "owned" };
@@ -670,8 +671,10 @@ test("an owned second warehouse parcel remains buildable after loading its profi
   assert.equal(game.element("pb7-build-warehouse").hidden, false);
   assert.equal(game.element("pb7-build-warehouse").disabled, false);
   game.element("pb7-build-warehouse").click();
-  assert.equal(game.saved().warehouses.length, 2);
-  assert.equal(game.saved().warehouses[1].parcelId, secondParcel.id);
+  assert.equal(game.saved().warehouses.length, 1);
+  assert.equal(game.saved().cash, 2000);
+  assert.equal(game.saved().constructionProjects.length, 1);
+  assert.equal(game.saved().constructionProjects[0].siteKind, "warehouse");
 });
 
 test("an uncleared tree inside owned warehouse land remains selectable and cuttable", async () => {
@@ -844,7 +847,7 @@ test("legacy P4 assets migrate north without losing IDs, stock, roads, or cargo"
   }, engineSource);
 
   const saved = game.saved();
-  assert.equal(saved.version, 12);
+  assert.equal(saved.version, 14);
   assert.equal(saved.worldLayoutVersion, 2);
   assert.deepEqual(saved.player, { x: 75, y: 122 });
   assert.deepEqual(saved.cargo, { stone: 2.5, clay: 0, coal: 0, iron: 0, copper: 0, tin: 0, quartz: 0, silver: 0, gold: 0, sapphire: 0, logs: 0, dirt: 1 });
@@ -1509,4 +1512,485 @@ test("an older save at a town service follows that building to its aligned front
   assert.deepEqual(saved.player, { x: 8, y: 141 });
   assert.deepEqual(saved.selected, { type: "building", x: 5, y: 132, buildingId: "market" });
   assert.equal(saved.location, "market");
+});
+
+
+test("Town Hall routes a residential proposal through builder and procurement records", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const game = createEngineHarness({
+    version: 12,
+    day: 2,
+    minutes: 480,
+    cash: 1000,
+    player: { x: 37, y: 141 },
+    selected: { type: "building", id: "townhall", x: 37, y: 141 },
+    location: "townhall",
+    cleared: [],
+    proposals: [{
+      id: "proposal-house-1",
+      type: "residential",
+      use: "workforce-housing",
+      lot: { x: 17, y: 130, w: 2, h: 2, blockId: "town-block-2" },
+      footprint: { w: 2, h: 2 },
+      cost: 280,
+      status: "draft",
+      owner: null,
+      stage: "unstarted",
+    }],
+    townBusinesses: {},
+  }, engineSource);
+
+  const details = game.element("pb7-location-details");
+  assert.match(details.innerHTML, /Approve site/);
+  details.emit("click", { target: { closest: () => ({ dataset: { projectAction: "approve", proposalId: "proposal-house-1" } }) } });
+
+  let saved = game.saved();
+  assert.equal(saved.version, 14);
+  assert.equal(saved.proposals[0].status, "approved");
+  assert.equal(saved.proposals[0].stage, "coming-soon");
+  assert.equal(saved.constructionProjects.length, 0);
+
+  details.emit("click", { target: { closest: () => ({ dataset: { projectAction: "create-project", proposalId: "proposal-house-1" } }) } });
+  saved = game.saved();
+  assert.equal(saved.constructionProjects.length, 1);
+  assert.equal(saved.constructionProjects[0].status, "awaiting-builder");
+  assert.equal(saved.constructionProjects[0].buildingId, "worker-house");
+  assert.equal(saved.constructionBids.length, 3);
+  assert.equal(saved.procurementContracts.length, 4);
+  assert.equal(saved.procurementContracts.filter((contract) => contract.category === "mine-supply").length, 2);
+  assert.equal(saved.procurementContracts.filter((contract) => contract.category === "logistics").length, 1);
+  assert.equal(saved.procurementContracts.filter((contract) => contract.category === "hauling").length, 1);
+
+  details.emit("click", { target: { closest: () => ({ dataset: { projectAction: "award-builder", bidId: saved.constructionBids[0].id } }) } });
+  saved = game.saved();
+  assert.equal(saved.constructionProjects[0].status, "procurement");
+  assert.equal(saved.constructionBids.filter((bid) => bid.status === "awarded").length, 1);
+  assert.equal(saved.constructionBids.filter((bid) => bid.status === "rejected").length, 2);
+
+  details.emit("click", { target: { closest: () => ({ dataset: { projectAction: "bid-procurement", procurementId: saved.procurementContracts[0].id } }) } });
+  saved = game.saved();
+  assert.equal(saved.procurementContracts[0].status, "awarded");
+  assert.equal(saved.procurementContracts[0].providerId, "player-company");
+
+  const reloaded = createEngineHarness(saved, engineSource).saved();
+  assert.equal(reloaded.version, 14);
+  assert.deepEqual(reloaded.constructionProjects, saved.constructionProjects);
+  assert.deepEqual(reloaded.constructionBids, saved.constructionBids);
+  assert.deepEqual(reloaded.procurementContracts, saved.procurementContracts);
+});
+
+test("shared construction settles inventory, labor, and a workforce house", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const projectId = "project-settlement-1";
+  const proposalId = "proposal-settlement-1";
+  const game = createEngineHarness({
+    version: 14,
+    worldLayoutVersion: 2,
+    day: 1,
+    minutes: 480,
+    cash: 5000,
+    cargo: { logs: 2, stone: 1 },
+    player: { x: 45, y: 145 },
+    selected: { type: "road", x: 45, y: 145 },
+    location: "road",
+    proposals: [{
+      id: proposalId,
+      type: "residential",
+      use: "workforce-housing",
+      buildingId: "worker-house",
+      lot: { x: 17, y: 130, w: 2, h: 2, blockId: "town-block-2" },
+      footprint: { w: 2, h: 2 },
+      cost: 280,
+      status: "under-construction",
+      owner: "player",
+      stage: "fenced",
+      projectId,
+    }],
+    constructionProjects: [{
+      id: projectId,
+      proposalId,
+      buildingId: "worker-house",
+      ownerId: "player",
+      route: "town-hall",
+      siteKind: "town",
+      x: 17,
+      y: 130,
+      w: 2,
+      h: 2,
+      doorX: 18,
+      doorY: 129,
+      status: "ready-to-build",
+      requirements: { logs: 2, stone: 1 },
+      delivered: {},
+      laborRequired: 1,
+      laborDelivered: 0,
+      buildProgress: 0,
+      builderId: "pinebarrow-builders",
+      builderDurationMultiplier: 0.1,
+      builderCost: 0,
+      cost: 280,
+      housingCapacity: 1,
+      procurementContractIds: ["proc-logs", "proc-stone", "proc-logistics", "proc-hauling"],
+      deadlineDay: 20,
+    }],
+    constructionBids: [{
+      id: "builder-awarded",
+      projectId,
+      builderId: "pinebarrow-builders",
+      builderLabel: "Pinebarrow Builders",
+      price: 0,
+      durationDays: 1,
+      status: "awarded",
+    }],
+    procurementContracts: [
+      { id: "proc-logs", projectId, category: "mine-supply", material: "logs", quantity: 2, delivered: 0, providerId: "player-company", status: "awarded", createdDay: 1, deadlineDay: 20 },
+      { id: "proc-stone", projectId, category: "mine-supply", material: "stone", quantity: 1, delivered: 0, providerId: "player-company", status: "awarded", createdDay: 1, deadlineDay: 20 },
+      { id: "proc-logistics", projectId, category: "logistics", service: "warehouse-staging", quantity: 1, delivered: 0, providerId: "player-company", status: "awarded", createdDay: 1, deadlineDay: 20 },
+      { id: "proc-hauling", projectId, category: "hauling", service: "site-delivery", quantity: 1, delivered: 0, providerId: "player-company", status: "awarded", createdDay: 1, deadlineDay: 20 },
+    ],
+  }, engineSource);
+
+  for (let tick = 1; tick <= 90; tick += 1) game.frame(tick * 1000);
+  game.element("pb7-save-now").click();
+  const saved = game.saved();
+  const project = saved.constructionProjects.find((record) => record.id === projectId);
+  assert.equal(project.status, "completed");
+  assert.equal(project.buildProgress, 1);
+  assert.equal(saved.cargo.logs, 0);
+  assert.equal(saved.cargo.stone, 0);
+  assert.equal(saved.developedBuildings.length, 1);
+  assert.equal(saved.developedBuildings[0].buildingId, "worker-house");
+  assert.equal(saved.residents.length, 1);
+  assert.equal(saved.residents[0].status, "candidate");
+  assert.ok(saved.cash < 5000);
+});
+
+test("new mine construction opens a shared project instead of spending cash directly", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const parcel = { id: "claim-project-1", x: 76, y: 122, w: 2, h: 2, status: "leased", material: "quartz", ratio: 0.55, depth: 60, leaseCredit: 45 };
+  const cleared = [];
+  for (let y = parcel.y; y < parcel.y + 2; y += 1) {
+    for (let x = parcel.x; x < parcel.x + 2; x += 1) cleared.push(`${x},${y}`);
+  }
+  const game = createEngineHarness({
+    version: 14,
+    worldLayoutVersion: 2,
+    day: 9,
+    minutes: 480,
+    cash: 2000,
+    player: { x: 78, y: 122 },
+    selected: { type: "mine-site", x: parcel.x, y: parcel.y },
+    location: "mine-site",
+    cleared,
+    mineParcels: [parcel],
+    warehouseParcels: [],
+    mines: [],
+    warehouses: [],
+    selectedMineParcelId: parcel.id,
+  }, engineSource);
+
+  assert.equal(game.saved().cash, 2000);
+  assert.equal(game.saved().location, "mine-site");
+  assert.equal(game.element("pb7-build-mine").hidden, false);
+  assert.equal(game.element("pb7-build-mine").disabled, false);
+  game.element("pb7-build-mine").click();
+  const saved = game.saved();
+  assert.equal(saved.mines.length, 0);
+  assert.equal(saved.cash, 2000);
+  assert.equal(saved.constructionProjects.length, 1);
+  assert.equal(saved.constructionProjects[0].siteKind, "mine");
+  assert.equal(saved.mineParcels[0].constructionProjectId, saved.constructionProjects[0].id);
+
+  const hall = createEngineHarness({ ...saved, player: { x: 37, y: 141 }, selected: { type: "building", id: "townhall", x: 37, y: 141 }, location: "townhall" }, engineSource);
+  assert.match(hall.element("pb7-location-details").innerHTML, /Mine/);
+  assert.match(hall.element("pb7-location-details").innerHTML, /Award bid/);
+});
+
+test("a completed project-backed mine stops without its assigned worker", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const parcel = { id: "claim-staff-1", x: 76, y: 122, w: 2, h: 2, status: "owned", material: "stone", ratio: 0.35, depth: 1, leaseCredit: 420, mineId: "mine-staff-1" };
+  const mine = {
+    id: "mine-staff-1", parcelId: parcel.id, constructionProjectId: "project-mine-staff", x: parcel.x, y: parcel.y, w: 2, h: 2,
+    level: 1, baseMaterial: "stone", material: "stone", depth: 1, ratio: 0.35, stockMaterial: 0, stockDirt: 0, doorX: 78, doorY: 122,
+  };
+  const baseSave = {
+    version: 14,
+    worldLayoutVersion: 2,
+    day: 1,
+    minutes: 480,
+    cash: 1000,
+    player: { x: 78, y: 122 },
+    selected: { type: "mine", x: mine.x, y: mine.y },
+    location: "mine",
+    mineParcels: [parcel],
+    mines: [mine],
+    constructionProjects: [{ id: "project-mine-staff", buildingId: "mine", siteKind: "mine", status: "completed", x: 76, y: 122, w: 2, h: 2, laborRequired: 1, laborDelivered: 1, buildProgress: 1, requirements: {}, delivered: {}, procurementContractIds: [], completedDay: 1, buildingRecordId: mine.id }],
+    selectedMineId: mine.id,
+    selectedMineParcelId: parcel.id,
+  };
+  const idle = createEngineHarness(baseSave, engineSource);
+  idle.frame(3000);
+  idle.element("pb7-save-now").click();
+  assert.equal(idle.saved().mines[0].stockMaterial, 0);
+  assert.equal(idle.saved().mines[0].lastProductionStatus, "no-worker");
+
+  const staffed = createEngineHarness({
+    ...baseSave,
+    residents: [{ id: "resident-staff-1", houseId: "building-house-1", name: "Ada Pine", status: "worker", workforceId: "workforce-1" }],
+    workforce: [{ id: "workforce-1", residentId: "resident-staff-1", status: "assigned", jobType: "mine", jobId: mine.id, createdDay: 1 }],
+  }, engineSource);
+  staffed.frame(3000);
+  staffed.element("pb7-save-now").click();
+  assert.ok(staffed.saved().mines[0].stockMaterial > 0);
+  assert.equal(staffed.saved().workforce[0].jobId, mine.id);
+});
+
+test("Town Hall hires a housed resident and assigns one worker to one mine", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const game = createEngineHarness({
+    version: 14,
+    worldLayoutVersion: 2,
+    day: 4,
+    minutes: 480,
+    cash: 1000,
+    player: { x: 37, y: 141 },
+    selected: { type: "building", id: "townhall", x: 37, y: 141 },
+    location: "townhall",
+    developedBuildings: [{
+      id: "building-house-1",
+      projectId: "project-house-1",
+      buildingId: "worker-house",
+      type: "residential",
+      ownerId: "player",
+      status: "completed",
+      x: 17,
+      y: 130,
+      w: 2,
+      h: 2,
+      doorX: 18,
+      doorY: 129,
+      residentIds: ["resident-house-1"],
+      workerIds: [],
+      workerSlots: 0,
+      rentPerDay: 0,
+      salePrice: 322,
+      completedDay: 3,
+    }],
+    residents: [{
+      id: "resident-house-1",
+      houseId: "building-house-1",
+      name: "Ada Pine",
+      status: "candidate",
+      createdDay: 3,
+    }],
+    mines: [{
+      id: "mine-workforce-1",
+      parcelId: "claim-workforce-1",
+      constructionProjectId: "project-mine-workforce-1",
+      x: 76,
+      y: 122,
+      w: 2,
+      h: 2,
+      level: 1,
+      baseMaterial: "stone",
+      material: "stone",
+      depth: 1,
+      ratio: 0.35,
+      stockMaterial: 0,
+      stockDirt: 0,
+      doorX: 78,
+      doorY: 122,
+    }],
+  }, engineSource);
+  const details = game.element("pb7-location-details");
+  assert.match(details.innerHTML, /Hire for \$175/);
+  const clickAction = (dataset) => details.emit("click", {
+    target: {
+      closest(selector) {
+        return selector === "[data-workforce-action]" ? { dataset } : null;
+      },
+    },
+  });
+  clickAction({ workforceAction: "hire-resident", residentId: "resident-house-1" });
+  let saved = game.saved();
+  assert.equal(saved.residents[0].status, "worker");
+  assert.equal(saved.workforce.length, 1);
+  assert.equal(saved.workforce[0].status, "available");
+  assert.equal(saved.cash, 825);
+
+  clickAction({ workforceAction: "assign", workerId: saved.workforce[0].id, jobType: "mine", jobId: "mine-workforce-1" });
+  saved = game.saved();
+  assert.equal(saved.workforce[0].status, "assigned");
+  assert.equal(saved.workforce[0].jobId, "mine-workforce-1");
+  assert.equal(saved.workers, 1);
+});
+
+test("completed town shops collect rent and remain recoverable after sale", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const game = createEngineHarness({
+    version: 14,
+    worldLayoutVersion: 2,
+    day: 1,
+    minutes: 1438,
+    cash: 100,
+    player: { x: 37, y: 141 },
+    selected: { type: "building", id: "townhall", x: 37, y: 141 },
+    location: "development",
+    developmentId: "building-shop-1",
+    developedBuildings: [{
+      id: "building-shop-1",
+      projectId: "project-shop-1",
+      buildingId: "town-shop",
+      type: "commercial",
+      ownerId: "player",
+      status: "completed",
+      x: 49,
+      y: 150,
+      w: 2,
+      h: 2,
+      doorX: 50,
+      doorY: 149,
+      residentIds: [],
+      workerIds: [],
+      workerSlots: 1,
+      rentPerDay: 35,
+      salePrice: 50,
+      completedDay: 1,
+    }],
+  }, engineSource);
+  const details = game.element("pb7-location-details");
+  assert.match(details.innerHTML, /Lease shop/);
+  const clickAction = (dataset) => details.emit("click", {
+    target: {
+      closest(selector) {
+        return selector === "[data-property-action]" ? { dataset } : null;
+      },
+    },
+  });
+  clickAction({ propertyAction: "lease", buildingId: "building-shop-1" });
+  game.frame(1000);
+  game.frame(2000);
+  game.element("pb7-save-now").click();
+  let saved = game.saved();
+  assert.equal(saved.developedBuildings[0].tenantId, "tenant-building-shop-1");
+  assert.equal(saved.cash, 135);
+
+  clickAction({ propertyAction: "sell", buildingId: "building-shop-1" });
+  saved = game.saved();
+  assert.equal(saved.developedBuildings[0].ownerId, "town");
+  assert.equal(saved.developedBuildings[0].forSale, true);
+  assert.equal(saved.cash, 185);
+
+  clickAction({ propertyAction: "buy-back", buildingId: "building-shop-1" });
+  saved = game.saved();
+  assert.equal(saved.developedBuildings[0].ownerId, "player");
+  assert.equal(saved.developedBuildings[0].forSale, false);
+  assert.equal(saved.cash, 135);
+});
+
+test("Crowe uses the same construction record and contract stages", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const game = createEngineHarness({
+    version: 14,
+    worldLayoutVersion: 2,
+    day: 3,
+    minutes: 480,
+    cash: 1000,
+    player: { x: 45, y: 145 },
+    selected: { type: "road", x: 45, y: 145 },
+    location: "road",
+  }, engineSource);
+  game.frame(1000);
+  game.frame(2000);
+  game.element("pb7-save-now").click();
+  const saved = game.saved();
+  const project = saved.constructionProjects.find((record) => record.buildingId === "crowe-workshop");
+  assert.ok(project);
+  assert.equal(project.ownerId, "crowe");
+  assert.equal(project.route, "crowe");
+  assert.equal(project.status, "ready-to-build");
+  assert.ok(saved.procurementContracts.filter((contract) => contract.projectId === project.id).every((contract) => contract.status === "awarded" || contract.status === "fulfilled"));
+});
+
+test("a rented shop can consume a housed worker and returns that worker on sale", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const baseSave = {
+    version: 14,
+    worldLayoutVersion: 2,
+    day: 4,
+    minutes: 480,
+    cash: 1000,
+    player: { x: 37, y: 141 },
+    selected: { type: "building", id: "townhall", x: 37, y: 141 },
+    location: "townhall",
+    developedBuildings: [{
+      id: "building-shop-workforce",
+      projectId: "project-shop-workforce",
+      buildingId: "town-shop",
+      type: "commercial",
+      ownerId: "player",
+      status: "completed",
+      x: 49,
+      y: 150,
+      w: 2,
+      h: 2,
+      doorX: 50,
+      doorY: 149,
+      residentIds: [],
+      workerIds: [],
+      workerSlots: 1,
+      rentPerDay: 35,
+      salePrice: 50,
+      tenantId: "tenant-shop-workforce",
+      tenantName: "Pinebarrow shopkeeper",
+      completedDay: 3,
+    }],
+    residents: [{
+      id: "resident-shop-workforce",
+      houseId: "building-house-workforce",
+      name: "Ada Pine",
+      status: "worker",
+      workforceId: "workforce-shop-workforce",
+      createdDay: 3,
+    }],
+    workforce: [{
+      id: "workforce-shop-workforce",
+      residentId: "resident-shop-workforce",
+      status: "available",
+      jobType: null,
+      jobId: null,
+      createdDay: 3,
+    }],
+  };
+  const hall = createEngineHarness(baseSave, engineSource);
+  const details = hall.element("pb7-location-details");
+  assert.match(details.innerHTML, /Shop building-shop-workforce/);
+  details.emit("click", {
+    target: {
+      closest(selector) {
+        return selector === "[data-workforce-action]"
+          ? { dataset: { workforceAction: "assign", workerId: "workforce-shop-workforce", jobType: "shop", jobId: "building-shop-workforce" } }
+          : null;
+      },
+    },
+  });
+  const assigned = hall.saved();
+  assert.equal(assigned.workforce[0].status, "assigned");
+  assert.equal(assigned.workforce[0].jobType, "shop");
+  assert.equal(assigned.developedBuildings[0].operatingStatus, "operating");
+
+  const property = createEngineHarness({ ...assigned, location: "development", developmentId: "building-shop-workforce" }, engineSource);
+  property.element("pb7-location-details").emit("click", {
+    target: {
+      closest(selector) {
+        return selector === "[data-property-action]"
+          ? { dataset: { propertyAction: "sell", buildingId: "building-shop-workforce" } }
+          : null;
+      },
+    },
+  });
+  const sold = property.saved();
+  assert.equal(sold.developedBuildings[0].ownerId, "town");
+  assert.equal(sold.workforce[0].status, "available");
+  assert.equal(sold.workforce[0].jobType, null);
 });

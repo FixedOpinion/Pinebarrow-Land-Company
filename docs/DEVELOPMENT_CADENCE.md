@@ -6,13 +6,13 @@ Pinebarrow development must survive interrupted chats and usage limits. GitHub i
 
 ## Repository state at this update
 
-- Current `main`: `6e62e45e64ca3fe3f91a9f05ef3d0377def29772`
-- Current live-engine baseline before new mechanics: `f36a8aa5611998066bf19bf02ba735d3dad08044`
-- Reference-only Workforce branch: `phase-5-workforce` / draft PR #4
-- Deferred mine-planning branch: `phase-4b-mine-foundation`
-- Next code branch: create `phase-5r-workforce-reconciliation` from the then-current `main`
+- Current `main`: `2c65ba7431b18d5514321cdd2d14cddb08f9128f`
+- Current release marker: v22 smoke-test merge (PR #13); v24 is the active integrated draft
+- Reference-only Workforce branch: `phase-5-workforce` / closed superseded PR #4
+- Stale visual branch: `town-road-building-fix` / draft PR #2; do not merge unchanged
+- Active v24 branch: `phase-5-project-construction` / draft PR #14
 
-The old Workforce branch and deferred mine branch are recovery evidence. Neither should be merged wholesale.
+PR #4 and the stale visual branch are recovery evidence, not merge bases. The active branch is based on current `main`.
 
 ## Required checkpoint cycle
 
@@ -42,7 +42,7 @@ A phase is merged or published only after:
 
 ## Usage-efficient rules
 
-- Default to one micro-phase per development turn.
+- Default to one coherent vertical slice per development turn; it may touch the engine, UI, tests, and documentation when those pieces are inseparable.
 - Never hold more than one self-contained behavior uncommitted.
 - Target no more than three production files plus focused tests and documentation per checkpoint.
 - Use targeted file/line retrieval for inspection; fetch an entire large engine only when it must be edited.
@@ -69,22 +69,22 @@ Purpose: safely port the useful Workforce 5A foundation onto the current integra
 
 Implementation rule: manually port the small workforce behaviors into the canonical current engine and Operations UI. Do not replace current files with the older branch versions, and do not preserve runtime monkey-patching merely because the reference branch used it.
 
-### Phase 5B — Physical Worker Houses
+### Phase 5P — Shared Project/Construction Foundation
 
 | Checkpoint | Single responsibility | Verification |
 |---|---|---|
-| 5B.1 | Add 2×2 house records, placement validation, configured cost, and save persistence | Road, wall, tree, ore, building, ownership, and overlap tests |
-| 5B.2 | Add build mode, top-down rendering, selection, and entrance/access behavior | Touch, mouse, keyboard, controller, and reload tests |
-| 5B.3 | Derive worker capacity strictly from completed physical houses | One completed house equals one worker; demolition/removal cannot orphan assignments |
-| 5B.4 | Physical-house integration gate | Full suite and migration pass |
+| 5P.1 | Persist BuildingDefinitions, ConstructionProjects, BuilderBids, ProcurementContracts, property, resident, and workforce records under save schema v14 | 40 focused regressions pass; bounded/idempotent loaders verified |
+| 5P.2 | Route Town Hall residential proposals and resource sites through approval, design snapshot, builder bids, and supply/logistics/hauling contracts | Residential, mine, and warehouse project tests pass |
+| 5P.3 | Connect awarded procurement to inventory, cash settlement, delivery, labor, deadlines, ownership, and completion | Settlement and completed-building tests pass |
+| 5P.4 | Apply the same spine to purchased town shops, rent/sale/buy-back, workforce staffing, and Crowe-owned buildings | Property, workforce, production-stop, and Crowe tests pass |
 
-### Phase 5C — Workforce completion
+The v23 foundation is superseded by the v24 integrated slice. The remaining merge gate is production build, lint, and browser smoke verification on the exact branch head.
 
-| Checkpoint | Single responsibility | Verification |
-|---|---|---|
-| 5C.1 | Complete assignment/reassignment UI and explicit worker status | Multi-building assignment tests |
-| 5C.2 | Apply worker requirement to warehouses without adding automatic collection yet | Unstaffed warehouse stops operational actions safely |
-| 5C.3 | Workforce phase integration, changelog, merge, and release candidate | Full build/lint/tests and existing-profile smoke test |
+### Phase 5B / 5C — Folded into v24
+
+Physical worker-house records, resident candidates, hiring, one-worker-per-house capacity, mine/warehouse assignment, no-worker stoppage, property management, and reassignment safety were folded into the shared v24 implementation so the game does not carry a second workforce or construction path.
+
+Remaining follow-up work belongs to later economy phases: richer placement validation, demolition/orphan handling, provider competition, warehouse routing, and balance tuning.
 
 ### Phase 6 — Mine Architecture and Efficiency
 
@@ -170,3 +170,34 @@ Each report must include:
 - exact next checkpoint.
 
 No checkpoint report may use “tested,” “merged,” “published,” or “live” unless that exact operation was directly confirmed.
+
+
+## Full-content-first scope authority
+
+The complete game scope is locked in `docs/FULL_GAME_CONTENT_CONTRACT.md`. The contract is the design authority for houses and house upgrades, population and workforce, School, scholar/researcher progression, research facilities, mine and warehouse architecture, shops and market, Crowe, town growth, and the endgame.
+
+Implementation phases are checkpoints, not separate product designs. A checkpoint may be incomplete while it is being implemented, but it must not introduce a temporary architecture that contradicts the contract or create a second bypass path. Numeric balance remains configuration; the required systems and dependencies do not.
+
+The full-content sequence is:
+
+- **C0:** commit and reference the full content contract.
+- **C1:** canonical record families, save migration, and compatibility fixtures.
+- **C2:** physical lots, residential placement, and completed houses.
+- **C3:** households, population, housing quality, and upgrade projects.
+- **C4:** workforce, careers, wages, and operating requirements.
+- **C5:** School, students, education, and scholar qualification.
+- **C6–C7:** research registry, researcher roles, and project-backed research facilities.
+- **C8–C10:** mine tracks, warehouse/hauling flow, shops, market, and industry.
+- **C11–C12:** Crowe/waste, town growth, bridges, narrative, and endgame.
+- **C13:** full integration, exact-SHA merge/deployment, and live smoke verification.
+
+If a usage limit interrupts work, resume from the last verified GitHub SHA and the next recorded checkpoint. Do not reconstruct unfinished code from chat. The next runtime checkpoint after the v24 merge gate is **C2 — Physical lots and residential playability**.
+
+
+C2 placement work is governed by `docs/PLACEMENT_AND_FOOTPRINT_SPEC.md`. The first runtime slice is **C2.1**, shared transient grid selection and validation. Do not modify mine, warehouse, road, or house placement independently before C2.1 exists.
+
+
+C2.1 is now committed and verified: the reusable placement module is loaded before the engine, with focused selector tests. The next checkpoint is **C2.2 — footprint/complexity configuration, builder capability filtering, cost/labor/time estimates, and proposal snapshots**. Do not integrate the selector into mine, warehouse, road, or house actions until C2.2 is complete.
+
+
+C2.2 is now committed and verified: the data-first footprint catalog, builder capability bands, qualification rules, estimates, and proposal snapshots are loaded before the engine and covered by focused tests. Runtime mine, warehouse, road, and house actions remain unchanged. The next checkpoint is C2.3 — player-selected mine and warehouse footprints, legacy compatibility, and removal of new auto-adjacent warehouse creation.

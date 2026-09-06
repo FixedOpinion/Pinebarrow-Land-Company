@@ -69,22 +69,38 @@ export default function Home() {
         </div>
 
         <header className="top-header">
-          <div className="brand-lockup">
+          <div className="hud-news-wrap">
             <button
               id="pb7-menu-toggle"
-              className="brand-mark system-menu-toggle"
+              className="news-menu-toggle system-menu-toggle"
               type="button"
               aria-label="Menu"
               aria-controls="pb7-system-menu"
               aria-expanded="false"
               title="Menu"
             >
-              PL
+              ≡
             </button>
-            <div>
-              <p className="eyebrow">Pinebarrow County</p>
-              <h1>Pinebarrow Land Company</h1>
-            </div>
+            <article
+              id="pb7-daily-news"
+              className="daily-news-bulletin"
+              aria-live="polite"
+              aria-label="Open the Pinebarrow Daily market newspaper"
+              aria-controls="pb7-newspaper-reader"
+              aria-haspopup="dialog"
+              role="button"
+              tabIndex={0}
+            >
+              <div className="news-masthead">
+                <span className="news-paper-name">The Pinebarrow Daily</span>
+                <span id="pb7-news-day" className="news-edition">Day 1 · Morning Edition</span>
+              </div>
+              <div className="news-story-row">
+                <span className="news-flash">Market Wire</span>
+                <strong id="pb7-news-headline">Town merchants open for business</strong>
+                <span id="pb7-news-market" className="news-market">Logs · $18/t</span>
+              </div>
+            </article>
           </div>
 
           <div className="header-stats" aria-label="Company status">
@@ -144,26 +160,6 @@ export default function Home() {
                 aria-label="Interactive map. Click or tap a reachable tile to drive your truck."
               />
               <div id="pb7-map-tip" className="map-tip" aria-live="polite">Tap map · Arrows / WASD · Controller ready</div>
-              <article
-                id="pb7-daily-news"
-                className="daily-news-bulletin"
-                aria-live="polite"
-                aria-label="Open the Pinebarrow Daily market newspaper"
-                aria-controls="pb7-newspaper-reader"
-                aria-haspopup="dialog"
-                role="button"
-                tabIndex={0}
-              >
-                <div className="news-masthead">
-                  <span className="news-paper-name">The Pinebarrow Daily</span>
-                  <span id="pb7-news-day" className="news-edition">Day 1 · Morning Edition</span>
-                </div>
-                <div className="news-story-row">
-                  <span className="news-flash">Market Wire</span>
-                  <strong id="pb7-news-headline">Town merchants open for business</strong>
-                  <span id="pb7-news-market" className="news-market">Logs · $18/t</span>
-                </div>
-              </article>
               <button id="pb7-play-fullscreen" className="fullscreen-launch" type="button" aria-label="Play Pinebarrow in full screen">
                 <span aria-hidden="true">⛶</span>
                 <strong>Play full screen</strong>

@@ -17,13 +17,24 @@ export default function GameEngineLoader() {
       document.body.appendChild(script);
     };
 
+    const loadFootprints = () => {
+      const footprints = document.createElement("script");
+      footprints.src = "/pinebarrow-footprints.js";
+      footprints.type = "module";
+      footprints.async = true;
+      footprints.dataset.pinebarrowFootprints = "true";
+      footprints.addEventListener("load", loadEngine, { once: true });
+      footprints.addEventListener("error", loadEngine, { once: true });
+      document.body.appendChild(footprints);
+    };
+
     const placement = document.createElement("script");
     placement.src = "/pinebarrow-placement.js";
     placement.type = "module";
     placement.async = true;
     placement.dataset.pinebarrowPlacement = "true";
-    placement.addEventListener("load", loadEngine, { once: true });
-    placement.addEventListener("error", loadEngine, { once: true });
+    placement.addEventListener("load", loadFootprints, { once: true });
+    placement.addEventListener("error", loadFootprints, { once: true });
     document.body.appendChild(placement);
   }, []);
 

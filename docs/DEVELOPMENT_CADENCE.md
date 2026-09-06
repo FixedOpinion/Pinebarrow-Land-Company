@@ -198,3 +198,6 @@ C2 placement work is governed by `docs/PLACEMENT_AND_FOOTPRINT_SPEC.md`. The fir
 
 
 C2.1 is now committed and verified: the reusable placement module is loaded before the engine, with focused selector tests. The next checkpoint is **C2.2 — footprint/complexity configuration, builder capability filtering, cost/labor/time estimates, and proposal snapshots**. Do not integrate the selector into mine, warehouse, road, or house actions until C2.2 is complete.
+
+
+C2.2 is now committed and verified: the data-first footprint catalog, builder capability bands, qualification rules, estimates, and proposal snapshots are loaded before the engine and covered by focused tests. Runtime mine, warehouse, road, and house actions remain unchanged. The next checkpoint is C2.3 — player-selected mine and warehouse footprints, legacy compatibility, and removal of new auto-adjacent warehouse creation.

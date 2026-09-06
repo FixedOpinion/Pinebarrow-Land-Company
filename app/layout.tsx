@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./pinebarrow-dark-theme.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://pinebarrow-land-company.fixedopinion.chatgpt.site"),

@@ -255,3 +255,10 @@ After the v24 merge gate is satisfied, the next runtime checkpoint is **C2 — P
 
 Numeric costs, capacities, progression thresholds, recovery odds, and prices remain tunable configuration. The content and dependency commitments above are not optional balance placeholders; they are the systems the final game must contain.
 
+
+
+## Placement and footprint authority
+
+The detailed C2 placement rules are in `docs/PLACEMENT_AND_FOOTPRINT_SPEC.md`. That specification is part of this contract and governs the shared drag-selection primitive, rectangular building footprints, road corridors, builder/city-planner capability tiers, cost/labor/time scaling, mine geology boundaries, independent warehouse placement, house upgrades, and the 4×6 research facility.
+
+The current v24 runtime is intentionally unchanged by the placement specification. The next code work must implement C2.1–C2.5 against that document instead of adding more fixed 2×2 or auto-adjacent placement behavior.

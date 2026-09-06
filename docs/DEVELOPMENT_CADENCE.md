@@ -170,3 +170,25 @@ Each report must include:
 - exact next checkpoint.
 
 No checkpoint report may use “tested,” “merged,” “published,” or “live” unless that exact operation was directly confirmed.
+
+
+## Full-content-first scope authority
+
+The complete game scope is locked in `docs/FULL_GAME_CONTENT_CONTRACT.md`. The contract is the design authority for houses and house upgrades, population and workforce, School, scholar/researcher progression, research facilities, mine and warehouse architecture, shops and market, Crowe, town growth, and the endgame.
+
+Implementation phases are checkpoints, not separate product designs. A checkpoint may be incomplete while it is being implemented, but it must not introduce a temporary architecture that contradicts the contract or create a second bypass path. Numeric balance remains configuration; the required systems and dependencies do not.
+
+The full-content sequence is:
+
+- **C0:** commit and reference the full content contract.
+- **C1:** canonical record families, save migration, and compatibility fixtures.
+- **C2:** physical lots, residential placement, and completed houses.
+- **C3:** households, population, housing quality, and upgrade projects.
+- **C4:** workforce, careers, wages, and operating requirements.
+- **C5:** School, students, education, and scholar qualification.
+- **C6–C7:** research registry, researcher roles, and project-backed research facilities.
+- **C8–C10:** mine tracks, warehouse/hauling flow, shops, market, and industry.
+- **C11–C12:** Crowe/waste, town growth, bridges, narrative, and endgame.
+- **C13:** full integration, exact-SHA merge/deployment, and live smoke verification.
+
+If a usage limit interrupts work, resume from the last verified GitHub SHA and the next recorded checkpoint. Do not reconstruct unfinished code from chat. The next runtime checkpoint after the v24 merge gate is **C2 — Physical lots and residential playability**.

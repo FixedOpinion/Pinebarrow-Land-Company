@@ -1,0 +1,110 @@
+:root {
+  --primary: #9a6a2f;
+  --primary-dark: #4b2f18;
+  --foreground: #ead9b8;
+  --muted-foreground: #b39a72;
+  --gold: #c89543;
+  --success: #628c4c;
+  --success-dark: #365b32;
+  --background: #0d0d0a;
+  --surface-light: #19150f;
+  --card: rgba(24, 19, 13, 0.96);
+  --danger: #a34d3e;
+  --orange: #a96c32;
+  --sand: #b8955d;
+  --green: #243c25;
+  --border: #4d3923;
+  --ring: #b37a35;
+  --secondary: #6f4b29;
+  --accent: #6d8145;
+  --viz-series-1: #b27a35;
+  --viz-series-2: #536f3b;
+  --viz-series-3: #49666a;
+  --viz-series-4: #9b5c31;
+  --viz-series-5: #6e4729;
+  --viz-series-6: #c69a4a;
+  --shadow-soft: 0 16px 40px rgba(0,0,0,.46);
+  --shadow-card: 0 8px 22px rgba(0,0,0,.38);
+}
+html,body { background:#0d0d0a; }
+body {
+  color:var(--foreground);
+  background:
+    radial-gradient(circle at 12% 0%,rgba(70,91,48,.15),transparent 34rem),
+    radial-gradient(circle at 90% 12%,rgba(118,74,31,.12),transparent 38rem),
+    linear-gradient(180deg,#12110d,#090907);
+}
+.game-app {
+  --pb7-grass:#263b25;
+  --pb7-tree:#102a1b;
+  --pb7-tree-light:#315536;
+  --pb7-water:#24454c;
+  --pb7-water-deep:#132b35;
+  --pb7-water-light:#58787a;
+  --pb7-shore:#725b36;
+  --pb7-road:#5a4935;
+  --pb7-road-line:#9a6b32;
+  --pb7-main-road:#3c3a35;
+  --pb7-side-road:#4b4740;
+  --pb7-sidewalk:#655c4d;
+  --pb7-curb:#8b785c;
+  --pb7-road-white:#c8b998;
+  --pb7-town-lot:#33422b;
+  --pb7-soil:#67472d;
+  --pb7-stone-wall:#44433e;
+  --pb7-stone-light:#777269;
+  --pb7-stone-dark:#242522;
+  --pb7-town:#3b3325;
+  --pb7-building:#76502d;
+  --pb7-roof:#211d19;
+  --pb7-window:#d49a48;
+  --pb7-shadow:rgba(0,0,0,.55);
+}
+.top-header,.progress-strip,.play-panel,.control-card,.system-menu-popover,.building-panel,.start-card {
+  border-color:#4b3620 !important;
+  color:#ead9b8;
+  background:linear-gradient(180deg,rgba(30,24,16,.98),rgba(17,14,10,.98)) !important;
+  box-shadow:inset 0 0 0 1px rgba(184,126,55,.08),0 12px 30px rgba(0,0,0,.42) !important;
+}
+.top-header,.play-panel,.control-card { backdrop-filter:none; }
+h1,h2,h3,.stat-pill strong { color:#ead9b8; }
+.eyebrow,.stat-pill small,.progress-label { color:#a98c62; }
+.brand-mark {
+  color:#d8ae65;
+  border-color:#6d4b25;
+  background:linear-gradient(145deg,#3a2918,#17120d);
+  box-shadow:0 5px 0 #090806,0 10px 20px rgba(0,0,0,.45);
+}
+.stat-pill,.status-pill,.mini-badge {
+  border-color:#4c3822;
+  color:#d5bd94;
+  background:linear-gradient(180deg,#241c12,#17130e);
+  box-shadow:inset 0 1px rgba(216,170,91,.08),0 3px 10px rgba(0,0,0,.3);
+}
+.stat-icon { color:#17110a; background:#b77d35; box-shadow:inset 0 -3px 0 rgba(61,37,12,.35); }
+.clock-icon,.truck-icon { color:#e1c38f; background:#3b3020; }
+.progress-track { background:#201a12; box-shadow:inset 0 2px 4px rgba(0,0,0,.6); }
+.progress-fill { background:linear-gradient(90deg,#4e743f,#a66f30); box-shadow:0 0 10px rgba(166,111,48,.25); }
+.map-frame {
+  border-color:#17120c;
+  background:#263b25;
+  box-shadow:inset 0 0 0 2px #5d4326,0 12px 28px rgba(0,0,0,.5);
+}
+.map-tip { border-color:#71532f; color:#e6d4b2; background:rgba(17,14,10,.9); }
+.arcade-button,.icon-button,.compact-button,.action-grid button,.close-button,.screen-control,.fast-travel-toggle,.fast-travel-go {
+  color:#e5cfaa !important;
+  border-color:#5c4225 !important;
+  background:linear-gradient(180deg,#382817,#21180f) !important;
+  box-shadow:0 4px 0 #100c08,0 7px 14px rgba(0,0,0,.36) !important;
+}
+.primary-button,.success-button { color:#f0ddb8 !important; background:linear-gradient(145deg,#7e5628,#4a3119) !important; }
+button:focus-visible,select:focus-visible { outline-color:rgba(194,139,63,.55); }
+button:disabled { color:#766c5c !important; background:#211d17 !important; box-shadow:0 3px 0 #100e0b !important; }
+select,input { color:#e4cfaa; border-color:#4c3822 !important; background:#17130e !important; }
+.daily-news-bulletin,.newspaper-reader,.newspaper-page {
+  border-color:#624524 !important;
+  color:#2a1c10 !important;
+  background:#cbb384 !important;
+}
+.system-menu-popover,.building-panel { border:2px solid #5b4023 !important; }
+.menu-scrim { background:rgba(4,4,3,.72) !important; }

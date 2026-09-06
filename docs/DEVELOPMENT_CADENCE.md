@@ -195,3 +195,6 @@ If a usage limit interrupts work, resume from the last verified GitHub SHA and t
 
 
 C2 placement work is governed by `docs/PLACEMENT_AND_FOOTPRINT_SPEC.md`. The first runtime slice is **C2.1**, shared transient grid selection and validation. Do not modify mine, warehouse, road, or house placement independently before C2.1 exists.
+
+
+C2.1 is now committed and verified: the reusable placement module is loaded before the engine, with focused selector tests. The next checkpoint is **C2.2 — footprint/complexity configuration, builder capability filtering, cost/labor/time estimates, and proposal snapshots**. Do not integrate the selector into mine, warehouse, road, or house actions until C2.2 is complete.

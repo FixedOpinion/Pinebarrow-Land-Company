@@ -326,6 +326,7 @@ export function createPointerController(options = {}) {
   function onCancel(event) {
     if (session.status !== "dragging") return;
     if (event?.preventDefault) event.preventDefault();
+    if (event?.currentTarget?.releasePointerCapture && event.pointerId != null) event.currentTarget.releasePointerCapture(event.pointerId);
     cancelSelection(session);
     emit("onCancel", session);
   }

@@ -1,110 +1,231 @@
-:root {
-  --primary: #9a6a2f;
-  --primary-dark: #4b2f18;
-  --foreground: #ead9b8;
-  --muted-foreground: #b39a72;
-  --gold: #c89543;
-  --success: #628c4c;
-  --success-dark: #365b32;
-  --background: #0d0d0a;
-  --surface-light: #19150f;
-  --card: rgba(24, 19, 13, 0.96);
-  --danger: #a34d3e;
-  --orange: #a96c32;
-  --sand: #b8955d;
-  --green: #243c25;
-  --border: #4d3923;
-  --ring: #b37a35;
-  --secondary: #6f4b29;
-  --accent: #6d8145;
-  --viz-series-1: #b27a35;
-  --viz-series-2: #536f3b;
-  --viz-series-3: #49666a;
-  --viz-series-4: #9b5c31;
-  --viz-series-5: #6e4729;
-  --viz-series-6: #c69a4a;
-  --shadow-soft: 0 16px 40px rgba(0,0,0,.46);
-  --shadow-card: 0 8px 22px rgba(0,0,0,.38);
+/* Owns dark surfaces, text, controls and states.
+ * Depends on globals.css tokens. HUD geometry lives in pinebarrow-dark-hud.css.
+ * Root scoping beats legacy component color rules without !important.
+ */
+html, body, .game-page,
+html:fullscreen, html:fullscreen body,
+html:-webkit-full-screen, html:-webkit-full-screen body {
+  color-scheme: dark;
+  color: var(--foreground);
+  background: var(--background);
 }
-html,body { background:#0d0d0a; }
-body {
-  color:var(--foreground);
-  background:
-    radial-gradient(circle at 12% 0%,rgba(70,91,48,.15),transparent 34rem),
-    radial-gradient(circle at 90% 12%,rgba(118,74,31,.12),transparent 38rem),
-    linear-gradient(180deg,#12110d,#090907);
+
+#pinebarrow-visible-menu-demo {
+  --pb7-grass: #203320;
+  --pb7-tree: #0d2517;
+  --pb7-tree-light: #29472d;
+  --pb7-water: #203f46;
+  --pb7-water-deep: #102831;
+  --pb7-water-light: #4e6e70;
+  --pb7-shore: #675132;
+  --pb7-road: #4d4030;
+  --pb7-road-line: #8a5c2d;
+  --pb7-main-road: #33322f;
+  --pb7-side-road: #403d38;
+  --pb7-sidewalk: #584f43;
+  --pb7-curb: #786850;
+  --pb7-road-white: #b7a987;
+  --pb7-town-lot: #2b3928;
+  --pb7-soil: #5c3d27;
+  --pb7-stone-wall: #3b3b37;
+  --pb7-stone-light: #67635c;
+  --pb7-stone-dark: #20211f;
+  --pb7-town: #312a20;
+  --pb7-building: #694728;
+  --pb7-roof: #191715;
+  --pb7-window: #c98e3f;
+  --pb7-shadow: rgba(0, 0, 0, 0.64);
+  color: var(--foreground);
 }
-.game-app {
-  --pb7-grass:#263b25;
-  --pb7-tree:#102a1b;
-  --pb7-tree-light:#315536;
-  --pb7-water:#24454c;
-  --pb7-water-deep:#132b35;
-  --pb7-water-light:#58787a;
-  --pb7-shore:#725b36;
-  --pb7-road:#5a4935;
-  --pb7-road-line:#9a6b32;
-  --pb7-main-road:#3c3a35;
-  --pb7-side-road:#4b4740;
-  --pb7-sidewalk:#655c4d;
-  --pb7-curb:#8b785c;
-  --pb7-road-white:#c8b998;
-  --pb7-town-lot:#33422b;
-  --pb7-soil:#67472d;
-  --pb7-stone-wall:#44433e;
-  --pb7-stone-light:#777269;
-  --pb7-stone-dark:#242522;
-  --pb7-town:#3b3325;
-  --pb7-building:#76502d;
-  --pb7-roof:#211d19;
-  --pb7-window:#d49a48;
-  --pb7-shadow:rgba(0,0,0,.55);
+
+#pinebarrow-visible-menu-demo :where(*, *::before, *::after) {
+  border-color: var(--border);
 }
-.top-header,.progress-strip,.play-panel,.control-card,.system-menu-popover,.building-panel,.start-card {
-  border-color:#4b3620 !important;
-  color:#ead9b8;
-  background:linear-gradient(180deg,rgba(30,24,16,.98),rgba(17,14,10,.98)) !important;
-  box-shadow:inset 0 0 0 1px rgba(184,126,55,.08),0 12px 30px rgba(0,0,0,.42) !important;
+
+#pinebarrow-visible-menu-demo :where(
+  .start-card, .system-menu-popover, .building-panel, .operations-terminal,
+  .market-terminal, .expanded-newspaper, .fast-travel-menu, .control-card,
+  .progress-strip, .panel-heading, .daily-news-bulletin
+) {
+  color: var(--foreground);
+  border-color: var(--border);
+  background: var(--card);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: none;
 }
-.top-header,.play-panel,.control-card { backdrop-filter:none; }
-h1,h2,h3,.stat-pill strong { color:#ead9b8; }
-.eyebrow,.stat-pill small,.progress-label { color:#a98c62; }
-.brand-mark {
-  color:#d8ae65;
-  border-color:#6d4b25;
-  background:linear-gradient(145deg,#3a2918,#17120d);
-  box-shadow:0 5px 0 #090806,0 10px 20px rgba(0,0,0,.45);
+
+#pinebarrow-visible-menu-demo :where(
+  .stat-pill, .status-pill, .mini-badge, .profile-slot, .profile-number,
+  .input-guide span, .input-guide kbd, .action-hint, .operations-summary > span,
+  .management-card, .management-icon, .management-metrics > span,
+  .managed-contract-facts > span, .empty-management-state, .exchange-quote,
+  .exchange-order-form, .exchange-order-card, .active-contract-card,
+  .contract-offer-card, .contract-terms, .market-feedback, .empty-market-state,
+  .operations-tabs, .market-tabs, .location-details, .location-detail-grid > span,
+  .townhall-prospect-card, .townhall-prospect-meta span, .townhall-project-actions,
+  .stock-ad, .new-business-ad, .crowe-watch, .resource-band-grid article
+) {
+  color: var(--foreground);
+  border-color: var(--border);
+  background: var(--surface-light);
+  box-shadow: none;
 }
-.stat-pill,.status-pill,.mini-badge {
-  border-color:#4c3822;
-  color:#d5bd94;
-  background:linear-gradient(180deg,#241c12,#17130e);
-  box-shadow:inset 0 1px rgba(216,170,91,.08),0 3px 10px rgba(0,0,0,.3);
+
+/* Reset hard-coded ink inside dialogs, including dynamically rendered cards. */
+#pinebarrow-visible-menu-demo :where(
+  .start-card, .system-menu-popover, .building-panel, .operations-terminal,
+  .market-terminal, .expanded-newspaper, .fast-travel-menu
+) :where(h1, h2, h3, p, span, small, strong, b, em, label, dt, dd) {
+  color: inherit;
 }
-.stat-icon { color:#17110a; background:#b77d35; box-shadow:inset 0 -3px 0 rgba(61,37,12,.35); }
-.clock-icon,.truck-icon { color:#e1c38f; background:#3b3020; }
-.progress-track { background:#201a12; box-shadow:inset 0 2px 4px rgba(0,0,0,.6); }
-.progress-fill { background:linear-gradient(90deg,#4e743f,#a66f30); box-shadow:0 0 10px rgba(166,111,48,.25); }
-.map-frame {
-  border-color:#17120c;
-  background:#263b25;
-  box-shadow:inset 0 0 0 2px #5d4326,0 12px 28px rgba(0,0,0,.5);
+
+#pinebarrow-visible-menu-demo :where(
+  .eyebrow, .field-label, .modal-copy, .profile-message, .profile-copy small,
+  .profile-name-field, .input-guide, .save-line, .start-brand p:last-child,
+  .operations-header p:last-child, .market-terminal-header p:last-child,
+  .operations-summary small, .management-card header small, .management-facts dt,
+  .management-metrics small, .managed-contract-facts small, .management-card > footer span,
+  .market-panel-heading small, .operations-panel-heading small,
+  .exchange-quote small, .exchange-order-form label, .contract-offer-card label,
+  .exchange-order-card p small, .active-contract-card p small, .contract-offer-card p,
+  .active-contract-card > small, .contract-progress-copy, .location-detail-grid small,
+  .townhall-prospect-card p, .townhall-prospect-meta small, .townhall-contract-list small,
+  .townhall-contract-list em, .townhall-project-actions > p,
+  .stock-ad div small, .resource-band-grid article em
+) { color: var(--muted-foreground); }
+
+/* Covers buttons with no class as well as every styled game control. */
+#pinebarrow-visible-menu-demo button {
+  color: var(--foreground);
+  border-color: var(--border);
+  background: var(--secondary);
+  box-shadow: 0 2px 0 #090806;
 }
-.map-tip { border-color:#71532f; color:#e6d4b2; background:rgba(17,14,10,.9); }
-.arcade-button,.icon-button,.compact-button,.action-grid button,.close-button,.screen-control,.fast-travel-toggle,.fast-travel-go {
-  color:#e5cfaa !important;
-  border-color:#5c4225 !important;
-  background:linear-gradient(180deg,#382817,#21180f) !important;
-  box-shadow:0 4px 0 #100c08,0 7px 14px rgba(0,0,0,.36) !important;
+
+#pinebarrow-visible-menu-demo :where(
+  .primary-button, .start-brand-mark, .brand-mark, .management-icon,
+  .exchange-order-card > div:first-child > span, .active-contract-card > div:first-child > span
+) {
+  color: var(--foreground);
+  background: var(--primary-dark);
+  box-shadow: none;
 }
-.primary-button,.success-button { color:#f0ddb8 !important; background:linear-gradient(145deg,#7e5628,#4a3119) !important; }
-button:focus-visible,select:focus-visible { outline-color:rgba(194,139,63,.55); }
-button:disabled { color:#766c5c !important; background:#211d17 !important; box-shadow:0 3px 0 #100e0b !important; }
-select,input { color:#e4cfaa; border-color:#4c3822 !important; background:#17130e !important; }
-.daily-news-bulletin,.newspaper-reader,.newspaper-page {
-  border-color:#624524 !important;
-  color:#2a1c10 !important;
-  background:#cbb384 !important;
+
+#pinebarrow-visible-menu-demo :where(input, select, textarea, option) {
+  color-scheme: dark;
+  color: var(--foreground);
+  border-color: var(--border);
+  background: #100e0b;
 }
-.system-menu-popover,.building-panel { border:2px solid #5b4023 !important; }
-.menu-scrim { background:rgba(4,4,3,.72) !important; }
+
+#pinebarrow-visible-menu-demo :where(button, input, select, textarea, [role="button"]):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+#pinebarrow-visible-menu-demo button:hover:not(:disabled) {
+  border-color: var(--gold);
+  background: #463321;
+}
+#pinebarrow-visible-menu-demo :is(button[aria-pressed="true"], [data-selected="true"]) {
+  color: var(--gold);
+  border-color: var(--gold);
+  background: #392b18;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+#pinebarrow-visible-menu-demo :is(
+  .system-menu-actions button[aria-pressed="true"], .start-audio[aria-pressed="true"],
+  .success-button, [data-tone="success"], [data-profit="gain"], [data-tone="rise"]
+) {
+  color: var(--success);
+  border-color: #52745c;
+  background: #193225;
+}
+#pinebarrow-visible-menu-demo :is([data-tone="warning"], [data-development="true"]) {
+  color: var(--gold);
+  border-color: #947340;
+  background: #342814;
+}
+#pinebarrow-visible-menu-demo :is(
+  .profile-delete, .exchange-order-card button,
+  [data-tone="danger"], [data-profit="loss"], [data-tone="fall"], .dirt-ad
+) {
+  color: var(--danger);
+  border-color: #89534c;
+  background: #351d1a;
+}
+#pinebarrow-visible-menu-demo button:disabled {
+  color: #b1a28b;
+  border-color: #4a3d2c;
+  background: #211d17;
+  box-shadow: none;
+  opacity: 0.72;
+}
+
+/* Status accents remain distinguishable on dark badge backgrounds. */
+#pinebarrow-visible-menu-demo :where(
+  .management-card header b, .managed-contract > div:first-child > b,
+  .contract-terms small, .news-market, .news-flash
+) {
+  color: inherit;
+  border-color: currentColor;
+  background: rgba(0, 0, 0, 0.25);
+  box-shadow: none;
+}
+#pinebarrow-visible-menu-demo :where(.stat-icon, .coin-icon, .clock-icon, .engine-icon) {
+  color: var(--gold);
+  border-color: var(--border);
+  background: var(--secondary);
+  box-shadow: none;
+}
+#pinebarrow-visible-menu-demo #pb7-truck-model {
+  color: var(--muted-foreground);
+  background: transparent;
+  border: 0;
+}
+#pinebarrow-visible-menu-demo .truck-status {
+  color: var(--truck-state);
+  background: #15120f;
+  box-shadow: none;
+}
+#pinebarrow-visible-menu-demo :where(.order-meter, .progress-track) {
+  background: #100e0b;
+  box-shadow: none;
+}
+#pinebarrow-visible-menu-demo :where(.order-meter i, .progress-fill) {
+  background: linear-gradient(90deg, #436348, #9b7440);
+  box-shadow: none;
+}
+#pinebarrow-visible-menu-demo :where(
+  .news-masthead, .expanded-news-masthead, .newspaper-section-tag
+) {
+  color: var(--foreground);
+  background: #282016;
+  box-shadow: none;
+}
+#pinebarrow-visible-menu-demo :where(.news-story-row, .newspaper-lead) {
+  color: var(--foreground);
+  background: var(--surface);
+}
+#pinebarrow-visible-menu-demo .news-edition { color: var(--muted-foreground); }
+#pinebarrow-visible-menu-demo .start-layer { background: rgba(9, 8, 6, 0.94); }
+#pinebarrow-visible-menu-demo .menu-scrim {
+  background: rgba(4, 4, 3, 0.72);
+  box-shadow: none;
+}
+#pinebarrow-visible-menu-demo .map-tip {
+  color: var(--foreground);
+  background: #211b14;
+  border-color: var(--border);
+  box-shadow: var(--shadow-card);
+}
+#pinebarrow-visible-menu-demo .touch-dpad button,
+#pinebarrow-visible-menu-demo .dpad-center {
+  color: #e8dcc5;
+  background: rgba(15, 20, 14, 0.38);
+  border-color: rgba(190, 170, 135, 0.26);
+  box-shadow: none;
+}
+#pinebarrow-visible-menu-demo .touch-dpad button:active {
+  color: var(--gold);
+  background: rgba(79, 61, 32, 0.85);
+}

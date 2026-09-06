@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Corrective UI checkpoint — unified dark HUD
+
+- Replaced the detached newspaper/stat positioning with one top-aligned container at 60% viewport width, centered with 20% margins. Stats touch the newspaper; the menu has its own non-overlapping grid column.
+- Applied dark tokens and scoped surfaces throughout save profiles, company controls, Town Hall/project cards, market/contract screens, operations, fast travel, and the expanded newspaper. Disabled controls no longer force a light background.
+- Removed the superseded HUD compatibility stylesheet and duplicate globals block. Normal, mobile, and fullscreen modes use the same HUD geometry; retained the 15% fullscreen D-pad increase.
+- Preserved gameplay code, stable engine element IDs, keyboard/menu handlers, save schema, and all v24 project/workforce systems.
+- Source base: `e991321ae3860ceeac003e5eb88982289efa3a0f` on `phase-5-project-construction`, matching the user's existing live v24 source. This corrective UI change does not merge the draft into `main`.
+- Added four source-integration regressions covering the HUD structure, 60% geometry, dark menu/disabled state coverage, and fullscreen D-pad sizing. These are static checks, not browser/pixel verification.
+- Verification: production build passed; 55 tests passed; lint reports zero errors and the existing unused `colors` warning in the engine. No gameplay files or save migrations changed.
+
 ### Shared project/construction economy — v24
 
 - Advanced save schema to v14 with completed-building, resident, workforce, site-project, delivery, settlement, deadline, and completion records.

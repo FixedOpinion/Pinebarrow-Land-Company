@@ -1,262 +1,234 @@
-/* Checkpoint G — dark frontier palette + compact centered HUD */
-:root {
-  --primary: #8b5a2b !important;
-  --primary-dark: #3a2413 !important;
-  --foreground: #ead9b8 !important;
-  --muted-foreground: #aa8e68 !important;
-  --gold: #c28b3a !important;
-  --success: #5e7d45 !important;
-  --success-dark: #314c2f !important;
-  --background: #0b0b08 !important;
-  --surface-light: #17130e !important;
-  --card: rgba(22, 17, 11, 0.97) !important;
-  --danger: #964739 !important;
-  --orange: #9a6030 !important;
-  --sand: #a78958 !important;
-  --green: #1d321f !important;
-  --border: #4b351f !important;
-  --ring: #b37a35 !important;
-  --secondary: #664326 !important;
-  --accent: #617142 !important;
+/* Unified HUD geometry.
+ * Owns one top-centered 60% cluster, its menu and fullscreen D-pad sizing.
+ * Depends on #pb7-hud markup and shared dark tokens; no gameplay mutation.
+ * IDs beat legacy normal/fullscreen/mobile class rules without !important.
+ */
+#pinebarrow-visible-menu-demo #pb7-hud {
+  position: absolute;
+  z-index: 90;
+  top: env(safe-area-inset-top, 0px);
+  right: auto;
+  left: 20%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  width: 60%;
+  max-width: none;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-top: 0;
+  border-radius: 0 0 10px 10px;
+  color: var(--foreground);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: none;
+  transform: none;
+  pointer-events: none;
+}
+#pb7-hud .hud-news-wrap {
+  position: static;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  transform: none;
+  pointer-events: auto;
+}
+#pb7-hud #pb7-menu-toggle {
+  position: static;
+  z-index: auto;
+  display: grid;
+  align-self: stretch;
+  width: 100%;
+  height: auto;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  color: var(--gold);
+  background: var(--primary-dark);
+  box-shadow: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  transform: none;
+  pointer-events: auto;
+}
+#pb7-hud #pb7-daily-news {
+  position: static;
+  z-index: auto;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  color: var(--foreground);
+  background: var(--surface);
+  box-shadow: none;
+  transform: none;
+  animation: none;
+  pointer-events: auto;
+}
+#pb7-hud .news-masthead {
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+  gap: 6px;
+  padding: 3px 7px;
+  border-bottom: 1px solid var(--border);
+}
+#pb7-hud :is(.news-paper-name, .news-edition, .news-flash, .news-market) {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  letter-spacing: 0.025em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#pb7-hud .news-story-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 25px;
+  gap: 6px;
+  padding: 3px 7px;
+}
+#pb7-hud .news-story-row strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.8125rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#pb7-hud :is(.news-flash, .news-market) { padding: 2px 4px; }
+#pb7-hud .header-stats {
+  position: static;
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.05fr) minmax(0, 1.2fr);
+  gap: 0;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  border-top: 1px solid var(--border);
+  transform: none;
+}
+#pb7-hud .stat-pill {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 40px;
+  gap: 5px;
+  padding: 4px 7px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  color: var(--foreground);
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+#pb7-hud .stat-pill + .stat-pill { border-left: 1px solid var(--border); }
+#pb7-hud .stat-pill::after { content: none; }
+#pb7-hud .stat-icon {
+  display: grid;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  font-size: 0.875rem;
+}
+#pb7-hud .stat-copy { min-width: 0; }
+#pb7-hud .stat-copy small {
+  display: block;
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+#pb7-hud .stat-copy strong {
+  display: block;
+  color: var(--foreground);
+  font-size: 0.8125rem;
+  line-height: 1.25;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+#pb7-hud .truck-stat-copy small {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 4px;
+}
+#pb7-hud :is(.truck-stat-copy small b, #pb7-truck-model, .truck-status) {
+  padding: 0;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+#pb7-hud .truck-stat-copy strong { display: flex; gap: 3px; }
+#pb7-hud #pb7-system-menu {
+  position: absolute;
+  top: 100%;
+  right: auto;
+  left: 0;
+  width: min(320px, 80vw);
+  max-height: calc(100dvh - 120px);
+  overflow: auto;
+  margin: 0;
+  border-radius: 0 0 12px 12px;
+  pointer-events: auto;
+}
+#pb7-hud :is(.system-menu-actions button, .system-save-line) {
+  font-size: 0.8125rem;
+  line-height: 1.3;
+}
+#pb7-hud .system-menu-close { width: 36px; height: 36px; }
+
+@media (max-width: 1100px) {
+  #pb7-hud .news-flash { display: none; }
+  #pb7-hud .news-story-row { grid-template-columns: minmax(0, 1fr) auto; }
+  #pb7-hud .stat-icon { display: none; }
+}
+@media (max-width: 800px) {
+  #pb7-hud .news-edition { display: none; }
+}
+@media (max-width: 520px) {
+  #pb7-hud .news-market { display: none; }
+  #pb7-hud .news-story-row { grid-template-columns: minmax(0, 1fr); }
+  #pb7-hud .stat-pill { padding: 4px; }
 }
 
-html,
-body,
-.game-page {
-  background: #0b0b08 !important;
-  color: #ead9b8 !important;
+/* Retain the approved 15% fullscreen touch-area increase. */
+#pinebarrow-visible-menu-demo:is(:fullscreen, [data-fullscreen="true"]) .touch-dpad {
+  width: 138px;
+  height: 138px;
+  grid-template-columns: repeat(3, 46px);
+  grid-template-rows: repeat(3, 46px);
 }
-
-.game-app {
-  --pb7-grass: #203320 !important;
-  --pb7-tree: #0d2517 !important;
-  --pb7-tree-light: #29472d !important;
-  --pb7-water: #203f46 !important;
-  --pb7-water-deep: #102831 !important;
-  --pb7-water-light: #4e6e70 !important;
-  --pb7-shore: #675132 !important;
-  --pb7-road: #4d4030 !important;
-  --pb7-road-line: #8a5c2d !important;
-  --pb7-main-road: #33322f !important;
-  --pb7-side-road: #403d38 !important;
-  --pb7-sidewalk: #584f43 !important;
-  --pb7-curb: #786850 !important;
-  --pb7-road-white: #b7a987 !important;
-  --pb7-town-lot: #2b3928 !important;
-  --pb7-soil: #5c3d27 !important;
-  --pb7-stone-wall: #3b3b37 !important;
-  --pb7-stone-light: #67635c !important;
-  --pb7-stone-dark: #20211f !important;
-  --pb7-town: #312a20 !important;
-  --pb7-building: #694728 !important;
-  --pb7-roof: #191715 !important;
-  --pb7-window: #c98e3f !important;
-  --pb7-shadow: rgba(0, 0, 0, 0.64) !important;
+#pinebarrow-visible-menu-demo:is(:fullscreen, [data-fullscreen="true"]) .touch-dpad :is(button, .dpad-center) {
+  width: 46px;
+  height: 46px;
 }
-
-.top-header,
-.play-panel,
-.control-card,
-.progress-strip,
-.system-menu-popover,
-.building-panel,
-.start-card,
-.stat-pill,
-.status-pill,
-.mini-badge {
-  border-color: #4c351f !important;
-  color: #e5d1aa !important;
-  background: linear-gradient(180deg, #21180f 0%, #120f0b 100%) !important;
-  box-shadow: inset 0 0 0 1px rgba(190, 132, 55, 0.08), 0 7px 18px rgba(0, 0, 0, 0.42) !important;
-  backdrop-filter: none !important;
-}
-
-h1,
-h2,
-h3,
-.stat-pill strong,
-.truck-stat,
-.truck-status {
-  color: #ead9b8 !important;
-}
-
-.eyebrow,
-.stat-pill small,
-.stat-copy small,
-.progress-label {
-  color: #a98b62 !important;
-}
-
-.stat-icon,
-.coin-icon {
-  color: #181009 !important;
-  background: #b67d35 !important;
-}
-
-.clock-icon,
-.engine-icon {
-  color: #dfbf88 !important;
-  background: #352a1d !important;
-}
-
-.daily-news-bulletin {
-  border: 1px solid #6a4a27 !important;
-  color: #2a1b0e !important;
-  background: linear-gradient(180deg, #d1bb8d 0%, #bda574 100%) !important;
-  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.42) !important;
-}
-
-.news-masthead {
-  color: #ead7ad !important;
-  background: linear-gradient(90deg, #1c2a20 0%, #3a2718 55%, #492017 100%) !important;
-}
-
-.news-story-row {
-  color: #2a1b0e !important;
-  background: rgba(237, 219, 177, 0.84) !important;
-}
-
-.map-frame,
-#pb7-map {
-  background: #203320 !important;
-}
-
-/* Base compact HUD: center the status cluster and remove the old brand block. */
-.top-header {
-  width: min(60%, 760px) !important;
-  min-height: 0 !important;
-  margin-left: auto !important;
-  margin-right: auto !important;
-  padding: 4px 5px !important;
-  gap: 4px !important;
-  border-radius: 10px !important;
-}
-
-.brand-lockup {
-  display: none !important;
-}
-
-.header-stats {
-  display: grid !important;
-  grid-template-columns: 0.9fr 0.95fr 1.2fr !important;
-  width: 100% !important;
-  gap: 4px !important;
-}
-
-.header-stats .stat-pill,
-.header-stats .stat-pill.wide-stat {
-  min-width: 0 !important;
-  min-height: 36px !important;
-  padding: 4px 6px !important;
-  gap: 5px !important;
-  border-radius: 8px !important;
-}
-
-.header-stats .stat-icon {
-  width: 23px !important;
-  height: 23px !important;
-  border-radius: 6px !important;
-  font-size: 11px !important;
-}
-
-.header-stats .stat-pill small {
-  margin: 0 !important;
-  font-size: 7px !important;
-  letter-spacing: 0.06em !important;
-  line-height: 1.05 !important;
-}
-
-.header-stats .stat-pill strong {
-  font-size: 10px !important;
-  line-height: 1.08 !important;
-}
-
-.header-stats .truck-stat-copy {
-  min-width: 0 !important;
-}
-
-.daily-news-bulletin {
-  width: min(60%, 760px) !important;
-  left: 50% !important;
-  right: auto !important;
-  transform: translateX(-50%) !important;
-  border-radius: 8px !important;
-}
-
-.daily-news-bulletin .news-masthead {
-  min-height: 22px !important;
-  padding: 3px 8px !important;
-}
-
-.daily-news-bulletin .news-paper-name,
-.daily-news-bulletin .news-edition {
-  font-size: 8px !important;
-  letter-spacing: 0.08em !important;
-}
-
-.daily-news-bulletin .news-story-row {
-  min-height: 24px !important;
-  padding: 3px 8px !important;
-  gap: 6px !important;
-  font-size: 9px !important;
-}
-
-.daily-news-bulletin .news-flash,
-.daily-news-bulletin .news-market {
-  font-size: 7px !important;
-}
-
-/* In full-screen play, lock both strips together in the center three-fifths. */
-.game-app:fullscreen .daily-news-bulletin {
-  top: 6px !important;
-  width: 60% !important;
-  max-width: none !important;
-}
-
-.game-app:fullscreen .top-header {
-  position: absolute !important;
-  z-index: 35 !important;
-  top: 56px !important;
-  left: 20% !important;
-  right: auto !important;
-  width: 60% !important;
-  max-width: none !important;
-  margin: 0 !important;
-}
-
-.game-app:fullscreen .header-stats {
-  width: 100% !important;
-}
-
-@media (orientation: landscape) and (max-height: 700px) {
-  .daily-news-bulletin {
-    width: 60% !important;
+@media (orientation: landscape) and (max-height: 620px) {
+  #pinebarrow-visible-menu-demo:is(:fullscreen, [data-fullscreen="true"]) .touch-dpad {
+    width: 110.4px;
+    height: 110.4px;
+    grid-template-columns: repeat(3, 36.8px);
+    grid-template-rows: repeat(3, 36.8px);
   }
-
-  .top-header {
-    width: 60% !important;
-    padding: 3px 4px !important;
-  }
-
-  .header-stats .stat-pill,
-  .header-stats .stat-pill.wide-stat {
-    min-height: 32px !important;
-    padding: 3px 5px !important;
-  }
-
-  .header-stats .stat-icon {
-    width: 20px !important;
-    height: 20px !important;
-  }
-
-  .header-stats .stat-pill strong {
-    font-size: 9px !important;
-  }
-
-  .daily-news-bulletin .news-masthead,
-  .daily-news-bulletin .news-story-row {
-    min-height: 20px !important;
-    padding-top: 2px !important;
-    padding-bottom: 2px !important;
+  #pinebarrow-visible-menu-demo:is(:fullscreen, [data-fullscreen="true"]) .touch-dpad :is(button, .dpad-center) {
+    width: 36.8px;
+    height: 36.8px;
   }
 }

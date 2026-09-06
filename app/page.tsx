@@ -68,7 +68,7 @@ export default function Home() {
           </section>
         </div>
 
-        <header className="top-header">
+        <header id="pb7-hud" className="top-header" aria-label="Company newspaper and status">
           <div className="hud-news-wrap">
             <button
               id="pb7-menu-toggle"
@@ -106,11 +106,11 @@ export default function Home() {
           <div className="header-stats" aria-label="Company status">
             <div className="stat-pill reward-stat cash-stat">
               <span className="stat-icon coin-icon" aria-hidden="true">$</span>
-              <span className="stat-copy"><small>Company funds</small><strong id="pb7-cash">$160</strong></span>
+              <span className="stat-copy"><small>Funds</small><strong id="pb7-cash">$160</strong></span>
             </div>
             <div className="stat-pill shift-stat">
               <span className="stat-icon clock-icon" aria-hidden="true">◷</span>
-              <span className="stat-copy"><small>Shift clock</small><strong id="pb7-time">Day 1 · 8:00 AM</strong></span>
+              <span className="stat-copy"><small>Day / time</small><strong id="pb7-time">Day 1 · 8:00 AM</strong></span>
             </div>
             <div id="pb7-truck-stat" className="stat-pill wide-stat truck-stat" data-status="idle">
               <span className="stat-icon engine-icon" aria-hidden="true">⚙</span>

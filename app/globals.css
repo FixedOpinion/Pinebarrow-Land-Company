@@ -1,32 +1,35 @@
 @import "tailwindcss";
 
 :root {
-  --primary: #5b6cf8;
-  --primary-dark: #3e4ed0;
-  --foreground: #16213e;
-  --muted-foreground: #5f6b85;
-  --gold: #ffd75e;
-  --success: #70e1c1;
-  --success-dark: #42a98d;
-  --background: #eef1fa;
-  --surface-light: #f8f9ff;
-  --card: rgba(255, 255, 255, 0.82);
-  --danger: #e55c7a;
-  --orange: #e99042;
-  --sand: #f1cf8d;
-  --green: #79d094;
-  --border: #dce2f2;
-  --ring: #5b6cf8;
-  --secondary: #f1cf8d;
-  --accent: #70e1c1;
-  --viz-series-1: #5b6cf8;
-  --viz-series-2: #79d094;
-  --viz-series-3: #70e1c1;
-  --viz-series-4: #e99042;
-  --viz-series-5: #a97a50;
-  --viz-series-6: #ffd75e;
-  --shadow-soft: 0 16px 40px rgba(40, 55, 105, 0.1);
-  --shadow-card: 0 8px 22px rgba(40, 55, 105, 0.09);
+  color-scheme: dark;
+  --primary: #79502b;
+  --primary-dark: #382417;
+  --foreground: #f0dfbf;
+  --muted-foreground: #c3ad88;
+  --gold: #e2b96c;
+  --success: #a0d6b0;
+  --success-dark: #224531;
+  --background: #0e0d0a;
+  --surface-light: #211b14;
+  --surface: #18140f;
+  --card: #18140f;
+  --muted: #c3ad88;
+  --danger: #f3a29a;
+  --orange: #cc9358;
+  --sand: #a78958;
+  --green: #203320;
+  --border: #59432b;
+  --ring: #e2b96c;
+  --secondary: #30251a;
+  --accent: #a0d6b0;
+  --viz-series-1: #bb864c;
+  --viz-series-2: #6a8e55;
+  --viz-series-3: #63979b;
+  --viz-series-4: #b57a47;
+  --viz-series-5: #927153;
+  --viz-series-6: #e2b96c;
+  --shadow-soft: 0 16px 40px rgba(0, 0, 0, 0.46);
+  --shadow-card: 0 8px 22px rgba(0, 0, 0, 0.38);
 }
 
 * {
@@ -493,9 +496,9 @@ select:focus-visible {
 }
 
 button:disabled {
-  color: #8f99ae !important;
-  background: #e9ecf4 !important;
-  box-shadow: 0 3px 0 #d1d7e4 !important;
+  color: #b1a28b !important;
+  background: #211d17 !important;
+  box-shadow: none !important;
   cursor: not-allowed;
   filter: grayscale(0.2);
   opacity: 0.72;
@@ -1666,10 +1669,10 @@ body {
 
 /* Compact translucent HUD: keep the map visible and the controls within thumb reach. */
 :root {
-  --hud-glass: rgba(248, 249, 255, 0.62);
-  --hud-glass-strong: rgba(255, 255, 255, 0.72);
-  --hud-border: rgba(255, 255, 255, 0.58);
-  --hud-shadow: 0 4px 14px rgba(22, 33, 62, 0.13);
+  --hud-glass: #18140f;
+  --hud-glass-strong: #211b14;
+  --hud-border: #59432b;
+  --hud-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
 }
 
 .top-header {
@@ -5282,172 +5285,6 @@ html:-webkit-full-screen body {
   line-height: 1.4;
 }
 
-/* HUD checkpoint: newspaper first, shared status row beneath it. */
-.top-header,
-.game-app:fullscreen .top-header {
-  top: 8px;
-  right: 0;
-  left: 0;
-  min-height: 126px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-  pointer-events: none;
-}
-
-.hud-news-wrap {
-  position: absolute;
-  top: 0;
-  left: 50%;
-  width: min(760px, calc(100vw - 28px));
-  pointer-events: auto;
-  transform: translateX(-50%);
-}
-
-.hud-news-wrap .daily-news-bulletin {
-  position: relative;
-  top: auto;
-  left: auto;
-  width: 100%;
-  margin: 0;
-  transform: none;
-  animation: none;
-  pointer-events: auto;
-}
-
-.news-menu-toggle {
-  position: absolute;
-  z-index: 2;
-  top: -2px;
-  left: -2px;
-  display: grid;
-  width: 38px;
-  height: 38px;
-  place-items: center;
-  padding: 0;
-  border: 2px solid rgba(255, 255, 255, 0.82);
-  border-radius: 11px 7px 11px 7px;
-  color: white;
-  background: linear-gradient(145deg, var(--primary), var(--primary-dark));
-  box-shadow: 0 3px 0 #3040b8, 0 7px 15px rgba(22, 33, 62, 0.22);
-  font-size: 22px;
-  font-weight: 950;
-  line-height: 1;
-}
-
-.news-menu-toggle:hover,
-.news-menu-toggle[aria-expanded="true"] {
-  transform: translateY(-1px);
-}
-
-.header-stats {
-  position: absolute;
-  top: 70px;
-  left: 50%;
-  display: grid;
-  width: min(760px, calc(100vw - 28px));
-  grid-template-columns: minmax(0, .9fr) minmax(0, 1fr) minmax(0, 1.25fr);
-  gap: 6px;
-  margin: 0;
-  pointer-events: none;
-  transform: translateX(-50%);
-}
-
-.header-stats .stat-pill,
-.header-stats .stat-pill.wide-stat {
-  min-width: 0;
-  min-height: 38px;
-  padding: 4px 8px;
-  gap: 5px;
-  border-radius: 10px;
-}
-
-.header-stats .stat-pill .stat-icon {
-  display: grid;
-  flex: 0 0 auto;
-  width: 23px;
-  height: 23px;
-  margin-right: 1px;
-  font-size: 11px;
-}
-
-.header-stats .stat-pill small {
-  display: block;
-  overflow: hidden;
-  margin-bottom: 1px;
-  font-size: 6px;
-  text-overflow: ellipsis;
-}
-
-.header-stats .stat-pill strong {
-  overflow: hidden;
-  font-size: 9px;
-  text-overflow: ellipsis;
-}
-
-.header-stats .truck-stat-copy small {
-  display: flex;
-}
-
-.system-menu-popover {
-  top: 114px;
-  left: max(6px, calc(50% - 380px));
-  pointer-events: auto;
-}
-
-@media (max-width: 520px) {
-  .header-stats .shift-stat {
-    display: flex;
-  }
-
-  .header-stats .stat-pill .stat-icon {
-    display: none;
-  }
-
-  .header-stats .stat-pill small {
-    font-size: 5.5px;
-  }
-
-  .header-stats .stat-pill strong {
-    font-size: 8px;
-  }
-}
-
-/* Full-screen touch controls get a 15% hit-area increase without changing map input. */
-.game-app[data-fullscreen="true"] .touch-dpad,
-.game-app:fullscreen .touch-dpad {
-  width: 138px;
-  height: 138px;
-  grid-template-columns: repeat(3, 46px);
-  grid-template-rows: repeat(3, 46px);
-}
-
-.game-app[data-fullscreen="true"] .touch-dpad button,
-.game-app[data-fullscreen="true"] .touch-dpad .dpad-center,
-.game-app:fullscreen .touch-dpad button,
-.game-app:fullscreen .touch-dpad .dpad-center {
-  width: 46px;
-  height: 46px;
-}
-
-@media (orientation: landscape) and (max-height: 620px) {
-  .game-app[data-fullscreen="true"] .touch-dpad,
-  .game-app:fullscreen .touch-dpad {
-    width: 110px;
-    height: 110px;
-    grid-template-columns: repeat(3, 36.7px);
-    grid-template-rows: repeat(3, 36.7px);
-  }
-
-  .game-app[data-fullscreen="true"] .touch-dpad button,
-  .game-app[data-fullscreen="true"] .touch-dpad .dpad-center,
-  .game-app:fullscreen .touch-dpad button,
-  .game-app:fullscreen .touch-dpad .dpad-center {
-    width: 36.7px;
-    height: 36.7px;
-  }
-}
 
 .townhall-project-actions > button,
 .townhall-contract-list button {

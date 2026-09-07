@@ -415,10 +415,22 @@ export default function Home() {
             <div id="pb7-management-summary" className="operations-summary" aria-label="Company operations summary" />
 
             <nav className="operations-tabs" aria-label="Company management sections">
+              <button id="pb7-management-tab-projects" type="button" aria-pressed="false"><span aria-hidden="true">▧</span> Projects</button>
               <button id="pb7-management-tab-mines" type="button" aria-pressed="true"><span aria-hidden="true">⛏</span> Mines</button>
               <button id="pb7-management-tab-warehouses" type="button" aria-pressed="false"><span aria-hidden="true">▤</span> Warehouses</button>
               <button id="pb7-management-tab-contracts" type="button" aria-pressed="false"><span aria-hidden="true">◆</span> Contracts</button>
             </nav>
+
+            <section id="pb7-project-management-panel" className="operations-panel" aria-labelledby="pb7-project-management-title" hidden>
+              <div className="operations-panel-heading">
+                <div>
+                  <span>Town Hall construction desk</span>
+                  <h3 id="pb7-project-management-title">Project Ledger</h3>
+                </div>
+                <small>Award builders, then assign material supply, logistics, and hauling for every open company project.</small>
+              </div>
+              <div id="pb7-project-management-board" className="construction-project-board" />
+            </section>
 
             <section id="pb7-mine-management-panel" className="operations-panel" aria-labelledby="pb7-mine-management-title">
               <div className="operations-panel-heading">

@@ -524,12 +524,15 @@
         managementScreen: root.querySelector("#pb7-management-screen"),
         managementClose: root.querySelector("#pb7-management-close"),
         managementSummary: root.querySelector("#pb7-management-summary"),
+        managementTabProjects: root.querySelector("#pb7-management-tab-projects"),
         managementTabMines: root.querySelector("#pb7-management-tab-mines"),
         managementTabWarehouses: root.querySelector("#pb7-management-tab-warehouses"),
         managementTabContracts: root.querySelector("#pb7-management-tab-contracts"),
+        projectManagementPanel: root.querySelector("#pb7-project-management-panel"),
         mineManagementPanel: root.querySelector("#pb7-mine-management-panel"),
         warehouseManagementPanel: root.querySelector("#pb7-warehouse-management-panel"),
         contractManagementPanel: root.querySelector("#pb7-contract-management-panel"),
+        projectManagementBoard: root.querySelector("#pb7-project-management-board"),
         mineManagementBoard: root.querySelector("#pb7-mine-management-board"),
         warehouseManagementBoard: root.querySelector("#pb7-warehouse-management-board"),
         managementContractBoard: root.querySelector("#pb7-management-contract-board")
@@ -799,7 +802,7 @@
 
       function visibleMenuActions() {
         if (managementScreenOpen) {
-          const fixed = [el.managementTabMines, el.managementTabWarehouses, el.managementTabContracts, el.managementClose];
+          const fixed = [el.managementTabProjects, el.managementTabMines, el.managementTabWarehouses, el.managementTabContracts, el.managementClose];
           const dynamic = el.managementScreen && typeof el.managementScreen.querySelectorAll === "function"
             ? Array.from(el.managementScreen.querySelectorAll("button:not([disabled])"))
             : [];
@@ -952,16 +955,27 @@
         setContext("Nothing to interact with", "Drive to a building entrance, mine, warehouse, construction edge, or open survey ground.");
       }
 
+      function activePlacementCameraFocus() {
+        const focus = sitePlacement && sitePlacement.cameraFocus;
+        return focus && Number.isFinite(focus.x) && Number.isFinite(focus.y) ? focus : null;
+      }
+
       function zoomInFromInput() {
         setFollowView();
         state.zoomIndex = Math.min(2, state.zoomIndex + 1);
-        setContext("Close truck view", "The camera is centered closer to the truck. Individual trees and 2×2 building footprints are easier to select.");
+        const focus = activePlacementCameraFocus();
+        setContext(focus ? "Closer placement view" : "Close truck view", focus
+          ? "The selected permit stays centered while you zoom. Drag the highlighted 2×2 footprint when it is in view."
+          : "The camera is centered closer to the truck. Individual trees and 2×2 building footprints are easier to select.");
       }
 
       function zoomOutFromInput() {
         setFollowView();
         state.zoomIndex = Math.max(0, state.zoomIndex - 1);
-        setContext("Wider follow view", "The camera still follows the truck while showing more nearby land.");
+        const focus = activePlacementCameraFocus();
+        setContext(focus ? "Wider placement view" : "Wider follow view", focus
+          ? "The selected permit stays centered while you zoom. Use + to inspect individual tiles again."
+          : "The camera still follows the truck while showing more nearby land.");
       }
 
       function toggleOverviewFromInput() {
@@ -3914,6 +3928,23 @@
         return true;
       }
 
+      function placementCameraTarget(siteKind, permit, upgrade) {
+        const focusRecord = permit || upgrade || (siteKind === "warehouse" ? state.mineParcel : null);
+        if (focusRecord && Number.isFinite(focusRecord.x) && Number.isFinite(focusRecord.y)) {
+          return {
+            x: focusRecord.x + Math.max(1, focusRecord.w || 1) / 2,
+            y: focusRecord.y + Math.max(1, focusRecord.h || 1) / 2
+          };
+        }
+        return { x: PLAYER_ROAD_X + 3, y: TOWN_TOP - 3 };
+      }
+
+      function enterPlacementView(active, focus) {
+        active.cameraFocus = focus;
+        state.overview = false;
+        state.zoomIndex = Math.max(1, state.zoomIndex);
+      }
+
       function beginResidentialPlacement(designId, upgradeBuildingId) {
         if (state.location !== "townhall") return;
         if (state.roadPlanning) {
@@ -3954,9 +3985,9 @@
         });
         active.controller = controller;
         sitePlacement = active;
-        state.overview = true;
+        enterPlacementView(active, placementCameraTarget("residential", null, upgrade));
         controller.attach(canvas);
-        setContext(upgrade ? "Select house expansion" : "Select residential lot", "Drag a " + definition.footprint.w + "×" + definition.footprint.h + " lot beside a paved company road. Trees may be cleared during construction; water, roads, structures, and active claims are blocked. Press Esc to cancel.");
+        setContext(upgrade ? "Select house expansion" : "Select residential lot", "The camera is centered on the selection area. Drag a " + definition.footprint.w + "×" + definition.footprint.h + " lot beside a paved company road; + and − keep this placement view centered. Trees may be cleared during construction; water, roads, structures, and active claims are blocked. Press Esc to cancel.");
       }
 
       function cancelInfrastructurePlacement(message, announce) {
@@ -3991,7 +4022,7 @@
           permit.placementStatus = "selected";
           state.mineParcel = permit;
           state.selectedMineParcelId = permit.id;
-          setContext("Mine footprint selected", footprint.w + "×" + footprint.h + " site recorded against the geology permit with " + validation.frontageCells.length + " road-access tile" + (validation.frontageCells.length === 1 ? "" : "s") + ". Clear the selected site, then open its construction project from the outside edge.", "success");
+          setContext("Mine footprint selected", footprint.w + "×" + footprint.h + " site recorded against the geology permit with " + validation.frontageCells.length + " road-access tile" + (validation.frontageCells.length === 1 ? "" : "s") + ". Clear the selected site, then open its construction project from the outside edge. After that, return to Town Hall and open Project Ledger to award its work.", "success");
         } else {
           const parcel = {
             id: allocateSiteId("warehouse-land"),
@@ -4086,9 +4117,9 @@
         });
         active.controller = controller;
         sitePlacement = active;
-        state.overview = true;
+        enterPlacementView(active, placementCameraTarget(siteKind, permit, null));
         controller.attach(canvas);
-        setContext(siteKind === "mine" ? "Select mine footprint" : "Select warehouse site", "Drag across the map to mark the 2×2 " + (siteKind === "mine" ? "geology permit" : "warehouse lot") + ". The outline must keep road access and avoid water, roads, structures, and existing parcels. Press Esc to cancel.");
+        setContext(siteKind === "mine" ? "Select mine footprint" : "Select warehouse site", "The camera is centered on the selection area. Drag across the map to mark the 2×2 " + (siteKind === "mine" ? "geology permit" : "warehouse lot") + "; + and − keep this placement view centered. The outline must keep road access and avoid water, roads, structures, and existing parcels. Press Esc to cancel.");
       }
 
       function townHallText() {
@@ -4242,7 +4273,7 @@
         if (state.legacyConstructionMode || !parcel) return false;
         const existing = siteProjectFor(siteKind, parcel.id);
         if (existing) {
-          setContext("Project already open", "This site is already tracked by " + existing.id + ". Visit Town Hall to award the builder and bid the supply, logistics, and hauling contracts.", "warning");
+          setContext("Project already open", "This site is already tracked by " + existing.id + ". At Town Hall, choose Open project ledger to award the builder and bid the supply, logistics, and hauling contracts.", "warning");
           return false;
         }
         const definition = CONFIG.buildingDefinitions[siteKind];
@@ -4270,7 +4301,7 @@
         });
         if (!project) return false;
         parcel.constructionProjectId = project.id;
-        setContext(siteKind === "mine" ? "Mine project opened" : "Warehouse project opened", definition.label + " keeps the selected " + footprint.w + "×" + footprint.h + " footprint and now follows the shared builder, supply, logistics, and hauling pipeline. Take the project to Town Hall for contract bids.", "success");
+        setContext(siteKind === "mine" ? "Mine project opened" : "Warehouse project opened", definition.label + " keeps the selected " + footprint.w + "×" + footprint.h + " footprint and now follows the shared builder, supply, logistics, and hauling pipeline. At Town Hall, choose Open project ledger to award the builder and contract work.", "success");
         return true;
       }
 
@@ -4875,7 +4906,11 @@
 
       function openManagementScreen(tab) {
         if (!managementAccessAvailable()) return;
-        managementScreenTab = ["mines", "warehouses", "contracts"].includes(tab) ? tab : "mines";
+        if (tab === "projects" && state.location !== "townhall") {
+          setContext("Town Hall required", "Builder bids and project contracts are awarded at Town Hall. Drive there, then open Project Ledger.", "warning");
+          return;
+        }
+        managementScreenTab = ["projects", "mines", "warehouses", "contracts"].includes(tab) ? tab : "mines";
         managementScreenOpen = true;
         marketScreenOpen = false;
         newsReaderOpen = false;
@@ -4883,7 +4918,7 @@
         state.menuOpen = true;
         renderInterface();
         requestAnimationFrame(function () {
-          const tabButton = managementScreenTab === "warehouses" ? el.managementTabWarehouses : managementScreenTab === "contracts" ? el.managementTabContracts : el.managementTabMines;
+          const tabButton = managementScreenTab === "projects" ? el.managementTabProjects : managementScreenTab === "warehouses" ? el.managementTabWarehouses : managementScreenTab === "contracts" ? el.managementTabContracts : el.managementTabMines;
           if (tabButton) tabButton.focus({ preventScroll: true });
         });
       }
@@ -5338,8 +5373,19 @@
         el.managementContractBoard.innerHTML = activeMarkup + offerMarkup;
       }
 
+      function renderProjectManagement() {
+        if (!el.projectManagementBoard) return;
+        const projects = state.constructionProjects.filter(function (project) {
+          return project && !["completed", "cancelled"].includes(project.status);
+        });
+        el.projectManagementBoard.innerHTML = projects.length
+          ? projects.map(standaloneProjectActionMarkup).join("")
+          : '<p class="empty-management-state">No open construction projects. Approve a site, open its project from the cleared outside edge, then return here to award the builder and project contracts.</p>';
+      }
+
       function renderCompanyManagement() {
         renderManagementSummary();
+        renderProjectManagement();
         renderMineManagement();
         renderWarehouseManagement();
         renderContractTerminal();
@@ -7134,7 +7180,7 @@
         el.contracts.disabled = false;
         el.companyManagement.hidden = !["townhall", "mine", "warehouse"].includes(state.location);
         el.companyManagement.disabled = false;
-        el.companyManagement.textContent = state.location === "mine" ? "Open Mine Management" : state.location === "warehouse" ? "Open Warehouse Management" : "Open Company Operations";
+        el.companyManagement.textContent = state.location === "townhall" ? "Open project ledger" : state.location === "mine" ? "Open Mine Management" : "Open Warehouse Management";
         el.haulers.forEach(function (button) {
           const sizeKey = button.dataset.haulerSize;
           const hauler = CONFIG.haulers[sizeKey];
@@ -7297,9 +7343,11 @@
         el.marketTabExchange.setAttribute("aria-pressed", "true");
         el.marketTabContracts.setAttribute("aria-pressed", "false");
         el.managementScreen.hidden = !managementScreenOpen;
+        el.projectManagementPanel.hidden = managementScreenTab !== "projects";
         el.mineManagementPanel.hidden = managementScreenTab !== "mines";
         el.warehouseManagementPanel.hidden = managementScreenTab !== "warehouses";
         el.contractManagementPanel.hidden = managementScreenTab !== "contracts";
+        el.managementTabProjects.setAttribute("aria-pressed", managementScreenTab === "projects" ? "true" : "false");
         el.managementTabMines.setAttribute("aria-pressed", managementScreenTab === "mines" ? "true" : "false");
         el.managementTabWarehouses.setAttribute("aria-pressed", managementScreenTab === "warehouses" ? "true" : "false");
         el.managementTabContracts.setAttribute("aria-pressed", managementScreenTab === "contracts" ? "true" : "false");
@@ -7369,8 +7417,10 @@
         const scale = scales[state.zoomIndex];
         const tilesWide = viewport.width / scale;
         const tilesHigh = viewport.height / scale;
-        const originX = Math.max(0, Math.min(WORLD_WIDTH - tilesWide, visualPlayer.x + .5 - tilesWide / 2));
-        const originY = Math.max(0, Math.min(WORLD_HEIGHT - tilesHigh, visualPlayer.y + .5 - tilesHigh / 2));
+        const placementFocus = activePlacementCameraFocus();
+        const cameraFocus = placementFocus || { x: visualPlayer.x + .5, y: visualPlayer.y + .5 };
+        const originX = Math.max(0, Math.min(WORLD_WIDTH - tilesWide, cameraFocus.x - tilesWide / 2));
+        const originY = Math.max(0, Math.min(WORLD_HEIGHT - tilesHigh, cameraFocus.y - tilesHigh / 2));
         drawView = { scale: scale, originX: originX, originY: originY, offsetX: 0, offsetY: 0 };
       }
 
@@ -8823,7 +8873,7 @@
       el.marketplace.addEventListener("click", function () { openMarketScreen("exchange"); });
       el.contracts.addEventListener("click", function () { openManagementScreen("contracts"); });
       el.companyManagement.addEventListener("click", function () {
-        openManagementScreen(state.location === "warehouse" ? "warehouses" : "mines");
+        openManagementScreen(state.location === "townhall" ? "projects" : state.location === "warehouse" ? "warehouses" : "mines");
       });
       el.roadPlan.addEventListener("click", startRoadSurvey);
       el.roadSubmit.addEventListener("click", submitRoadSurvey);
@@ -8933,9 +8983,19 @@
       el.marketTabExchange.addEventListener("click", function () { marketScreenTab = "exchange"; renderInterface(); });
       el.marketTabContracts.addEventListener("click", function () { openManagementScreen("contracts"); });
       el.managementClose.addEventListener("click", closeManagementScreen);
+      el.managementTabProjects.addEventListener("click", function () { openManagementScreen("projects"); });
       el.managementTabMines.addEventListener("click", function () { managementScreenTab = "mines"; renderInterface(); });
       el.managementTabWarehouses.addEventListener("click", function () { managementScreenTab = "warehouses"; renderInterface(); });
       el.managementTabContracts.addEventListener("click", function () { managementScreenTab = "contracts"; renderInterface(); });
+      el.projectManagementBoard.addEventListener("click", function (event) {
+        const projectButton = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-project-action]") : null;
+        if (!projectButton) return;
+        const action = projectButton.dataset.projectAction;
+        const id = action === "award-builder" ? projectButton.dataset.bidId
+          : action === "bid-procurement" ? projectButton.dataset.procurementId
+            : projectButton.dataset.proposalId;
+        handleProjectAction(action, id);
+      });
       el.exchangeMaterial.addEventListener("change", function () {
         const material = el.exchangeMaterial.value;
         if (material) {

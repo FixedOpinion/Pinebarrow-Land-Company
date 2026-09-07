@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Corrective checkpoint C2.4.1 — permit selection and project ledger
+
+- Replaced full-world placement overview with a zoomed placement view centered on the selected mine permit, existing house upgrade, or relevant development area. The + and − controls now keep the active selection centered instead of jumping back to the truck at Town Hall.
+- Added an explicit Town Hall **Project Ledger** tab in Company Operations. It lists every open construction project and provides the real builder-bid and supply/logistics/hauling contract actions.
+- Updated mine and warehouse project instructions to direct players to **Town Hall → Open project ledger** rather than referring to an unclear or nonexistent contract-building menu.
+- Extended the focused siting regression to verify zoomed mine selection and builder-bid access through the Project Ledger.
+
 ### Checkpoint C2.4 — residential lots, house upgrades, and road corridors
 
 - Advanced save schema to v16 without dropping prior v15 infrastructure, proposal, property, workforce, or road records.

@@ -272,19 +272,21 @@ function locationActionTarget(attribute, dataset) {
   };
 }
 
-function overviewPointer(tileX, tileY, pointerId = 1) {
+function placementPointer(tileX, tileY, focusX, focusY, zoomIndex = 1, pointerId = 1) {
   const worldWidth = 90;
   const worldHeight = 292;
   const width = 1000;
   const height = 650;
-  const scale = Math.min((width - 8) / worldWidth, (height - 8) / worldHeight);
-  const offsetX = (width - worldWidth * scale) / 2;
-  const offsetY = (height - worldHeight * scale) / 2;
+  const scale = [12, 18, 28][zoomIndex];
+  const tilesWide = width / scale;
+  const tilesHigh = height / scale;
+  const originX = Math.max(0, Math.min(worldWidth - tilesWide, focusX - tilesWide / 2));
+  const originY = Math.max(0, Math.min(worldHeight - tilesHigh, focusY - tilesHigh / 2));
   return {
     button: 0,
     pointerId,
-    clientX: offsetX + (tileX + .25) * scale,
-    clientY: offsetY + (tileY + .25) * scale,
+    clientX: (tileX + .25 - originX) * scale,
+    clientY: (tileY + .25 - originY) * scale,
     preventDefault() {},
   };
 }
@@ -1132,6 +1134,8 @@ test("Mine Management reports every site and exposes production bottlenecks", as
 
   game.element("pb7-company-management").click();
   assert.equal(game.element("pb7-management-screen").hidden, false);
+  assert.equal(game.element("pb7-project-management-panel").hidden, false);
+  game.element("pb7-management-tab-mines").click();
   assert.equal(game.element("pb7-mine-management-panel").hidden, false);
   const board = game.element("pb7-mine-management-board");
   assert.match(board.innerHTML, /MINE 1/);
@@ -1656,9 +1660,9 @@ test("Town Hall selects a residential lot and files an identity-preserving house
   details.emit("click", { target: locationActionTarget("[data-residential-plan]", { residentialPlan: "worker-house" }) });
   game.frame(16);
   const canvas = game.element("pb7-map");
-  canvas.emit("pointerdown", { ...overviewPointer(46, 122), currentTarget: canvas });
-  canvas.emit("pointermove", { ...overviewPointer(47, 123), currentTarget: canvas });
-  canvas.emit("pointerup", { ...overviewPointer(47, 123), currentTarget: canvas });
+  canvas.emit("pointerdown", { ...placementPointer(46, 122, 47, 122), currentTarget: canvas });
+  canvas.emit("pointermove", { ...placementPointer(47, 123, 47, 122), currentTarget: canvas });
+  canvas.emit("pointerup", { ...placementPointer(47, 123, 47, 122), currentTarget: canvas });
   let saved = game.saved();
   assert.equal(saved.version, 16);
   assert.equal(saved.proposals.length, 1);
@@ -1688,9 +1692,9 @@ test("Town Hall selects a residential lot and files an identity-preserving house
   upgradeDetails.emit("click", { target: locationActionTarget("[data-residential-plan]", { residentialPlan: "expanded-house", upgradeBuildingId: "building-house-1" }) });
   upgradeGame.frame(16);
   const upgradeCanvas = upgradeGame.element("pb7-map");
-  upgradeCanvas.emit("pointerdown", { ...overviewPointer(46, 122), currentTarget: upgradeCanvas });
-  upgradeCanvas.emit("pointermove", { ...overviewPointer(47, 124), currentTarget: upgradeCanvas });
-  upgradeCanvas.emit("pointerup", { ...overviewPointer(47, 124), currentTarget: upgradeCanvas });
+  upgradeCanvas.emit("pointerdown", { ...placementPointer(46, 122, 47, 123), currentTarget: upgradeCanvas });
+  upgradeCanvas.emit("pointermove", { ...placementPointer(47, 124, 47, 123), currentTarget: upgradeCanvas });
+  upgradeCanvas.emit("pointerup", { ...placementPointer(47, 124, 47, 123), currentTarget: upgradeCanvas });
   saved = upgradeGame.saved();
   const upgradeProposal = saved.proposals[0];
   assert.equal(upgradeProposal.upgradeBuildingId, "building-house-1");
@@ -2052,9 +2056,12 @@ test("Town Hall records a selected mine footprint and an independent warehouse p
   });
   mineGame.frame(16);
   const mineCanvas = mineGame.element("pb7-map");
-  mineCanvas.emit("pointerdown", { ...overviewPointer(47, 121), currentTarget: mineCanvas });
-  mineCanvas.emit("pointermove", { ...overviewPointer(48, 122), currentTarget: mineCanvas });
-  mineCanvas.emit("pointerup", { ...overviewPointer(48, 122), currentTarget: mineCanvas });
+  mineGame.element("pb7-zoom-in").click();
+  mineGame.frame(32);
+  assert.equal(mineGame.element("pb7-context-title").textContent, "Closer placement view");
+  mineCanvas.emit("pointerdown", { ...placementPointer(47, 121, 48, 122, 2), currentTarget: mineCanvas });
+  mineCanvas.emit("pointermove", { ...placementPointer(48, 122, 48, 122, 2), currentTarget: mineCanvas });
+  mineCanvas.emit("pointerup", { ...placementPointer(48, 122, 48, 122, 2), currentTarget: mineCanvas });
   const selectedMine = mineGame.saved();
   assert.equal(selectedMine.version, 16);
   assert.deepEqual(selectedMine.mineParcels[0].selectedFootprint, { x: 47, y: 121, w: 2, h: 2, orientation: 0 });
@@ -2078,6 +2085,22 @@ test("Town Hall records a selected mine footprint and an independent warehouse p
   assert.deepEqual({ x: project.x, y: project.y, w: project.w, h: project.h }, { x: 47, y: 121, w: 2, h: 2 });
   assert.equal(project.footprintSnapshot.designId, "mine-starter");
 
+  const ledgerSave = constructionGame.saved();
+  ledgerSave.player = { x: 37, y: 141 };
+  ledgerSave.selected = { type: "building", id: "townhall", x: 37, y: 141 };
+  ledgerSave.location = "townhall";
+  const ledgerGame = createEngineHarness(ledgerSave, engineSource, plannerOptions);
+  ledgerGame.element("pb7-company-management").click();
+  assert.equal(ledgerGame.element("pb7-management-screen").hidden, false);
+  assert.equal(ledgerGame.element("pb7-project-management-panel").hidden, false);
+  const projectBoard = ledgerGame.element("pb7-project-management-board");
+  assert.match(projectBoard.innerHTML, /Award bid/);
+  const bidId = ledgerSave.constructionBids.find((bid) => bid.projectId === project.id && bid.status === "open").id;
+  projectBoard.emit("click", {
+    target: locationActionTarget("[data-project-action]", { projectAction: "award-builder", bidId }),
+  });
+  assert.equal(ledgerGame.saved().constructionProjects.find((record) => record.id === project.id).status, "procurement");
+
   const warehouseSave = structuredClone(ownedMine);
   warehouseSave.location = "townhall";
   warehouseSave.player = { x: 37, y: 141 };
@@ -2088,9 +2111,9 @@ test("Town Hall records a selected mine footprint and an independent warehouse p
   });
   warehouseGame.frame(16);
   const warehouseCanvas = warehouseGame.element("pb7-map");
-  warehouseCanvas.emit("pointerdown", { ...overviewPointer(47, 123), currentTarget: warehouseCanvas });
-  warehouseCanvas.emit("pointermove", { ...overviewPointer(48, 124), currentTarget: warehouseCanvas });
-  warehouseCanvas.emit("pointerup", { ...overviewPointer(48, 124), currentTarget: warehouseCanvas });
+  warehouseCanvas.emit("pointerdown", { ...placementPointer(47, 123, 48, 122, 2), currentTarget: warehouseCanvas });
+  warehouseCanvas.emit("pointermove", { ...placementPointer(48, 124, 48, 122, 2), currentTarget: warehouseCanvas });
+  warehouseCanvas.emit("pointerup", { ...placementPointer(48, 124, 48, 122, 2), currentTarget: warehouseCanvas });
   const selectedWarehouse = warehouseGame.saved();
   assert.equal(selectedWarehouse.warehouseParcels.length, 1);
   assert.equal(selectedWarehouse.warehouseParcels[0].status, "available");

@@ -31,7 +31,7 @@
 #pb7-hud .hud-news-wrap {
   position: static;
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr);
+  grid-template-columns: 34px minmax(0, 1fr);
   width: 100%;
   min-width: 0;
   margin: 0;
@@ -45,7 +45,7 @@
   align-self: stretch;
   width: 100%;
   height: auto;
-  min-height: 44px;
+  min-height: 36px;
   margin: 0;
   padding: 0;
   place-items: center;
@@ -55,7 +55,7 @@
   color: var(--gold);
   background: var(--primary-dark);
   box-shadow: none;
-  font-size: 1.5rem;
+  font-size: 1.125rem;
   line-height: 1;
   transform: none;
   pointer-events: auto;
@@ -80,16 +80,16 @@
 #pb7-hud .news-masthead {
   display: flex;
   align-items: center;
-  min-height: 24px;
-  gap: 6px;
-  padding: 3px 7px;
+  min-height: 18px;
+  gap: 4px;
+  padding: 2px 6px;
   border-bottom: 1px solid var(--border);
 }
 #pb7-hud :is(.news-paper-name, .news-edition, .news-flash, .news-market) {
   min-width: 0;
   overflow: hidden;
   font-size: 0.75rem;
-  line-height: 1.2;
+  line-height: 1.1;
   letter-spacing: 0.025em;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -98,19 +98,19 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  min-height: 25px;
-  gap: 6px;
-  padding: 3px 7px;
+  min-height: 20px;
+  gap: 4px;
+  padding: 2px 6px;
 }
 #pb7-hud .news-story-row strong {
   min-width: 0;
   overflow: hidden;
-  font-size: 0.8125rem;
-  line-height: 1.25;
+  font-size: 0.75rem;
+  line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-#pb7-hud :is(.news-flash, .news-market) { padding: 2px 4px; }
+#pb7-hud :is(.news-flash, .news-market) { padding: 1px 3px; }
 #pb7-hud .header-stats {
   position: static;
   display: grid;
@@ -126,9 +126,9 @@
   display: flex;
   align-items: center;
   min-width: 0;
-  min-height: 40px;
-  gap: 5px;
-  padding: 4px 7px;
+  min-height: 32px;
+  gap: 4px;
+  padding: 2px 6px;
   overflow: hidden;
   border: 0;
   border-radius: 0;
@@ -141,11 +141,11 @@
 #pb7-hud .stat-pill::after { content: none; }
 #pb7-hud .stat-icon {
   display: grid;
-  flex: 0 0 22px;
-  width: 22px;
-  height: 22px;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
   margin: 0;
-  font-size: 0.875rem;
+  font-size: 0.75rem;
 }
 #pb7-hud .stat-copy { min-width: 0; }
 #pb7-hud .stat-copy small {
@@ -153,14 +153,14 @@
   margin: 0;
   color: var(--muted-foreground);
   font-size: 0.75rem;
-  line-height: 1.2;
+  line-height: 1.1;
   letter-spacing: 0;
 }
 #pb7-hud .stat-copy strong {
   display: block;
   color: var(--foreground);
-  font-size: 0.8125rem;
-  line-height: 1.25;
+  font-size: 0.75rem;
+  line-height: 1.15;
   white-space: normal;
   overflow-wrap: anywhere;
 }
@@ -173,7 +173,7 @@
 #pb7-hud :is(.truck-stat-copy small b, #pb7-truck-model, .truck-status) {
   padding: 0;
   font-size: 0.75rem;
-  line-height: 1.2;
+  line-height: 1.1;
   letter-spacing: 0;
 }
 #pb7-hud .truck-stat-copy strong { display: flex; gap: 3px; }
@@ -206,7 +206,7 @@
 @media (max-width: 520px) {
   #pb7-hud .news-market { display: none; }
   #pb7-hud .news-story-row { grid-template-columns: minmax(0, 1fr); }
-  #pb7-hud .stat-pill { padding: 4px; }
+  #pb7-hud .stat-pill { padding: 2px 4px; }
 }
 
 /* Retain the approved 15% fullscreen touch-area increase. */

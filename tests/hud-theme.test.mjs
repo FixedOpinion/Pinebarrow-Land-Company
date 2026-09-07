@@ -61,6 +61,16 @@ test("HUD uses one 60 percent top container and flow layout, not detached pixel 
   assert.doesNotMatch(read("../app/globals.css"), /HUD checkpoint: newspaper first/);
 });
 
+test("HUD stays compact without changing its centered 60 percent geometry", () => {
+  assert.equal(declarations(hud, "#pb7-hud .hud-news-wrap")["grid-template-columns"], "34px minmax(0, 1fr)");
+  assert.equal(declarations(hud, "#pb7-hud #pb7-menu-toggle")["min-height"], "36px");
+  assert.equal(declarations(hud, "#pb7-hud .news-masthead")["min-height"], "18px");
+  assert.equal(declarations(hud, "#pb7-hud .news-story-row")["min-height"], "20px");
+  assert.equal(declarations(hud, "#pb7-hud .stat-pill")["min-height"], "32px");
+  assert.equal(declarations(hud, "#pb7-hud .stat-copy small")["font-size"], "0.75rem");
+  assert.equal(declarations(hud, "#pb7-hud .stat-copy strong")["font-size"], "0.75rem");
+});
+
 test("dark theme covers every menu surface and both enabled and disabled controls", () => {
   const surfaceRules = [];
   theme.walkRules((rule) => {

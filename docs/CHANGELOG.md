@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Corrective UI checkpoint — compact HUD sizing
+
+- Reduced the height of the existing dark, top-centered HUD without moving or widening it: the newspaper rows, integrated menu column, and shared status row are denser while keeping all status text at a readable 12px minimum.
+- Preserved the 60% centered geometry, dark theme, existing information, menu behavior, and fullscreen D-pad sizing.
+
 ### Corrective UI checkpoint — unified dark HUD
 
 - Replaced the detached newspaper/stat positioning with one top-aligned container at 60% viewport width, centered with 20% margins. Stats touch the newspaper; the menu has its own non-overlapping grid column.

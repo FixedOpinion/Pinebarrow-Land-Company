@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Checkpoint C2.4 — residential lots, house upgrades, and road corridors
+
+- Advanced save schema to v16 without dropping prior v15 infrastructure, proposal, property, workforce, or road records.
+- Added Town Hall drag-selected, road-frontage residential lots for the 2×2 workforce house and an upgrade route through Expanded House, Family House, and Row / Boarding House.
+- House upgrades are construction projects and retain the existing property ID, owner, resident IDs, and workforce links; only the house tier, footprint, capacity, and latest project record change.
+- Added 2-wide company-road and 4-wide Main Street corridor profiles. Main Street is gated to the City Planning Office, and long corridors are stored as ten-tile construction packages.
+- Converted approved road routes to the same builder, stone-supply, logistics, hauling, labor, and completion ledger. Roads appear and create their stone-market impact only after completion.
+- Added regression coverage for selected residential lots, house identity/resident preservation through an upgrade, project-backed road completion, and v16 save output. Verification: production build and all 59 Node tests passed.
+
 ### Checkpoint C2.3 — live mine and warehouse siting
 
 - Advanced the save schema to v15 with legacy-safe infrastructure footprint snapshots and explicit warehouse `assignedMineIds` routes.

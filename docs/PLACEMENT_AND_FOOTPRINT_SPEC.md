@@ -1,6 +1,6 @@
 # Pinebarrow Land Company — Placement, Footprint, and Builder Complexity
 
-**Status:** C2.3 implemented; C2.4 is the next runtime checkpoint
+**Status:** C2.4 implemented; C2.5 is the next runtime checkpoint
 **Baseline:** v24 branch `e34553cded3ecf3944fa1ba6c588fb6f8bf14149`
 **Related scope:** `docs/FULL_GAME_CONTENT_CONTRACT.md`
 
@@ -226,6 +226,14 @@ To protect the work from usage limits, C2 is split into these independently comm
 - A warehouse is selected independently at Town Hall, then follows its own purchase agreement, clearing, project, builder, procurement, logistics, and hauling path. Buying a mine deed no longer creates a neighboring warehouse parcel.
 - Warehouse routing is a Town Hall management action. A warehouse may carry multiple mine routes, while moving a mine to another warehouse clears its prior active route in the same saved update.
 - Version-14 saves retain their old adjacent link as a compatibility route. The migration copies that link once into `assignedMineIds`; future saves use the explicit route record rather than positional array pairing.
+
+### C2.4 completion notes
+
+- Save schema v16 adds durable residential design/upgrade fields and road-corridor project records while accepting prior v15 saves unchanged.
+- Town Hall now starts a shared pointer-selected residential lot. The initial workforce house is a 2×2 road-frontage lot; each completed player house can file only its next tier (2×3, 2×4, then 2×6) as an upgrade project.
+- Completing a house upgrade preserves the completed property ID, owner, resident links, and workforce safety. Only the footprint, house tier, capacity, and latest project record change.
+- Road planning now captures a drag path through the shared corridor selector. Company roads use a 2-wide profile; four-wide Main Street requires the City Planning Office. Approved routes are split into bounded ten-tile package records.
+- A route enters the existing builder, stone supply, logistics, hauling, labor, and completion ledger. Pavement and its market demand are applied only when that project completes.
 
 No C2 checkpoint should add School or research behavior yet. It must only create the placement and project foundation those later buildings will use.
 

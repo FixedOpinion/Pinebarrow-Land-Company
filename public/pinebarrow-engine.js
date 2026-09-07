@@ -26,9 +26,9 @@
       const STARTER_TREE = { x: PLAYER_ROAD_X + 3, y: TOWN_TOP - 3 };
       const CLAIM_SECTION_DEPTHS = [0, 42, 84];
       const CLAIM_SECTION_ENDS = [41, 83, CLAIM_DEPTH - 1];
-      // v15 adds explicit infrastructure footprint snapshots and warehouse-to-mine
-      // assignments.  Existing linked parcels remain valid through migration below.
-      const SAVE_VERSION = 15;
+      // v16 adds project-backed residential lots, house upgrades, and
+      // corridor-selected road projects. Earlier road approvals remain valid.
+      const SAVE_VERSION = 16;
       const MAIN_STREET_TOP = 142;
       const MAIN_STREET_BOTTOM = 146;
       const TOWN_SIDE_STREET_WIDTH = 2;
@@ -102,6 +102,21 @@
             housingCapacity: 1,
             workerSlots: 0
           },
+          "expanded-house": {
+            id: "expanded-house", label: "Expanded House", type: "residential",
+            footprint: { w: 2, h: 3 }, requiredBuilderLevel: 3, baseCost: 420,
+            resources: { logs: 30, stone: 22 }, labor: 3, buildTimeDays: 3, housingCapacity: 2, workerSlots: 0
+          },
+          "family-house": {
+            id: "family-house", label: "Family House", type: "residential",
+            footprint: { w: 2, h: 4 }, requiredBuilderLevel: 5, baseCost: 620,
+            resources: { logs: 45, stone: 35 }, labor: 5, buildTimeDays: 4, housingCapacity: 3, workerSlots: 0
+          },
+          "row-house": {
+            id: "row-house", label: "Row / Boarding House", type: "residential",
+            footprint: { w: 2, h: 6 }, requiredBuilderLevel: 7, baseCost: 880,
+            resources: { logs: 64, stone: 48 }, labor: 7, buildTimeDays: 6, housingCapacity: 4, workerSlots: 0
+          },
           "town-shop": {
             id: "town-shop",
             label: "Rentable Town Shop",
@@ -151,12 +166,25 @@
             labor: 2,
             buildTimeDays: 2,
             housingCapacity: 0
+          },
+          "company-road": {
+            id: "company-road", label: "Company Access Road", type: "road",
+            footprint: { w: 2, h: 2 }, requiredBuilderLevel: 1, baseCost: 0,
+            resources: { stone: 1 }, labor: 1, buildTimeDays: 2, housingCapacity: 0
+          },
+          "main-street": {
+            id: "main-street", label: "Four-Wide Main Street", type: "road",
+            footprint: { w: 4, h: 2 }, requiredBuilderLevel: 10, baseCost: 0,
+            resources: { stone: 1 }, labor: 1, buildTimeDays: 4, housingCapacity: 0
           }
         },
         constructionBuilders: [
           { id: "pinebarrow-builders", label: "Pinebarrow Builders", level: 1, priceMultiplier: 1, durationMultiplier: 1 },
-          { id: "county-works", label: "County Works Cooperative", level: 2, priceMultiplier: 1.18, durationMultiplier: .9 },
-          { id: "crowe-construction", label: "Crowe Construction", level: 3, priceMultiplier: 1.08, durationMultiplier: .75 }
+          { id: "county-works", label: "County Works Cooperative", level: 3, priceMultiplier: 1.18, durationMultiplier: .9 },
+          { id: "crowe-construction", label: "Crowe Construction", level: 3, priceMultiplier: 1.08, durationMultiplier: .75 },
+          { id: "master-builders", label: "Master Builders Guild", level: 5, priceMultiplier: 1.28, durationMultiplier: .82, minProjectLevel: 5 },
+          { id: "city-builders", label: "City Builders Office", level: 7, priceMultiplier: 1.42, durationMultiplier: .76, minProjectLevel: 7 },
+          { id: "city-planning-office", label: "City Planning Office", level: 10, priceMultiplier: 1.7, durationMultiplier: .7, minProjectLevel: 10 }
         ],
         maxMineLevel: 8,
         mineUpgradeCosts: { 1: 260, 2: 390, 3: 560, 4: 780, 5: 1060, 6: 1420, 7: 1880 },
@@ -180,6 +208,11 @@
         roadTilesPerStoneTon: 3,
         roadLaborPerTile: 9,
         roadMinimumSurveyPoints: 2,
+        roadPackageMaxTiles: 10,
+        roadProfiles: {
+          "company-road": { id: "company-road", label: "Company access road", width: 2, requiredBuilderLevel: 1, buildTimeDays: 2 },
+          "main-street": { id: "main-street", label: "Four-wide main street", width: 4, requiredBuilderLevel: 10, buildTimeDays: 4 }
+        },
         exchangeTickMinutes: 30,
         exchangeListingFee: 4,
         maxExchangeOrders: 8,
@@ -317,6 +350,7 @@
           roadTiles: new Set(),
           roadDraft: [],
           roadPlanning: false,
+          roadPlanningProfile: "company-road",
           roadApproval: null,
           roadMarketImpact: null,
           roadContractsCompleted: 0,
@@ -546,6 +580,7 @@
       let touchDriveDirection = null;
       let touchDrivePointerId = null;
       let sitePlacement = null;
+      let roadPlacementController = null;
       let suppressPlacementClick = false;
       const truckSprite = new Image();
       let truckSpriteReady = false;
@@ -863,6 +898,7 @@
       function openSystemMenuFromInput() {
         if (!state.started || systemMenuOpen) return;
         if (sitePlacement) cancelInfrastructurePlacement("Opening the company menu leaves this map selection uncommitted.", true);
+        if (state.roadPlanning) cancelRoadSurvey();
         settleMovementForReroute();
         state.path = [];
         state.pendingArrival = null;
@@ -879,6 +915,7 @@
       function openContextMenuFromInput() {
         if (!state.started || state.menuOpen) return;
         if (sitePlacement) cancelInfrastructurePlacement("Opening the context menu leaves this map selection uncommitted.", true);
+        if (state.roadPlanning) cancelRoadSurvey();
         settleMovementForReroute();
         systemMenuOpen = false;
         closeFastTravel();
@@ -1073,6 +1110,9 @@
           if (sitePlacement) {
             event.preventDefault();
             cancelInfrastructurePlacement("No land was purchased and no construction project was opened.", true);
+          } else if (state.roadPlanning) {
+            event.preventDefault();
+            cancelRoadSurvey();
           } else if (systemMenuOpen) {
             event.preventDefault();
             closeSystemMenu();
@@ -1372,6 +1412,8 @@
         if (typeof project.id !== "string" || !project.id) project.id = allocateConstructionProjectId();
         project.proposalId = typeof project.proposalId === "string" ? project.proposalId : null;
         project.buildingId = typeof project.buildingId === "string" ? project.buildingId : "town-shop";
+        const normalizedDefinition = CONFIG.buildingDefinitions[project.buildingId] || CONFIG.buildingDefinitions["town-shop"];
+        project.buildTimeDays = Number.isFinite(project.buildTimeDays) ? Math.max(.01, Number(project.buildTimeDays)) : Math.max(.01, Number(normalizedDefinition.buildTimeDays) || 1);
         project.ownerId = typeof project.ownerId === "string" && project.ownerId ? project.ownerId : "player";
         const allowedStatuses = ["awaiting-builder", "procurement", "ready-to-build", "building", "delayed", "completed", "cancelled"];
         project.status = allowedStatuses.includes(project.status) ? project.status : "awaiting-builder";
@@ -1391,6 +1433,20 @@
         project.route = typeof project.route === "string" && project.route ? project.route : "town";
         project.siteKind = typeof project.siteKind === "string" && project.siteKind ? project.siteKind : "town";
         project.siteParcelId = typeof project.siteParcelId === "string" ? project.siteParcelId : null;
+        project.upgradeBuildingId = typeof project.upgradeBuildingId === "string" ? project.upgradeBuildingId : null;
+        project.roadProfileId = typeof project.roadProfileId === "string" && CONFIG.roadProfiles[project.roadProfileId]
+          ? project.roadProfileId
+          : null;
+        project.roadRouteTiles = Array.isArray(project.roadRouteTiles)
+          ? Array.from(new Set(project.roadRouteTiles.filter(function (key) { return typeof key === "string"; })))
+          : [];
+        project.roadPackages = Array.isArray(project.roadPackages) ? project.roadPackages.map(function (item, index) {
+          const packageRecord = item && typeof item === "object" ? item : {};
+          return {
+            id: typeof packageRecord.id === "string" ? packageRecord.id : project.id + "-package-" + (index + 1),
+            tileKeys: Array.isArray(packageRecord.tileKeys) ? packageRecord.tileKeys.filter(function (key) { return typeof key === "string"; }) : []
+          };
+        }) : [];
         project.x = Number.isFinite(project.x) ? Math.round(project.x) : null;
         project.y = Number.isFinite(project.y) ? Math.round(project.y) : null;
         project.w = Number.isFinite(project.w) ? Math.max(1, Math.round(project.w)) : 2;
@@ -1493,6 +1549,12 @@
         building.tenantId = typeof building.tenantId === "string" ? building.tenantId : null;
         building.tenantName = typeof building.tenantName === "string" ? building.tenantName : null;
         building.projectId = typeof building.projectId === "string" ? building.projectId : null;
+        building.lastProjectId = typeof building.lastProjectId === "string" ? building.lastProjectId : building.projectId;
+        building.upgradeLevel = Number.isFinite(building.upgradeLevel) ? Math.max(1, Math.round(building.upgradeLevel)) :
+          ({ "worker-house": 1, "expanded-house": 2, "family-house": 3, "row-house": 4 }[building.buildingId] || 1);
+        building.housingCapacity = Number.isFinite(building.housingCapacity)
+          ? Math.max(0, Math.round(building.housingCapacity))
+          : Math.max(0, Math.round(definition.housingCapacity || 0));
         building.completedDay = Number.isFinite(building.completedDay) ? Math.max(1, Math.round(building.completedDay)) : 1;
         return building;
       }
@@ -1624,6 +1686,9 @@
           state.roadTiles = new Set(Array.isArray(saved.roadTiles) ? saved.roadTiles.filter(function (key) { return typeof key === "string"; }) : []);
           state.roadDraft = Array.isArray(saved.roadDraft) ? saved.roadDraft.filter(function (key) { return typeof key === "string"; }) : [];
           state.roadApproval = saved.roadApproval && typeof saved.roadApproval === "object" ? saved.roadApproval : null;
+          state.roadPlanningProfile = saved.roadPlanningProfile && CONFIG.roadProfiles[saved.roadPlanningProfile]
+            ? saved.roadPlanningProfile
+            : "company-road";
           state.roadMarketImpact = saved.roadMarketImpact && typeof saved.roadMarketImpact === "object" ? saved.roadMarketImpact : null;
           state.nextSiteId = Math.max(1, Math.round(saved.nextSiteId || 1));
           state.nextProposalId = Math.max(1, Math.round(saved.nextProposalId || 1));
@@ -1983,6 +2048,7 @@
           roadTiles: Array.from(state.roadTiles),
           roadDraft: state.roadDraft,
           roadPlanning: state.roadPlanning,
+          roadPlanningProfile: state.roadPlanningProfile,
           roadApproval: state.roadApproval,
           roadMarketImpact: state.roadMarketImpact,
           roadContractsCompleted: state.roadContractsCompleted,
@@ -2964,6 +3030,7 @@
 
       function closeMenu() {
         if (sitePlacement) cancelInfrastructurePlacement("Closing the menu leaves this map selection uncommitted.", false);
+        if (state.roadPlanning) cancelRoadSurvey();
         state.menuOpen = false;
         newsReaderOpen = false;
         marketScreenOpen = false;
@@ -3724,6 +3791,174 @@
         };
       }
 
+      function residentialUpgradeDesign(building) {
+        const order = ["worker-house", "expanded-house", "family-house", "row-house"];
+        const index = Math.max(0, order.indexOf(building && building.buildingId));
+        return order[index + 1] || null;
+      }
+
+      function residentialCellIssue(cell, upgradeBuildingId) {
+        if (!isPlayerClaimTile(cell.x, cell.y) || !hasPlayerDevelopmentRights(cell.x, cell.y)) {
+          return { code: "outside-claim", message: "Residential lots must stay inside your northern development claim." };
+        }
+        if (isLakeCell(cell.x, cell.y)) return { code: "lake", message: "Water cannot be included in a residential lot." };
+        if (isPavedClaimRoad(cell.x, cell.y) || isPlayerClaimPath(cell.x, cell.y)) {
+          return { code: "road", message: "Keep the road corridor clear of the house footprint." };
+        }
+        if (mineAt(cell.x, cell.y) || warehouseAt(cell.x, cell.y)) {
+          return { code: "infrastructure", message: "A house cannot overlap a mine or warehouse." };
+        }
+        const developed = state.developedBuildings.find(function (building) {
+          return building && building.status !== "sold" && inRect(cell.x, cell.y, building);
+        });
+        if (developed && developed.id !== upgradeBuildingId) {
+          return { code: "structure", message: "This lot overlaps an existing completed property." };
+        }
+        return true;
+      }
+
+      function residentialFootprintConflict(footprint, upgradeBuildingId) {
+        if (upgradeBuildingId && state.proposals.some(function (proposal) {
+          return proposal && proposal.upgradeBuildingId === upgradeBuildingId && ["draft", "approved", "under-construction"].includes(proposal.status);
+        })) return { code: "upgrade-open", message: "This house already has an active upgrade proposal." };
+        const parcels = state.surveyParcels.concat(state.mineParcels, state.warehouseParcels);
+        if (parcels.some(function (parcel) { return rectanglesOverlap(footprint, parcel); })) {
+          return { code: "parcel-conflict", message: "This lot overlaps an active survey, mine parcel, or warehouse parcel." };
+        }
+        const proposal = state.proposals.find(function (record) {
+          return record && record.lot &&
+            ["draft", "approved", "purchased", "under-construction"].includes(record.status) && rectanglesOverlap(footprint, record.lot);
+        });
+        if (proposal) return { code: "proposal-conflict", message: "This lot overlaps active development proposal " + proposal.id + "." };
+        const project = state.constructionProjects.find(function (record) {
+          if (!record || ["completed", "cancelled"].includes(record.status)) return false;
+          return rectanglesOverlap(footprint, constructionProjectSitePoint(record));
+        });
+        if (project) return { code: "project-conflict", message: "This lot overlaps construction project " + project.id + "." };
+        return true;
+      }
+
+      function validateResidentialFootprint(designId, footprint, upgradeBuildingId) {
+        const definition = CONFIG.buildingDefinitions[designId];
+        const issues = [];
+        if (!definition || definition.type !== "residential") {
+          issues.push({ code: "design", message: "This residential design is unavailable." });
+        } else if (!footprint || !Number.isFinite(footprint.x) || !Number.isFinite(footprint.y)) {
+          issues.push({ code: "empty", message: "Drag across the map to choose a residential lot." });
+        } else {
+          const rectangle = { x: Math.round(footprint.x), y: Math.round(footprint.y), w: Math.max(0, Math.round(footprint.w || 0)), h: Math.max(0, Math.round(footprint.h || 0)) };
+          const expectedShort = Math.min(definition.footprint.w, definition.footprint.h);
+          const expectedLong = Math.max(definition.footprint.w, definition.footprint.h);
+          if (Math.min(rectangle.w, rectangle.h) !== expectedShort || Math.max(rectangle.w, rectangle.h) !== expectedLong) {
+            issues.push({ code: "size", message: definition.label + " requires a " + definition.footprint.w + "×" + definition.footprint.h + " lot." });
+          }
+          parcelCells(rectangle).forEach(function (cell) {
+            const issue = residentialCellIssue(cell, upgradeBuildingId);
+            if (issue !== true) issues.push(Object.assign({ cell: cell }, issue));
+          });
+          const frontageCells = infrastructureFrontageCells(rectangle);
+          if (!frontageCells.length) issues.push({ code: "frontage", message: "Choose a lot within the access edge of a paved company road." });
+          if (upgradeBuildingId) {
+            const existing = state.developedBuildings.find(function (building) { return building.id === upgradeBuildingId && building.status !== "sold"; });
+            if (!existing || !inRect(existing.x, existing.y, rectangle) || !inRect(existing.x + existing.w - 1, existing.y + existing.h - 1, rectangle)) {
+              issues.push({ code: "upgrade-footprint", message: "An upgrade lot must contain the existing house and its adjacent expansion cells." });
+            }
+          }
+          const conflict = residentialFootprintConflict(rectangle, upgradeBuildingId);
+          if (conflict !== true) issues.push(conflict);
+          return { valid: issues.length === 0, issues: issues, firstIssue: issues[0] || null, rectangle: rectangle, cells: parcelCells(rectangle), frontageCells: frontageCells };
+        }
+        return { valid: false, issues: issues, firstIssue: issues[0] || null, rectangle: null, cells: [], frontageCells: [] };
+      }
+
+      function residentialSnapshot(designId, footprint, frontageCells, upgradeBuildingId) {
+        const api = window.PinebarrowFootprints;
+        if (api && typeof api.createProposalSnapshot === "function") {
+          return api.createProposalSnapshot({
+            designId: designId, mode: "area", sourceRoute: "town-hall-residential", footprint: footprint,
+            cells: parcelCells(footprint), frontageCells: frontageCells, blockId: "company-block-" + footprint.x + "-" + footprint.y,
+            lotId: upgradeBuildingId || null, builderLevel: CONFIG.buildingDefinitions[designId].requiredBuilderLevel, frontage: Math.max(1, frontageCells.length), routeDistance: 1
+          });
+        }
+        return { snapshotVersion: 1, designId: designId, category: "residential", mode: "area", footprint: Object.assign({}, footprint), frontageCells: frontageCells, status: "draft" };
+      }
+
+      function commitResidentialPlacement(selection) {
+        if (!sitePlacement || sitePlacement.siteKind !== "residential" || !selection || !selection.rectangle) return false;
+        const active = sitePlacement;
+        const validation = validateResidentialFootprint(active.designId, selection.rectangle, active.upgradeBuildingId);
+        if (!validation.valid) {
+          active.preview = { rectangle: validation.rectangle, validation: validation };
+          suppressPlacementClick = true;
+          setContext("Residential lot blocked", validation.firstIssue ? validation.firstIssue.message : "Choose another lot.", "error");
+          return false;
+        }
+        const footprint = Object.assign({}, validation.rectangle, { orientation: Math.round(selection.orientation || 0) });
+        const snapshot = residentialSnapshot(active.designId, footprint, validation.frontageCells, active.upgradeBuildingId);
+        const estimate = snapshot && snapshot.estimate;
+        const proposal = normalizeProposalRecord({
+          id: allocateProposalId(), type: "residential", use: active.upgradeBuildingId ? "house-upgrade" : "workforce-housing",
+          buildingId: active.designId, upgradeBuildingId: active.upgradeBuildingId || null,
+          lot: { x: footprint.x, y: footprint.y, w: footprint.w, h: footprint.h, blockId: "company-block-" + footprint.x + "-" + footprint.y },
+          footprint: { w: footprint.w, h: footprint.h }, footprintSnapshot: snapshot,
+          cost: estimate && Number.isFinite(estimate.cost) ? estimate.cost : CONFIG.buildingDefinitions[active.designId].baseCost,
+          status: "draft", owner: "player", stage: "unstarted"
+        });
+        state.proposals.push(proposal);
+        sitePlacement = null;
+        if (active.controller && typeof active.controller.detach === "function") active.controller.detach();
+        suppressPlacementClick = true;
+        setContext(active.upgradeBuildingId ? "House upgrade filed" : "Residential lot filed", CONFIG.buildingDefinitions[active.designId].label + " is filed for Town Hall site approval with road frontage. The build will use the regular bid, supply, logistics, and hauling contracts.", "success");
+        saveState(true);
+        renderInterface();
+        return true;
+      }
+
+      function beginResidentialPlacement(designId, upgradeBuildingId) {
+        if (state.location !== "townhall") return;
+        if (state.roadPlanning) {
+          setContext("Road survey active", "Submit or cancel the current road route before selecting a residential lot.", "warning");
+          return;
+        }
+        const definition = CONFIG.buildingDefinitions[designId];
+        const upgrade = upgradeBuildingId ? state.developedBuildings.find(function (building) { return building.id === upgradeBuildingId && building.ownerId === "player" && building.type === "residential" && building.status !== "sold"; }) : null;
+        if (!definition || definition.type !== "residential" || (upgradeBuildingId && !upgrade)) return;
+        if (upgrade && residentialUpgradeDesign(upgrade) !== designId) {
+          setContext("Upgrade unavailable", "Residential upgrades must follow the next approved house tier.", "warning");
+          return;
+        }
+        const placementApi = window.PinebarrowPlacement;
+        if (!placementApi || typeof placementApi.createPointerController !== "function") {
+          setContext("Site planner loading", "The shared map planner is still loading. Try the Town Hall action again in a moment.", "warning");
+          return;
+        }
+        if (sitePlacement) cancelInfrastructurePlacement(null, false);
+        const shortSide = Math.min(definition.footprint.w, definition.footprint.h);
+        const longSide = Math.max(definition.footprint.w, definition.footprint.h);
+        const active = { siteKind: "residential", designId: designId, upgradeBuildingId: upgradeBuildingId || null, preview: null, controller: null };
+        const validatePreview = function (session) {
+          const rectangle = session && session.geometry ? session.geometry.rectangle : null;
+          const validation = validateResidentialFootprint(designId, rectangle, upgradeBuildingId);
+          active.preview = { rectangle: validation.rectangle, validation: validation };
+          return validation;
+        };
+        const controller = placementApi.createPointerController({
+          mode: "area", limits: { minWidth: shortSide, minHeight: shortSide, maxShortSide: shortSide, maxLongSide: longSide, maxArea: shortSide * longSide },
+          toGrid: function (event) { const rect = canvas.getBoundingClientRect(); return worldPoint(event.clientX - rect.left, event.clientY - rect.top); },
+          validateCell: function (cell) { return residentialCellIssue(cell, upgradeBuildingId); },
+          validateSelection: function (selection) { const validation = validateResidentialFootprint(designId, selection.rectangle, upgradeBuildingId); return validation.valid ? true : validation.issues; },
+          onStart: validatePreview, onPreview: validatePreview,
+          onCommit: function (selection) { commitResidentialPlacement(selection); },
+          onBlocked: function (validation) { active.preview = { rectangle: validation.rectangle || (controller.session.geometry && controller.session.geometry.rectangle), validation: validation }; suppressPlacementClick = true; setContext("Residential lot blocked", validation.firstIssue ? validation.firstIssue.message : "Drag a valid lot on the map.", "error"); },
+          onCancel: function () { if (sitePlacement === active) cancelInfrastructurePlacement(null, false); }
+        });
+        active.controller = controller;
+        sitePlacement = active;
+        state.overview = true;
+        controller.attach(canvas);
+        setContext(upgrade ? "Select house expansion" : "Select residential lot", "Drag a " + definition.footprint.w + "×" + definition.footprint.h + " lot beside a paved company road. Trees may be cleared during construction; water, roads, structures, and active claims are blocked. Press Esc to cancel.");
+      }
+
       function cancelInfrastructurePlacement(message, announce) {
         if (!sitePlacement) return false;
         const active = sitePlacement;
@@ -3736,6 +3971,7 @@
 
       function commitInfrastructurePlacement(selection) {
         if (!sitePlacement || !selection || !selection.rectangle) return false;
+        if (sitePlacement.siteKind === "residential") return commitResidentialPlacement(selection);
         const active = sitePlacement;
         const permit = active.parcelId ? state.mineParcels.find(function (parcel) { return parcel.id === active.parcelId; }) || null : null;
         const validation = validateInfrastructureFootprint(active.siteKind, selection.rectangle, permit);
@@ -5252,7 +5488,29 @@
         return state.roadDraft.map(pointFromKey).filter(Boolean);
       }
 
-      function expandedRoadCells(points) {
+      function roadProfileFor(id) {
+        return CONFIG.roadProfiles[id] || CONFIG.roadProfiles["company-road"];
+      }
+
+      function activeRoadProfile() {
+        return roadProfileFor(state.roadPlanningProfile);
+      }
+
+      function roadPackageRecords(routeTiles, projectId) {
+        const size = Math.max(1, CONFIG.roadPackageMaxTiles);
+        const packages = [];
+        for (let index = 0; index < routeTiles.length; index += size) {
+          packages.push({ id: (projectId || "road-route") + "-package-" + (packages.length + 1), tileKeys: routeTiles.slice(index, index + size) });
+        }
+        return packages;
+      }
+
+      function expandedRoadCells(points, width) {
+        const laneWidth = Math.max(1, Math.round(width || activeRoadProfile().width || 2));
+        const api = window.PinebarrowPlacement;
+        if (api && typeof api.corridorCells === "function") {
+          return new Set(api.corridorCells(points, laneWidth).map(function (cell) { return keyFor(cell.x, cell.y); }));
+        }
         const cells = new Set();
         for (let index = 0; index < points.length - 1; index += 1) {
           const start = points[index];
@@ -5260,7 +5518,7 @@
           const horizontal = start.y === end.y;
           [start, end].forEach(function (point) {
             cells.add(keyFor(point.x, point.y));
-            cells.add(horizontal ? keyFor(point.x, point.y + 1) : keyFor(point.x + 1, point.y));
+            for (let lane = 0; lane < laneWidth; lane += 1) cells.add(horizontal ? keyFor(point.x, point.y + lane) : keyFor(point.x + lane, point.y));
           });
         }
         return cells;
@@ -5280,23 +5538,56 @@
         ].some(function (point) { return isPavedClaimRoad(point.x, point.y); });
       }
 
-      function roadDraftNewTiles(points) {
-        return Array.from(expandedRoadCells(points)).filter(function (key) {
+      function roadDraftNewTiles(points, width) {
+        return Array.from(expandedRoadCells(points, width)).filter(function (key) {
           const point = pointFromKey(key);
           return point && !isPavedClaimRoad(point.x, point.y);
         });
       }
 
-      function startRoadSurvey() {
+      function startRoadSurvey(profileId) {
         if (state.location !== "townhall") return;
+        const profile = roadProfileFor(profileId || "company-road");
         state.roadPlanning = true;
+        state.roadPlanningProfile = profile.id;
         state.roadDraft = [];
         state.roadApproval = null;
         state.menuOpen = false;
         marketScreenOpen = false;
         managementScreenOpen = false;
         state.overview = true;
-        setContext("Road survey active", "Tap a continuous route on open claim ground. Pinebarrow roads are automatically drawn two tiles wide and may turn. The first point must touch an existing paved road; tap a selected point again to undo.");
+        if (roadPlacementController && typeof roadPlacementController.detach === "function") roadPlacementController.detach();
+        const placementApi = window.PinebarrowPlacement;
+        if (placementApi && typeof placementApi.createPointerController === "function") {
+          const controller = placementApi.createPointerController({
+            mode: "corridor", width: profile.width,
+            toGrid: function (event) { const rect = canvas.getBoundingClientRect(); return worldPoint(event.clientX - rect.left, event.clientY - rect.top); },
+            validateCell: function (cell) { return isRoadSurveyCellLegal(cell.x, cell.y) ? true : { code: "road-blocked", message: "Roads cannot cross water, trees, structures, or unapproved land." }; },
+            validateSelection: function (selection) {
+              const points = controller.session.points || [];
+              if (points.length < CONFIG.roadMinimumSurveyPoints) return { code: "route-short", message: "Drag across at least two connected route points." };
+              if (!draftConnectsToRoad(points)) return { code: "road-connection", message: "Begin beside an existing paved company road." };
+              const blocked = (selection.cells || []).map(function (cell) { return cell; }).find(function (cell) { return !isPavedClaimRoad(cell.x, cell.y) && !isRoadSurveyCellLegal(cell.x, cell.y); });
+              return blocked ? { code: "road-blocked", message: "The " + profile.width + "-wide corridor is blocked at " + blocked.x + "," + blocked.y + "." } : true;
+            },
+            onStart: function () { state.roadDraft = controller.session.points.map(function (point) { return keyFor(point.x, point.y); }); renderInterface(); },
+            onPreview: function () { state.roadDraft = controller.session.points.map(function (point) { return keyFor(point.x, point.y); }); renderInterface(); },
+            onCommit: function () {
+              state.roadDraft = controller.session.points.map(function (point) { return keyFor(point.x, point.y); });
+              state.roadPlanning = false;
+              roadPlacementController = null;
+              controller.detach();
+              suppressPlacementClick = true;
+              setContext("Road route captured", state.roadDraft.length + " connected center points are ready for Town Hall approval.", "success");
+              renderInterface();
+            },
+            onBlocked: function (validation) { setContext("Road corridor blocked", validation.firstIssue ? validation.firstIssue.message : "Drag a clear route beside existing pavement.", "error"); },
+            onCancel: function () { roadPlacementController = null; state.roadPlanning = false; state.roadDraft = []; renderInterface(); }
+          });
+          roadPlacementController = controller;
+          controller.attach(canvas);
+        }
+        setContext("Road survey active", "Drag a continuous route on open claim ground. This " + profile.width + "-wide corridor may turn and is split into 10-tile construction packages. The first point must touch existing pavement; press Esc to cancel.");
       }
 
       function planRoadPoint(x, y) {
@@ -5321,7 +5612,7 @@
           setContext("Road connection required", "Begin on an open tile touching the existing paved road.");
           return true;
         }
-        const expanded = candidate.length > 1 ? expandedRoadCells(candidate) : new Set([key]);
+        const expanded = candidate.length > 1 ? expandedRoadCells(candidate, activeRoadProfile().width) : new Set([key]);
         const blocked = Array.from(expanded).map(pointFromKey).find(function (point) {
           return point && !isPavedClaimRoad(point.x, point.y) && !isRoadSurveyCellLegal(point.x, point.y);
         });
@@ -5331,8 +5622,8 @@
         }
         state.roadDraft.push(key);
         state.roadApproval = null;
-        const newTiles = roadDraftNewTiles(candidate).length;
-        setContext("Road route marked", candidate.length + " linked points create " + newTiles + " new two-wide road tiles. Continue tapping, then return to Town Hall for approval.");
+        const newTiles = roadDraftNewTiles(candidate, activeRoadProfile().width).length;
+        setContext("Road route marked", candidate.length + " linked points create " + newTiles + " new " + activeRoadProfile().width + "-wide road tiles. Release to review the route at Town Hall.");
         return true;
       }
 
@@ -5343,7 +5634,8 @@
           setContext("Road survey incomplete", "Mark at least two connected route points beginning beside an existing paved road, then submit again.");
           return;
         }
-        const routeTiles = roadDraftNewTiles(points);
+        const profile = activeRoadProfile();
+        const routeTiles = roadDraftNewTiles(points, profile.width);
         if (!routeTiles.length) {
           setContext("No new road proposed", "This survey only overlaps road that is already paved. Extend it onto open land.");
           return;
@@ -5361,6 +5653,10 @@
           day: state.day,
           routeTiles: routeTiles,
           routePoints: state.roadDraft.slice(),
+          profileId: profile.id,
+          width: profile.width,
+          requiredBuilderLevel: profile.requiredBuilderLevel,
+          packages: roadPackageRecords(routeTiles),
           stoneTons: stoneTons,
           stonePrice: stonePrice,
           stoneCost: stoneCost,
@@ -5368,42 +5664,50 @@
           totalCost: stoneCost + laborCost
         };
         state.roadPlanning = false;
-        setContext("Town Hall approved the route", routeTiles.length + " road tiles require " + stoneTons.toFixed(1) + " t purchased stone at $" + stonePrice + "/t, plus $" + laborCost + " labor. Total contract: $" + (stoneCost + laborCost) + ".");
+        setContext("Town Hall approved the route", profile.label + " has " + routeTiles.length + " paving tiles in " + state.roadApproval.packages.length + " construction package" + (state.roadApproval.packages.length === 1 ? "" : "s") + ". Award a builder and the supply, logistics, and hauling contracts from the project ledger.");
       }
 
       function acceptRoadContract() {
         const approval = state.roadApproval;
         if (state.location !== "townhall" || !approval) return;
-        if (state.cash < approval.totalCost) {
-          setContext("Road contract funds required", "Town Hall approved the plan, but the company needs $" + approval.totalCost + ". Stone is purchased at the quoted $" + approval.stonePrice + " per ton; no rock is free or taken from truck cargo.");
+        const profile = roadProfileFor(approval.profileId);
+        const point = pointFromKey((approval.routePoints || [])[0]) || pointFromKey((approval.routeTiles || [])[0]) || { x: PLAYER_ROAD_X, y: TOWN_TOP - 1 };
+        const project = openConstructionProject({
+          buildingId: profile.id,
+          ownerId: "player",
+          route: "town-hall-road",
+          siteKind: "road",
+          point: { x: point.x, y: point.y, w: profile.width, h: 1, doorX: point.x, doorY: point.y },
+          cost: approval.laborCost,
+          requirements: { stone: approval.stoneTons },
+          laborRequired: approval.laborCost,
+          buildTimeDays: profile.buildTimeDays,
+          requiredBuilderLevel: profile.requiredBuilderLevel,
+          footprintSnapshot: {
+            snapshotVersion: 1, designId: profile.id, category: "road", mode: "corridor", sourceRoute: "town-hall-road",
+            routePoints: (approval.routePoints || []).slice(), routeTiles: (approval.routeTiles || []).slice(), width: profile.width,
+            requiredBuilderLevel: profile.requiredBuilderLevel, estimate: { cost: approval.totalCost, labor: approval.laborCost, materials: approval.stoneTons, days: profile.buildTimeDays }
+          },
+          roadProfileId: profile.id,
+          roadRouteTiles: approval.routeTiles,
+          roadPackages: approval.packages
+        });
+        if (!project) {
+          setContext("Road project unavailable", "The construction ledger is full. Complete or clear a project before opening this road contract.", "danger");
           return;
         }
-        state.cash -= approval.totalCost;
-        approval.routeTiles.forEach(function (key) {
-          state.roadTiles.add(key);
-          claimTerrain.resources.delete(key);
-          claimTerrain.dirt.delete(key);
-          claimTerrain.trees.delete(key);
-        });
-        state.roadContractsCompleted += 1;
-        state.roadMarketImpact = {
-          day: state.day,
-          tons: approval.stoneTons,
-          strength: Math.min(.32, .07 + approval.stoneTons * .012)
-        };
-        while (state.pavedDepth < CLAIM_DEPTH && state.roadTiles.has(keyFor(PLAYER_ROAD_X, claimYAtDepth("north", state.pavedDepth))) && state.roadTiles.has(keyFor(PLAYER_ROAD_X + 1, claimYAtDepth("north", state.pavedDepth)))) {
-          state.pavedDepth += 1;
-        }
-        const built = approval.routeTiles.length;
-        const stoneTons = approval.stoneTons;
+        project.roadPackages = roadPackageRecords(project.roadRouteTiles, project.id);
         state.roadApproval = null;
         state.roadDraft = [];
-        applyDailyMarket();
-        setContext("Road contract completed", "Town Hall purchased " + stoneTons.toFixed(1) + " t of stone and paved " + built + " two-wide road tiles. That new demand has raised today's stone market; the price may correct after crews finish buying.", "success");
+        setContext("Road project opened", profile.label + " is now in the ledger with " + project.roadPackages.length + " construction package" + (project.roadPackages.length === 1 ? "" : "s") + ". Award a qualified builder, then bid its supply, logistics, and hauling contracts.", "success");
+        saveState(true);
+        renderInterface();
       }
 
       function cancelRoadSurvey() {
         if (state.location !== "townhall" && !state.roadPlanning) return;
+        if (roadPlacementController && typeof roadPlacementController.detach === "function") roadPlacementController.detach();
+        roadPlacementController = null;
         state.roadPlanning = false;
         state.roadDraft = [];
         state.roadApproval = null;
@@ -5713,6 +6017,8 @@
             '<button type="button" data-site-plan-action="mine"' + (mineReady ? "" : " disabled") + '>' + (mineReady && !infrastructurePlacementRequired(mineParcel) ? "Re-select mine footprint" : "Select mine footprint") + '</button></div>' +
           '<div class="townhall-project-actions"><strong>Warehouse lot · ' + detailText(warehouseStatus) + '</strong><p>Select an independent starter warehouse with road access. It does not appear automatically beside a mine.</p>' +
             '<button type="button" data-site-plan-action="warehouse"' + (ownedMine ? "" : " disabled") + '>Select warehouse site</button></div>' +
+          '<div class="townhall-project-actions"><strong>Road corridor · project-backed</strong><p>Drag a connected route, then Town Hall opens builder, stone-supply, logistics, and hauling contracts. Long routes are packaged in groups of ten paving tiles.</p>' +
+            '<button type="button" data-road-profile="company-road">Survey 2-wide company road</button><button type="button" data-road-profile="main-street">Survey 4-wide main street · City Planner</button></div>' +
         '</section>';
       }
 
@@ -5984,6 +6290,45 @@
           project.buildingRecordId = warehouse.id;
           return;
         }
+        if (project.siteKind === "road") {
+          const routeTiles = Array.isArray(project.roadRouteTiles) ? project.roadRouteTiles : [];
+          routeTiles.forEach(function (key) {
+            const point = pointFromKey(key);
+            if (!point) return;
+            state.roadTiles.add(key);
+            claimTerrain.resources.delete(key);
+            claimTerrain.dirt.delete(key);
+            claimTerrain.trees.delete(key);
+          });
+          state.roadContractsCompleted += 1;
+          const stoneTons = Number(project.requirements && project.requirements.stone) || 0;
+          state.roadMarketImpact = { day: state.day, tons: stoneTons, strength: Math.min(.32, .07 + stoneTons * .012) };
+          while (state.pavedDepth < CLAIM_DEPTH && state.roadTiles.has(keyFor(PLAYER_ROAD_X, claimYAtDepth("north", state.pavedDepth))) && state.roadTiles.has(keyFor(PLAYER_ROAD_X + 1, claimYAtDepth("north", state.pavedDepth)))) {
+            state.pavedDepth += 1;
+          }
+          project.buildingRecordId = project.id;
+          applyDailyMarket();
+          setContext("Road contract completed", constructionProjectDefinition(project).label + " paved " + routeTiles.length + " route tiles through " + (project.roadPackages || []).length + " package" + ((project.roadPackages || []).length === 1 ? "" : "s") + ".", "success");
+          return;
+        }
+        if (project.upgradeBuildingId) {
+          const upgraded = state.developedBuildings.find(function (building) { return building.id === project.upgradeBuildingId && building.status !== "sold"; });
+          if (!upgraded) return;
+          upgraded.buildingId = definition.id;
+          upgraded.type = definition.type;
+          upgraded.x = point.x;
+          upgraded.y = point.y;
+          upgraded.w = point.w;
+          upgraded.h = point.h;
+          upgraded.doorX = point.doorX;
+          upgraded.doorY = point.doorY;
+          upgraded.housingCapacity = Math.max(0, Math.round(definition.housingCapacity || 0));
+          upgraded.upgradeLevel = ({ "worker-house": 1, "expanded-house": 2, "family-house": 3, "row-house": 4 }[definition.id] || upgraded.upgradeLevel || 1);
+          upgraded.lastProjectId = project.id;
+          upgraded.salePrice = Math.max(upgraded.salePrice || 0, Math.round((project.cost || definition.baseCost) * 1.15));
+          project.buildingRecordId = upgraded.id;
+          return;
+        }
         const existing = state.developedBuildings.find(function (building) { return building.projectId === project.id; });
         if (existing) {
           project.buildingRecordId = existing.id;
@@ -6006,6 +6351,8 @@
           residentIds: [],
           workerIds: [],
           workerSlots: Math.max(0, Math.round(definition.workerSlots || 0)),
+          housingCapacity: Math.max(0, Math.round(definition.housingCapacity || 0)),
+          upgradeLevel: ({ "worker-house": 1, "expanded-house": 2, "family-house": 3, "row-house": 4 }[definition.id] || 1),
           rentPerDay: definition.type === "commercial" ? 35 : 0,
           salePrice: Math.max(definition.baseCost, Math.round((project.cost || definition.baseCost) * 1.15)),
           forSale: false,
@@ -6072,7 +6419,7 @@
           if (!constructionProjectHasDeliveredContracts(project)) return;
           if (project.status === "ready-to-build" || project.status === "delayed") project.status = "building";
           if (project.status !== "building") return;
-          const durationMinutes = Math.max(1, Math.round((constructionProjectDefinition(project).buildTimeDays || 1) * 1440 * project.builderDurationMultiplier));
+          const durationMinutes = Math.max(1, Math.round((project.buildTimeDays || constructionProjectDefinition(project).buildTimeDays || 1) * 1440 * project.builderDurationMultiplier));
           const laborRate = project.laborRequired > 0 ? project.laborRequired / durationMinutes : 1 / durationMinutes;
           project.laborDelivered = Math.min(project.laborRequired, project.laborDelivered + laborRate * elapsed);
           project.buildProgress = project.laborRequired > 0 ? Math.min(1, project.laborDelivered / project.laborRequired) : 1;
@@ -6127,6 +6474,7 @@
         const point = options.point || {};
         const requirements = normalizeRequirementStore(options.requirements || definition.resources);
         const requiredBuilderLevel = Math.max(1, Math.round(options.requiredBuilderLevel || definition.requiredBuilderLevel || 1));
+        const buildTimeDays = Math.max(.01, Number(options.buildTimeDays == null ? definition.buildTimeDays || 1 : options.buildTimeDays) || 1);
         const project = {
           id: allocateConstructionProjectId(),
           proposalId: options.proposalId || null,
@@ -6135,6 +6483,10 @@
           route: options.route || "town",
           siteKind: options.siteKind || "town",
           siteParcelId: options.siteParcelId || null,
+          upgradeBuildingId: options.upgradeBuildingId || null,
+          roadProfileId: options.roadProfileId || null,
+          roadRouteTiles: Array.isArray(options.roadRouteTiles) ? Array.from(new Set(options.roadRouteTiles.filter(function (key) { return typeof key === "string"; }))) : [],
+          roadPackages: Array.isArray(options.roadPackages) ? options.roadPackages.map(function (item) { return { id: item && item.id || "", tileKeys: Array.isArray(item && item.tileKeys) ? item.tileKeys.slice() : [] }; }) : [],
           x: Number.isFinite(point.x) ? point.x : null,
           y: Number.isFinite(point.y) ? point.y : null,
           w: Number.isFinite(point.w) ? point.w : definition.footprint.w,
@@ -6150,6 +6502,7 @@
           laborRequired: Math.max(0, Math.round(options.laborRequired == null ? definition.labor || 0 : options.laborRequired)),
           laborDelivered: 0,
           buildProgress: 0,
+          buildTimeDays: buildTimeDays,
           procurementContractIds: [],
           builderBidId: null,
           builderId: null,
@@ -6161,14 +6514,14 @@
           cost: Math.round(options.cost || definition.baseCost),
           housingCapacity: definition.housingCapacity || 0,
           createdDay: state.day,
-          deadlineDay: state.day + Math.max(1, Math.round(options.buildTimeDays == null ? definition.buildTimeDays || 1 : options.buildTimeDays)) + 3,
+          deadlineDay: state.day + Math.max(1, Math.ceil(buildTimeDays)) + 3,
           delayDays: 0,
           completedDay: null,
           buildingRecordId: null
         };
         state.constructionProjects.push(project);
         CONFIG.constructionBuilders.filter(function (builder) {
-          return project.ownerId === "crowe" ? builder.id === "crowe-construction" : builder.level >= project.requiredBuilderLevel;
+          return project.ownerId === "crowe" ? builder.id === "crowe-construction" : builder.level >= project.requiredBuilderLevel && (!builder.minProjectLevel || project.requiredBuilderLevel >= builder.minProjectLevel);
         }).forEach(function (builder) {
           state.constructionBids.push({
             id: allocateConstructionBidId(),
@@ -6177,7 +6530,7 @@
             builderLabel: builder.label,
             requiredBuilderLevel: project.requiredBuilderLevel,
             price: Math.round(project.cost * builder.priceMultiplier),
-            durationDays: Math.max(1, Math.round(definition.buildTimeDays * builder.durationMultiplier)),
+            durationDays: Math.max(1, Math.round(project.buildTimeDays * builder.durationMultiplier)),
             status: "open"
           });
         });
@@ -6237,6 +6590,8 @@
         }
         const definition = projectBuildingDefinitionFor(proposal);
         const point = proposal.lot || {};
+        const snapshot = proposal.footprintSnapshot && typeof proposal.footprintSnapshot === "object" ? proposal.footprintSnapshot : null;
+        const estimate = snapshot && snapshot.estimate && typeof snapshot.estimate === "object" ? snapshot.estimate : null;
         const project = openConstructionProject({
           proposalId: proposal.id,
           buildingId: definition.id,
@@ -6244,7 +6599,12 @@
           route: proposal.status === "purchased" ? "town-infrastructure" : "town-hall",
           siteKind: "town",
           point: point,
-          cost: Number.isFinite(proposal.cost) ? Math.round(proposal.cost) : definition.baseCost
+          cost: Number.isFinite(proposal.cost) ? Math.round(proposal.cost) : definition.baseCost,
+          footprintSnapshot: snapshot,
+          requiredBuilderLevel: snapshot && Number.isFinite(snapshot.requiredBuilderLevel) ? snapshot.requiredBuilderLevel : definition.requiredBuilderLevel,
+          laborRequired: estimate && Number.isFinite(estimate.labor) ? estimate.labor : definition.labor,
+          buildTimeDays: estimate && Number.isFinite(estimate.days) ? estimate.days : definition.buildTimeDays,
+          upgradeBuildingId: typeof proposal.upgradeBuildingId === "string" ? proposal.upgradeBuildingId : null
         });
         if (!project) return;
         proposal.status = "under-construction";
@@ -6363,7 +6723,21 @@
         const allResidential = state.proposals.filter(function (proposal) {
           return proposal && typeof proposal.type === "string" && proposal.type.toLowerCase() === "residential";
         });
-        const residential = allResidential.slice(0, CONFIG.maxResidentialProposals);
+        const activeResidential = allResidential.filter(function (proposal) { return proposal.status !== "completed"; });
+        const residential = activeResidential.slice(0, CONFIG.maxResidentialProposals);
+        const activeHouses = state.developedBuildings.filter(function (building) {
+          return building && building.ownerId === "player" && building.type === "residential" && building.status !== "sold";
+        });
+        const openResidentialSlots = Math.max(0, CONFIG.maxResidentialProposals - activeResidential.filter(function (proposal) { return ["draft", "approved", "under-construction"].includes(proposal.status); }).length);
+        const upgradeActions = activeHouses.map(function (building) {
+          const nextDesign = residentialUpgradeDesign(building);
+          if (!nextDesign) return '<span><b>' + detailText((CONFIG.buildingDefinitions[building.buildingId] || {}).label || building.buildingId) + '</b><em>maximum house tier</em></span>';
+          const definition = CONFIG.buildingDefinitions[nextDesign];
+          const alreadyFiled = state.proposals.some(function (proposal) { return proposal && proposal.upgradeBuildingId === building.id && ["draft", "approved", "under-construction"].includes(proposal.status); });
+          return '<span><b>' + detailText((CONFIG.buildingDefinitions[building.buildingId] || {}).label || building.buildingId) + '</b><em>next: ' + detailText(definition.label) + ' · ' + definition.footprint.w + '×' + definition.footprint.h + '</em><button type="button" data-residential-plan="' + detailText(nextDesign) + '" data-upgrade-building-id="' + detailText(building.id) + '"' + (alreadyFiled ? " disabled" : "") + '>Plan upgrade</button></span>';
+        }).join("");
+        const planning = '<div class="townhall-project-actions"><strong>Residential lots · Town Hall approval</strong><p>Choose the first 2×2 workforce house on a road-frontage lot. Upgrades retain the same property and resident record, then reopen the normal builder, supply, logistics, and hauling contracts.</p><button type="button" data-residential-plan="worker-house"' + (openResidentialSlots ? "" : " disabled") + '>Select 2×2 workforce lot</button></div>' +
+          (upgradeActions ? '<div class="townhall-contract-list"><small>Completed house upgrades</small>' + upgradeActions + '</div>' : '');
         const cards = [];
         for (let index = 0; index < CONFIG.maxResidentialProposals; index += 1) {
           const proposalNumber = index + 1;
@@ -6397,10 +6771,12 @@
             proposalProjectActionMarkup(proposal) +
           '</article>');
         }
-        const overflow = Math.max(0, allResidential.length - CONFIG.maxResidentialProposals);
-        return '<section class="townhall-prospect-board townhall-residential-board" aria-label="Residential proposals"><header><span>Residential proposals</span><strong>' + residential.length + ' / ' + CONFIG.maxResidentialProposals + ' filed</strong></header>' +
+        const overflow = Math.max(0, activeResidential.length - CONFIG.maxResidentialProposals);
+        const completedCount = Math.max(0, allResidential.length - activeResidential.length);
+        return '<section class="townhall-prospect-board townhall-residential-board" aria-label="Residential proposals"><header><span>Residential proposals</span><strong>' + residential.length + ' / ' + CONFIG.maxResidentialProposals + ' filed</strong></header>' + planning +
           '<div class="townhall-prospect-grid">' + cards.join("") + '</div>' +
-          (overflow ? '<p class="townhall-proposal-overflow">' + overflow + ' additional saved proposal record' + (overflow === 1 ? ' is' : 's are') + ' preserved outside the current Town Hall limit.</p>' : '') +
+          (completedCount ? '<p class="townhall-proposal-overflow">' + completedCount + ' completed residential project' + (completedCount === 1 ? ' is' : 's are') + ' retained in Property Management.</p>' : '') +
+          (overflow ? '<p class="townhall-proposal-overflow">' + overflow + ' additional active proposal record' + (overflow === 1 ? ' is' : 's are') + ' preserved outside the current Town Hall limit.</p>' : '') +
         '</section>';
       }
 
@@ -6473,6 +6849,7 @@
           ["Building", definition.label],
           ["Owner", building.ownerId === "player" ? "Your company" : "Town / Crowe"],
           ["Status", building.forSale ? "For buy-back" : building.status],
+          ["House tier", building.type === "residential" ? "Level " + (building.upgradeLevel || 1) + " · " + (building.housingCapacity || 1) + " resident capacity" : "Not applicable"],
           ["Residents", residents.length ? residents.map(function (resident) { return resident.name + " · " + resident.status; }).join(", ") : "None"],
           ["Tenant", building.tenantName || "Vacant"],
           ["Workers", building.workerSlots ? workersAssignedTo("shop", building.id) + " / " + building.workerSlots : "Not applicable"],
@@ -6483,6 +6860,10 @@
         html += '<div class="townhall-project-actions">';
         if (building.ownerId === "player" && building.type === "commercial" && !building.tenantId && !building.forSale) {
           html += '<button type="button" data-property-action="lease" data-building-id="' + detailText(building.id) + '">Lease shop</button>';
+        }
+        if (building.ownerId === "player" && building.type === "residential" && !building.forSale) {
+          const nextDesign = residentialUpgradeDesign(building);
+          if (nextDesign) html += '<p>House upgrades are proposed at Town Hall and preserve this property and resident record. Next tier: ' + detailText(CONFIG.buildingDefinitions[nextDesign].label) + '.</p>';
         }
         if (building.ownerId === "player" && !building.forSale) {
           html += '<button type="button" data-property-action="sell" data-building-id="' + detailText(building.id) + '">Sell property</button>';
@@ -6699,8 +7080,8 @@
         root.dataset.roadPlanning = state.roadPlanning ? "true" : "false";
         root.dataset.sitePlacement = sitePlacement ? sitePlacement.siteKind : "";
         if (el.mapTip) {
-          if (sitePlacement) el.mapTip.textContent = (sitePlacement.siteKind === "mine" ? "MINE FOOTPRINT" : "WAREHOUSE SITE") + " · drag a 2×2 lot · Esc cancels";
-          else if (state.roadPlanning) el.mapTip.textContent = "ROAD SURVEY · tap a continuous route · two tiles wide";
+          if (sitePlacement) el.mapTip.textContent = sitePlacement.siteKind === "mine" ? "MINE FOOTPRINT · drag a 2×2 lot · Esc cancels" : sitePlacement.siteKind === "warehouse" ? "WAREHOUSE SITE · drag a 2×2 lot · Esc cancels" : "RESIDENTIAL LOT · drag the selected house footprint · Esc cancels";
+          else if (state.roadPlanning) el.mapTip.textContent = "ROAD SURVEY · drag a connected " + activeRoadProfile().width + "-wide corridor · Esc cancels";
           else if (inputMode === "controller") el.mapTip.textContent = "Controller connected · RT drive · X cut · Y menu";
           else if (inputMode === "keyboard") el.mapTip.textContent = "Keyboard drive · E menu · Space cut";
           else el.mapTip.textContent = "Tap map · Arrows / WASD · Controller ready";
@@ -6795,10 +7176,10 @@
         el.roadPlan.disabled = false;
         el.roadSubmit.hidden = state.location !== "townhall" || Boolean(state.roadApproval) || state.roadDraft.length === 0;
         el.roadSubmit.disabled = state.roadDraft.length < CONFIG.roadMinimumSurveyPoints;
-        el.roadSubmit.textContent = "Submit " + roadDraftNewTiles(roadDraftPoints()).length + "-tile route for approval";
+        el.roadSubmit.textContent = "Submit " + roadDraftNewTiles(roadDraftPoints(), activeRoadProfile().width).length + "-tile " + activeRoadProfile().width + "-wide route for approval";
         el.roadAccept.hidden = state.location !== "townhall" || !state.roadApproval;
-        el.roadAccept.disabled = !state.roadApproval || state.cash < state.roadApproval.totalCost;
-        el.roadAccept.textContent = state.roadApproval ? "Buy " + state.roadApproval.stoneTons.toFixed(1) + " t stone & build · $" + state.roadApproval.totalCost : "Accept approved road contract";
+        el.roadAccept.disabled = !state.roadApproval;
+        el.roadAccept.textContent = state.roadApproval ? "Open " + roadProfileFor(state.roadApproval.profileId).label + " project · $" + state.roadApproval.totalCost : "Open approved road project";
         el.roadCancel.hidden = state.location !== "townhall" || (!state.roadPlanning && !state.roadDraft.length && !state.roadApproval);
         el.roadCancel.disabled = false;
         el.readNews.hidden = state.location !== "newsstand";
@@ -8102,6 +8483,25 @@
         ctx.restore();
       }
 
+      function drawRoadConstructionProjects() {
+        const projects = state.constructionProjects.filter(function (project) {
+          return project && project.siteKind === "road" && !["completed", "cancelled"].includes(project.status);
+        });
+        if (!projects.length) return;
+        ctx.save();
+        projects.forEach(function (project) {
+          const progress = Math.max(.18, Math.min(.78, Number(project.buildProgress) || 0));
+          (project.roadRouteTiles || []).forEach(function (key) {
+            const cell = pointFromKey(key);
+            if (!cell) return;
+            const point = screenPoint(cell.x, cell.y);
+            ctx.fillStyle = "rgba(255, 194, 77, " + progress + ")";
+            ctx.fillRect(point.x + 1, point.y + 1, Math.max(1, drawView.scale - 2), Math.max(1, drawView.scale - 2));
+          });
+        });
+        ctx.restore();
+      }
+
       function drawInfrastructurePlacementPreview(colors) {
         if (!sitePlacement || !sitePlacement.preview || !sitePlacement.preview.rectangle) return;
         const rectangle = sitePlacement.preview.rectangle;
@@ -8126,7 +8526,8 @@
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           ctx.fillStyle = valid ? "#effff5" : "#ffe2dc";
-          ctx.fillText((sitePlacement.siteKind === "mine" ? "MINE" : "WAREHOUSE") + " · " + rectangle.w + "×" + rectangle.h, point.x + width / 2, point.y + height / 2);
+          const label = sitePlacement.siteKind === "mine" ? "MINE" : sitePlacement.siteKind === "warehouse" ? "WAREHOUSE" : "HOUSE";
+          ctx.fillText(label + " · " + rectangle.w + "×" + rectangle.h, point.x + width / 2, point.y + height / 2);
         }
         ctx.restore();
       }
@@ -8192,6 +8593,7 @@
         drawTownBlocksAndLots(colors);
         drawRoadAccents(colors);
         drawRoadSurvey(colors);
+        drawRoadConstructionProjects(colors);
         drawInfrastructurePlacementPreview(colors);
         buildings.forEach(function (building) { drawBuilding(building, colors); });
         businessLots.forEach(function (business) {
@@ -8405,6 +8807,7 @@
       document.addEventListener("keyup", handleKeyboardUp);
       window.addEventListener("blur", function () {
         cancelInfrastructurePlacement("The map lost focus, so the uncommitted site selection was cancelled.", false);
+        if (state.roadPlanning) cancelRoadSurvey();
       });
       el.unstuck.addEventListener("click", unstuckToRoad);
       el.hire.addEventListener("click", hireProspector);
@@ -8459,6 +8862,16 @@
           const sitePlanButton = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-site-plan-action]") : null;
           if (sitePlanButton) {
             beginInfrastructurePlacement(sitePlanButton.dataset.sitePlanAction);
+            return;
+          }
+          const residentialPlanButton = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-residential-plan]") : null;
+          if (residentialPlanButton) {
+            beginResidentialPlacement(residentialPlanButton.dataset.residentialPlan, residentialPlanButton.dataset.upgradeBuildingId || null);
+            return;
+          }
+          const roadProfileButton = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-road-profile]") : null;
+          if (roadProfileButton) {
+            startRoadSurvey(roadProfileButton.dataset.roadProfile);
             return;
           }
           const routeButton = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-route-action]") : null;

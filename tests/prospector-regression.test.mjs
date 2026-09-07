@@ -310,7 +310,7 @@ test("two independent prospects survive save/reload and neither replaces the oth
   };
 
   const migrated = createEngineHarness(oldSave, engineSource);
-  assert.equal(migrated.saved().version, 15);
+  assert.equal(migrated.saved().version, 16);
   assert.equal(migrated.saved().worldLayoutVersion, 2);
   assert.deepEqual(migrated.saved().player, firstTile);
   assert.equal(migrated.saved().prospectsUsedToday, 0);
@@ -528,7 +528,7 @@ test("generic proposal records persist across save and reload without activating
   }, engineSource);
 
   const saved = game.saved();
-  assert.equal(saved.version, 15);
+  assert.equal(saved.version, 16);
   assert.equal(saved.proposals.length, 3);
   assert.deepEqual(saved.proposals, proposals);
   assert.equal(saved.nextProposalId, 4);
@@ -580,7 +580,7 @@ test("Town Hall displays independent residential proposals up to the configured 
   assert.match(markup, /proposal-home-4/);
   assert.doesNotMatch(markup, /proposal-home-5/);
   assert.doesNotMatch(markup, /proposal-industry-1/);
-  assert.match(markup, /1 additional saved proposal record is preserved/);
+  assert.match(markup, /1 additional active proposal record is preserved/);
   assert.equal(game.saved().proposals.length, proposals.length);
   assert.equal(game.saved().workers, 0);
 });
@@ -885,7 +885,7 @@ test("legacy P4 assets migrate north without losing IDs, stock, roads, or cargo"
   }, engineSource);
 
   const saved = game.saved();
-  assert.equal(saved.version, 15);
+  assert.equal(saved.version, 16);
   assert.equal(saved.worldLayoutVersion, 2);
   assert.deepEqual(saved.player, { x: 75, y: 122 });
   assert.deepEqual(saved.cargo, { stone: 2.5, clay: 0, coal: 0, iron: 0, copper: 0, tin: 0, quartz: 0, silver: 0, gold: 0, sapphire: 0, logs: 0, dirt: 1 });
@@ -1326,7 +1326,7 @@ test("the HUD removes the road-tile counter while retaining the readable truck g
   assert.match(styleSource, /\.truck-stat\[data-status="blocked"\]/);
 });
 
-test("Town Hall approves and builds a turning two-wide road with purchased stone", async () => {
+test("Town Hall turns a turning two-wide road into a contract-backed construction project", async () => {
   const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
   const roadDraft = ["46,122", "46,123", "47,123"];
   const cleared = ["46,122", "47,122", "46,123", "47,123", "46,124", "47,124"];
@@ -1357,14 +1357,33 @@ test("Town Hall approves and builds a turning two-wide road with purchased stone
   assert.equal(approved.cargo.stone, 2);
 
   game.element("pb7-road-accept").click();
-  const built = game.saved();
+  const opened = game.saved();
+  assert.equal(opened.roadContractsCompleted, 0);
+  assert.equal(opened.roadTiles.length, 0);
+  assert.equal(opened.constructionProjects.length, 1);
+  assert.equal(opened.constructionProjects[0].siteKind, "road");
+  assert.equal(opened.constructionProjects[0].roadProfileId, "company-road");
+  assert.equal(opened.constructionProjects[0].roadRouteTiles.length, 6);
+  assert.equal(opened.constructionProjects[0].roadPackages.length, 1);
+  assert.equal(opened.constructionBids.length, 3);
+  assert.equal(opened.procurementContracts.length, 3);
+
+  const project = opened.constructionProjects[0];
+  const ready = createEngineHarness({
+    ...opened,
+    cargo: { stone: 2 },
+    constructionProjects: [{ ...project, status: "ready-to-build", laborRequired: 1, laborDelivered: 0, builderId: "pinebarrow-builders", builderDurationMultiplier: .01 }],
+    constructionBids: opened.constructionBids.map((bid, index) => ({ ...bid, status: index === 0 ? "awarded" : "rejected" })),
+    procurementContracts: opened.procurementContracts.map((contract) => ({ ...contract, status: "awarded", providerId: "player-company" })),
+  }, engineSource);
+  for (let tick = 1; tick <= 90; tick += 1) ready.frame(tick * 1000);
+  const built = ready.saved();
   assert.equal(built.roadContractsCompleted, 1);
   assert.equal(built.roadTiles.length, 6);
   assert.ok(built.roadMarketImpact.strength > 0);
-  assert.equal(built.cargo.stone, 2);
-  assert.ok(built.cash < 5000);
-  assert.match(built.contextText, /purchased .* t of stone/i);
-  assert.equal(game.element("pinebarrow-visible-menu-demo").dataset.resourceRoadOverlaps, "0");
+  assert.equal(built.cargo.stone, 0);
+  assert.match(built.contextText, /paved 6 route tiles/i);
+  assert.equal(ready.element("pinebarrow-visible-menu-demo").dataset.resourceRoadOverlaps, "0");
 });
 
 test("road-contract stone demand rises on purchase day and corrects the next day", async () => {
@@ -1583,7 +1602,7 @@ test("Town Hall routes a residential proposal through builder and procurement re
   details.emit("click", { target: { closest: () => ({ dataset: { projectAction: "approve", proposalId: "proposal-house-1" } }) } });
 
   let saved = game.saved();
-  assert.equal(saved.version, 15);
+  assert.equal(saved.version, 16);
   assert.equal(saved.proposals[0].status, "approved");
   assert.equal(saved.proposals[0].stage, "coming-soon");
   assert.equal(saved.constructionProjects.length, 0);
@@ -1611,10 +1630,82 @@ test("Town Hall routes a residential proposal through builder and procurement re
   assert.equal(saved.procurementContracts[0].providerId, "player-company");
 
   const reloaded = createEngineHarness(saved, engineSource).saved();
-  assert.equal(reloaded.version, 15);
+  assert.equal(reloaded.version, 16);
   assert.deepEqual(reloaded.constructionProjects, saved.constructionProjects);
   assert.deepEqual(reloaded.constructionBids, saved.constructionBids);
   assert.deepEqual(reloaded.procurementContracts, saved.procurementContracts);
+});
+
+test("Town Hall selects a residential lot and files an identity-preserving house upgrade", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const plannerOptions = { placementApi: PinebarrowPlacement, footprintsApi: PinebarrowFootprints };
+  const base = {
+    version: 15,
+    worldLayoutVersion: 2,
+    day: 3,
+    minutes: 480,
+    cash: 5000,
+    player: { x: 37, y: 141 },
+    selected: { type: "building", id: "townhall", x: 37, y: 141 },
+    location: "townhall",
+    pavedDepth: 3,
+  };
+  const game = createEngineHarness(base, engineSource, plannerOptions);
+  game.frame(0);
+  const details = game.element("pb7-location-details");
+  details.emit("click", { target: locationActionTarget("[data-residential-plan]", { residentialPlan: "worker-house" }) });
+  game.frame(16);
+  const canvas = game.element("pb7-map");
+  canvas.emit("pointerdown", { ...overviewPointer(46, 122), currentTarget: canvas });
+  canvas.emit("pointermove", { ...overviewPointer(47, 123), currentTarget: canvas });
+  canvas.emit("pointerup", { ...overviewPointer(47, 123), currentTarget: canvas });
+  let saved = game.saved();
+  assert.equal(saved.version, 16);
+  assert.equal(saved.proposals.length, 1);
+  assert.equal(saved.proposals[0].buildingId, "worker-house");
+  assert.equal(saved.proposals[0].footprintSnapshot.designId, "worker-house");
+  assert.deepEqual(saved.proposals[0].lot, { x: 46, y: 122, w: 2, h: 2, blockId: "company-block-46-122" });
+
+  details.emit("click", { target: locationActionTarget("[data-project-action]", { projectAction: "approve", proposalId: saved.proposals[0].id }) });
+  details.emit("click", { target: locationActionTarget("[data-project-action]", { projectAction: "create-project", proposalId: saved.proposals[0].id }) });
+  saved = game.saved();
+  const houseProject = saved.constructionProjects.find((project) => project.proposalId === saved.proposals[0].id);
+  assert.equal(houseProject.requiredBuilderLevel, 1);
+  assert.equal(houseProject.footprintSnapshot.designId, "worker-house");
+
+  const upgradeBase = {
+    ...base,
+    developedBuildings: [{
+      id: "building-house-1", projectId: "project-house-1", buildingId: "worker-house", type: "residential", ownerId: "player", status: "completed",
+      x: 46, y: 122, w: 2, h: 2, doorX: 46, doorY: 122, residentIds: ["resident-house-1"], workerIds: [], workerSlots: 0,
+      housingCapacity: 1, upgradeLevel: 1, rentPerDay: 0, salePrice: 322, completedDay: 2,
+    }],
+    residents: [{ id: "resident-house-1", houseId: "building-house-1", name: "Ada Pine", status: "candidate", createdDay: 2 }],
+  };
+  const upgradeGame = createEngineHarness(upgradeBase, engineSource, plannerOptions);
+  upgradeGame.frame(0);
+  const upgradeDetails = upgradeGame.element("pb7-location-details");
+  upgradeDetails.emit("click", { target: locationActionTarget("[data-residential-plan]", { residentialPlan: "expanded-house", upgradeBuildingId: "building-house-1" }) });
+  upgradeGame.frame(16);
+  const upgradeCanvas = upgradeGame.element("pb7-map");
+  upgradeCanvas.emit("pointerdown", { ...overviewPointer(46, 122), currentTarget: upgradeCanvas });
+  upgradeCanvas.emit("pointermove", { ...overviewPointer(47, 124), currentTarget: upgradeCanvas });
+  upgradeCanvas.emit("pointerup", { ...overviewPointer(47, 124), currentTarget: upgradeCanvas });
+  saved = upgradeGame.saved();
+  const upgradeProposal = saved.proposals[0];
+  assert.equal(upgradeProposal.upgradeBuildingId, "building-house-1");
+  assert.equal(upgradeProposal.buildingId, "expanded-house");
+
+  upgradeDetails.emit("click", { target: locationActionTarget("[data-project-action]", { projectAction: "approve", proposalId: upgradeProposal.id }) });
+  upgradeDetails.emit("click", { target: locationActionTarget("[data-project-action]", { projectAction: "create-project", proposalId: upgradeProposal.id }) });
+  saved = upgradeGame.saved();
+  const upgradeProject = saved.constructionProjects.find((project) => project.proposalId === upgradeProposal.id);
+  assert.equal(upgradeProject.upgradeBuildingId, "building-house-1");
+  assert.equal(upgradeProject.buildingId, "expanded-house");
+  assert.equal(upgradeProject.requiredBuilderLevel, 3);
+  assert.equal(upgradeProject.footprintSnapshot.designId, "expanded-house");
+  assert.deepEqual(saved.developedBuildings[0].residentIds, ["resident-house-1"]);
+  assert.equal(saved.residents[0].houseId, "building-house-1");
 });
 
 test("shared construction settles inventory, labor, and a workforce house", async () => {
@@ -1965,7 +2056,7 @@ test("Town Hall records a selected mine footprint and an independent warehouse p
   mineCanvas.emit("pointermove", { ...overviewPointer(48, 122), currentTarget: mineCanvas });
   mineCanvas.emit("pointerup", { ...overviewPointer(48, 122), currentTarget: mineCanvas });
   const selectedMine = mineGame.saved();
-  assert.equal(selectedMine.version, 15);
+  assert.equal(selectedMine.version, 16);
   assert.deepEqual(selectedMine.mineParcels[0].selectedFootprint, { x: 47, y: 121, w: 2, h: 2, orientation: 0 });
   assert.equal(selectedMine.mineParcels[0].placementRequired, false);
   assert.equal(selectedMine.mineParcels[0].footprintSnapshot.designId, "mine-starter");
@@ -2039,7 +2130,7 @@ test("v14 warehouse links migrate once and reassignment preserves a single expli
   };
   const game = createEngineHarness(oldSave, engineSource);
   const migrated = game.saved();
-  assert.equal(migrated.version, 15);
+  assert.equal(migrated.version, 16);
   assert.deepEqual(migrated.warehouses.find((warehouse) => warehouse.id === "warehouse-a").assignedMineIds, ["mine-route-a"]);
   assert.deepEqual(migrated.warehouses.find((warehouse) => warehouse.id === "warehouse-b").assignedMineIds, ["mine-route-b"]);
 

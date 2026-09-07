@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Checkpoint C2.3 — live mine and warehouse siting
+
+- Advanced the save schema to v15 with legacy-safe infrastructure footprint snapshots and explicit warehouse `assignedMineIds` routes.
+- Added Town Hall map siting for the starter 2×2 mine footprint inside the surveyed geology permit, including live drag preview, blocked-state feedback, road-access validation, Escape/menu/blur cancellation, and a durable project snapshot.
+- Removed new automatic adjacent warehouse land. Warehouses are now independently selected, purchased, cleared, built, and connected to mines through Town Hall route assignment.
+- Reassignment is atomic: assigning a mine to another warehouse removes its earlier active route while preserving completed sites and old-save compatibility references.
+- Kept construction in the existing builder, supply, logistics, hauling, labor, and completion ledger; selected footprints are carried into the mine/warehouse project record rather than starting a separate build system.
+- Added regression coverage for drag-selected mine/warehouse sites, no auto-warehouse creation after mine purchase, project-footprint persistence, v14-to-v15 route migration, and safe reassignment.
+- Verification: production build and all 58 Node tests passed.
+
 ### Corrective UI checkpoint — compact HUD sizing
 
 - Reduced the height of the existing dark, top-centered HUD without moving or widening it: the newspaper rows, integrated menu column, and shared status row are denser while keeping all status text at a readable 12px minimum.

@@ -26,7 +26,9 @@
       const STARTER_TREE = { x: PLAYER_ROAD_X + 3, y: TOWN_TOP - 3 };
       const CLAIM_SECTION_DEPTHS = [0, 42, 84];
       const CLAIM_SECTION_ENDS = [41, 83, CLAIM_DEPTH - 1];
-      const SAVE_VERSION = 14;
+      // v15 adds explicit infrastructure footprint snapshots and warehouse-to-mine
+      // assignments.  Existing linked parcels remain valid through migration below.
+      const SAVE_VERSION = 15;
       const MAIN_STREET_TOP = 142;
       const MAIN_STREET_BOTTOM = 146;
       const TOWN_SIDE_STREET_WIDTH = 2;
@@ -543,6 +545,8 @@
       let managementScreenTab = "mines";
       let touchDriveDirection = null;
       let touchDrivePointerId = null;
+      let sitePlacement = null;
+      let suppressPlacementClick = false;
       const truckSprite = new Image();
       let truckSpriteReady = false;
       truckSprite.decoding = "async";
@@ -858,6 +862,7 @@
 
       function openSystemMenuFromInput() {
         if (!state.started || systemMenuOpen) return;
+        if (sitePlacement) cancelInfrastructurePlacement("Opening the company menu leaves this map selection uncommitted.", true);
         settleMovementForReroute();
         state.path = [];
         state.pendingArrival = null;
@@ -873,6 +878,7 @@
 
       function openContextMenuFromInput() {
         if (!state.started || state.menuOpen) return;
+        if (sitePlacement) cancelInfrastructurePlacement("Opening the context menu leaves this map selection uncommitted.", true);
         settleMovementForReroute();
         systemMenuOpen = false;
         closeFastTravel();
@@ -1064,7 +1070,10 @@
           return;
         }
         if (code === "Escape") {
-          if (systemMenuOpen) {
+          if (sitePlacement) {
+            event.preventDefault();
+            cancelInfrastructurePlacement("No land was purchased and no construction project was opened.", true);
+          } else if (systemMenuOpen) {
             event.preventDefault();
             closeSystemMenu();
           } else if (state.menuOpen) {
@@ -1688,9 +1697,10 @@
             state.surveyParcels.find(function (parcel) { return parcel.id === savedActiveSurveyId; }) ||
             state.surveyParcels[state.surveyParcels.length - 1] || null;
           state.selectedSurveyId = state.surveyParcel ? state.surveyParcel.id : null;
+          const legacyInfrastructureLinks = saved.version < 15;
           state.mines.forEach(function (mine, index) {
             normalizeSiteId(mine, "mine");
-            if (!mine.parcelId && state.mineParcels[index]) mine.parcelId = state.mineParcels[index].id;
+            if (legacyInfrastructureLinks && !mine.parcelId && state.mineParcels[index]) mine.parcelId = state.mineParcels[index].id;
             if (!Number.isFinite(mine.depth)) mine.depth = developmentDepthForRect(mine);
             if (!mine.baseMaterial) mine.baseMaterial = mine.material || "stone";
             mine.material = mine.material || mine.baseMaterial;
@@ -1699,16 +1709,52 @@
           });
           state.warehouses.forEach(function (warehouse, index) {
             normalizeSiteId(warehouse, "warehouse");
-            if (!warehouse.parcelId && state.warehouseParcels[index]) warehouse.parcelId = state.warehouseParcels[index].id;
+            if (legacyInfrastructureLinks && !warehouse.parcelId && state.warehouseParcels[index]) warehouse.parcelId = state.warehouseParcels[index].id;
             warehouse.storage = Object.assign(emptyMaterialStore(), warehouse.storage || {});
+            warehouse.assignedMineIds = Array.isArray(warehouse.assignedMineIds)
+              ? Array.from(new Set(warehouse.assignedMineIds.filter(function (id) { return typeof id === "string"; })))
+              : [];
           });
 
           state.mineParcels.forEach(function (parcel, index) {
-            if (!parcel.mineId && state.mines[index]) parcel.mineId = state.mines[index].id;
+            if (legacyInfrastructureLinks && !parcel.mineId && state.mines[index]) parcel.mineId = state.mines[index].id;
+            if (parcel.selectedFootprint && Number.isFinite(parcel.selectedFootprint.x) && Number.isFinite(parcel.selectedFootprint.y)) {
+              parcel.selectedFootprint = {
+                x: Math.round(parcel.selectedFootprint.x),
+                y: Math.round(parcel.selectedFootprint.y),
+                w: Math.max(1, Math.round(parcel.selectedFootprint.w || parcel.w || 1)),
+                h: Math.max(1, Math.round(parcel.selectedFootprint.h || parcel.h || 1)),
+                orientation: Math.round(parcel.selectedFootprint.orientation || 0)
+              };
+            } else if (legacyInfrastructureLinks) {
+              parcel.placementRequired = false;
+            }
           });
           state.warehouseParcels.forEach(function (parcel, index) {
-            if (!parcel.warehouseId && state.warehouses[index]) parcel.warehouseId = state.warehouses[index].id;
-            if (!parcel.mineParcelId && state.mineParcels[index]) parcel.mineParcelId = state.mineParcels[index].id;
+            if (legacyInfrastructureLinks && !parcel.warehouseId && state.warehouses[index]) parcel.warehouseId = state.warehouses[index].id;
+            if (legacyInfrastructureLinks && !parcel.mineParcelId && state.mineParcels[index]) parcel.mineParcelId = state.mineParcels[index].id;
+            if (parcel.selectedFootprint && Number.isFinite(parcel.selectedFootprint.x) && Number.isFinite(parcel.selectedFootprint.y)) {
+              parcel.selectedFootprint = {
+                x: Math.round(parcel.selectedFootprint.x),
+                y: Math.round(parcel.selectedFootprint.y),
+                w: Math.max(1, Math.round(parcel.selectedFootprint.w || parcel.w || 1)),
+                h: Math.max(1, Math.round(parcel.selectedFootprint.h || parcel.h || 1)),
+                orientation: Math.round(parcel.selectedFootprint.orientation || 0)
+              };
+            } else if (legacyInfrastructureLinks) {
+              parcel.placementRequired = false;
+            }
+            parcel.assignedMineIds = Array.isArray(parcel.assignedMineIds)
+              ? Array.from(new Set(parcel.assignedMineIds.filter(function (id) { return typeof id === "string"; })))
+              : [];
+            const legacyMine = parcel.mineParcelId && state.mines.find(function (mine) { return mine.parcelId === parcel.mineParcelId; });
+            if (legacyMine && !parcel.assignedMineIds.includes(legacyMine.id)) parcel.assignedMineIds.push(legacyMine.id);
+            const warehouse = state.warehouses.find(function (record) { return record.parcelId === parcel.id; });
+            if (warehouse) {
+              parcel.assignedMineIds.forEach(function (mineId) {
+                if (!warehouse.assignedMineIds.includes(mineId)) warehouse.assignedMineIds.push(mineId);
+              });
+            }
           });
 
           if (saved.version <= 3) {
@@ -2717,8 +2763,59 @@
         return state.warehouseParcels.find(function (parcel) { return parcel.id === warehouse.parcelId || parcel.warehouseId === warehouse.id; }) || null;
       }
 
+      function selectedFootprintFor(parcel) {
+        if (!parcel) return null;
+        const footprint = parcel.selectedFootprint;
+        if (footprint && Number.isFinite(footprint.x) && Number.isFinite(footprint.y) && Number.isFinite(footprint.w) && Number.isFinite(footprint.h)) {
+          return {
+            x: Math.round(footprint.x),
+            y: Math.round(footprint.y),
+            w: Math.max(1, Math.round(footprint.w)),
+            h: Math.max(1, Math.round(footprint.h)),
+            orientation: Math.round(footprint.orientation || 0)
+          };
+        }
+        return { x: parcel.x, y: parcel.y, w: parcel.w, h: parcel.h, orientation: 0 };
+      }
+
+      function infrastructurePlacementRequired(parcel) {
+        return Boolean(parcel && parcel.placementRequired && !parcel.selectedFootprint);
+      }
+
+      function assignedMineIdsForParcel(parcel) {
+        if (!parcel) return [];
+        const ids = Array.isArray(parcel.assignedMineIds)
+          ? parcel.assignedMineIds.filter(function (id) { return typeof id === "string"; })
+          : [];
+        const legacyMine = parcel.mineParcelId && state.mines.find(function (mine) { return mine.parcelId === parcel.mineParcelId; });
+        if (legacyMine && !ids.includes(legacyMine.id)) ids.push(legacyMine.id);
+        return Array.from(new Set(ids));
+      }
+
+      function assignedMineIdsForWarehouse(warehouse) {
+        if (!warehouse) return [];
+        const ids = Array.isArray(warehouse.assignedMineIds)
+          ? warehouse.assignedMineIds.filter(function (id) { return typeof id === "string"; })
+          : [];
+        assignedMineIdsForParcel(parcelForWarehouse(warehouse)).forEach(function (mineId) {
+          if (!ids.includes(mineId)) ids.push(mineId);
+        });
+        return Array.from(new Set(ids));
+      }
+
+      function linkedMinesForWarehouse(warehouse) {
+        return assignedMineIdsForWarehouse(warehouse).map(function (mineId) {
+          return state.mines.find(function (mine) { return mine.id === mineId; }) || null;
+        }).filter(Boolean);
+      }
+
       function warehouseParcelForMineParcel(mineParcel) {
         if (!mineParcel) return null;
+        const mine = state.mines.find(function (record) { return record.parcelId === mineParcel.id || record.id === mineParcel.mineId; });
+        const linkedWarehouse = mine && state.warehouses.find(function (warehouse) {
+          return assignedMineIdsForWarehouse(warehouse).includes(mine.id);
+        });
+        if (linkedWarehouse) return parcelForWarehouse(linkedWarehouse);
         return state.warehouseParcels.find(function (parcel) { return parcel.mineParcelId === mineParcel.id; }) || null;
       }
 
@@ -2779,30 +2876,6 @@
           return isLakeCell(cell.x, cell.y) || isPavedClaimRoad(cell.x, cell.y) || isPlayerClaimPath(cell.x, cell.y) || !hasPlayerDevelopmentRights(cell.x, cell.y);
         })) return true;
         return state.surveyParcels.concat(state.mineParcels, state.warehouseParcels).some(function (existing) { return rectanglesOverlap(parcel, existing); });
-      }
-
-      function findWarehouseParcelFor(mineParcel) {
-        if (!mineParcel) return null;
-        const candidates = [
-          { x: mineParcel.x, y: mineParcel.y + 2 },
-          { x: mineParcel.x, y: mineParcel.y - 2 },
-          { x: mineParcel.x + 2, y: mineParcel.y },
-          { x: mineParcel.x - 2, y: mineParcel.y }
-        ];
-        const position = candidates.find(function (candidate) {
-          const parcel = { x: candidate.x, y: candidate.y, w: 2, h: 2 };
-          return !parcelConflicts(parcel);
-        });
-        if (!position) return null;
-        return {
-          id: allocateSiteId("warehouse-land"),
-          mineParcelId: mineParcel.id,
-          x: position.x,
-          y: position.y,
-          w: 2,
-          h: 2,
-          status: "available"
-        };
       }
 
       function isStructureCell(x, y) {
@@ -2890,6 +2963,7 @@
       }
 
       function closeMenu() {
+        if (sitePlacement) cancelInfrastructurePlacement("Closing the menu leaves this map selection uncommitted.", false);
         state.menuOpen = false;
         newsReaderOpen = false;
         marketScreenOpen = false;
@@ -3029,7 +3103,7 @@
             queueTravel(parcelPerimeterTargets(state.warehouseParcel), { type: "warehouse-site", parcelId: state.warehouseParcel.id }, "the outside edge of your warehouse parcel");
             return;
           }
-          setContext("No warehouse yet", "Own the mine land, purchase the neighboring 2×2 parcel at Town Hall, clear it, and build from directly outside the boundary.");
+          setContext("No warehouse yet", "Own a mine deed, select an independent warehouse lot at Town Hall, purchase it, clear it, and build from directly outside the boundary.");
           return;
         }
         state.selected = { type: "warehouse", x: state.warehouse.x, y: state.warehouse.y };
@@ -3183,6 +3257,7 @@
 
       function handleWorldSelection(x, y) {
         if (x < 0 || x >= WORLD_WIDTH || y < 0 || y >= WORLD_HEIGHT) return;
+        if (sitePlacement) return;
         if (state.roadPlanning) {
           planRoadPoint(x, y);
           return;
@@ -3516,6 +3591,270 @@
         });
       }
 
+      function infrastructureDesignId(siteKind) {
+        return siteKind === "warehouse" ? "warehouse-starter" : "mine-starter";
+      }
+
+      function infrastructureLimits(siteKind) {
+        const api = window.PinebarrowFootprints;
+        const design = api && typeof api.getFootprintDesign === "function" ? api.getFootprintDesign(infrastructureDesignId(siteKind)) : null;
+        const width = Math.max(1, Math.round((design && design.baseW) || 2));
+        const height = Math.max(1, Math.round((design && design.baseH) || 2));
+        return {
+          minWidth: width,
+          minHeight: height,
+          maxShortSide: Math.min(width, height),
+          maxLongSide: Math.max(width, height),
+          maxArea: width * height
+        };
+      }
+
+      function infrastructureFrontageCells(footprint) {
+        if (!footprint) return [];
+        const frontage = new Map();
+        parcelCells(footprint).forEach(function (cell) {
+          [
+            { x: 1, y: 0 }, { x: -1, y: 0 },
+            { x: 0, y: 1 }, { x: 0, y: -1 }
+          ].forEach(function (direction) {
+            // The current starter lots have one clear staging tile beside the
+            // two-wide company road. C2.4 turns that access edge into the full
+            // road-corridor rule; C2.3 records the frontage now.
+            for (let distance = 1; distance <= 2; distance += 1) {
+              const point = { x: cell.x + direction.x * distance, y: cell.y + direction.y * distance };
+              if (!isPavedClaimRoad(point.x, point.y)) continue;
+              frontage.set(keyFor(point.x, point.y), point);
+            }
+          });
+        });
+        return Array.from(frontage.values());
+      }
+
+      function infrastructureCellIssue(siteKind, cell, permit) {
+        if (!isPlayerClaimTile(cell.x, cell.y) || !hasPlayerDevelopmentRights(cell.x, cell.y)) {
+          return { code: "outside-claim", message: "This footprint must stay inside your northern development claim." };
+        }
+        if (siteKind === "mine" && !inRect(cell.x, cell.y, permit)) {
+          return { code: "outside-geology", message: "A mine footprint must stay inside its surveyed geology permit." };
+        }
+        if (isLakeCell(cell.x, cell.y)) return { code: "lake", message: "Water cannot be included in a building footprint." };
+        if (isPavedClaimRoad(cell.x, cell.y) || isPlayerClaimPath(cell.x, cell.y)) {
+          return { code: "road", message: "Keep the two-wide road corridor clear of the building footprint." };
+        }
+        if (isStructureCell(cell.x, cell.y)) return { code: "structure", message: "This footprint overlaps an existing structure." };
+        return true;
+      }
+
+      function infrastructureFootprintConflict(siteKind, footprint, permit) {
+        const parcels = state.surveyParcels.concat(state.mineParcels, state.warehouseParcels).filter(function (parcel) {
+          return parcel !== permit;
+        });
+        if (parcels.some(function (parcel) { return rectanglesOverlap(footprint, parcel); })) {
+          return { code: "parcel-conflict", message: "This footprint overlaps an active survey, mine parcel, or warehouse parcel." };
+        }
+        const project = state.constructionProjects.find(function (record) {
+          if (!record || ["completed", "cancelled"].includes(record.status)) return false;
+          const existing = constructionProjectSitePoint(record);
+          return rectanglesOverlap(footprint, existing);
+        });
+        if (project) return { code: "project-conflict", message: "This footprint overlaps construction project " + project.id + "." };
+        return true;
+      }
+
+      function validateInfrastructureFootprint(siteKind, footprint, permit) {
+        const limits = infrastructureLimits(siteKind);
+        const issues = [];
+        if (!footprint || !Number.isFinite(footprint.x) || !Number.isFinite(footprint.y)) {
+          issues.push({ code: "empty", message: "Drag across the map to choose a site." });
+        } else {
+          const width = Math.max(0, Math.round(footprint.w || 0));
+          const height = Math.max(0, Math.round(footprint.h || 0));
+          if (width !== limits.minWidth || height !== limits.minHeight) {
+            issues.push({ code: "starter-size", message: "The current " + (siteKind === "mine" ? "mine" : "warehouse") + " design is " + limits.minWidth + "×" + limits.minHeight + " tiles." });
+          }
+          const normalized = { x: Math.round(footprint.x), y: Math.round(footprint.y), w: width, h: height };
+          parcelCells(normalized).forEach(function (cell) {
+            const issue = infrastructureCellIssue(siteKind, cell, permit);
+            if (issue !== true) issues.push(Object.assign({ cell: cell }, issue));
+          });
+          const conflict = infrastructureFootprintConflict(siteKind, normalized, permit);
+          if (conflict !== true) issues.push(conflict);
+          const frontageCells = infrastructureFrontageCells(normalized);
+          if (!frontageCells.length) {
+            issues.push({ code: "frontage", message: "Choose a site within the starter access edge of a paved company road." });
+          }
+          return {
+            valid: issues.length === 0,
+            issues: issues,
+            firstIssue: issues[0] || null,
+            rectangle: normalized,
+            cells: parcelCells(normalized),
+            frontageCells: frontageCells
+          };
+        }
+        return { valid: false, issues: issues, firstIssue: issues[0] || null, rectangle: null, cells: [], frontageCells: [] };
+      }
+
+      function infrastructureSnapshot(siteKind, footprint, permit, frontageCells) {
+        const api = window.PinebarrowFootprints;
+        const designId = infrastructureDesignId(siteKind);
+        if (api && typeof api.createProposalSnapshot === "function") {
+          return api.createProposalSnapshot({
+            designId: designId,
+            mode: "area",
+            sourceRoute: "town-hall-infrastructure",
+            footprint: footprint,
+            cells: parcelCells(footprint),
+            frontageCells: frontageCells,
+            lotId: permit ? permit.id : null,
+            surveyCellIds: siteKind === "mine" && permit ? [permit.id] : [],
+            builderLevel: 1,
+            frontage: Math.max(1, frontageCells.length),
+            routeDistance: 1
+          });
+        }
+        return {
+          snapshotVersion: 1,
+          designId: designId,
+          category: siteKind,
+          footprint: Object.assign({}, footprint),
+          frontageCells: frontageCells.map(function (cell) { return { x: cell.x, y: cell.y }; }),
+          lotId: permit ? permit.id : null,
+          status: "draft"
+        };
+      }
+
+      function cancelInfrastructurePlacement(message, announce) {
+        if (!sitePlacement) return false;
+        const active = sitePlacement;
+        sitePlacement = null;
+        if (active.controller && typeof active.controller.detach === "function") active.controller.detach();
+        if (announce) setContext("Site selection cancelled", message || "No land was purchased and no construction project was opened.");
+        else renderInterface();
+        return true;
+      }
+
+      function commitInfrastructurePlacement(selection) {
+        if (!sitePlacement || !selection || !selection.rectangle) return false;
+        const active = sitePlacement;
+        const permit = active.parcelId ? state.mineParcels.find(function (parcel) { return parcel.id === active.parcelId; }) || null : null;
+        const validation = validateInfrastructureFootprint(active.siteKind, selection.rectangle, permit);
+        if (!validation.valid) {
+          active.preview = { rectangle: validation.rectangle, validation: validation };
+          suppressPlacementClick = true;
+          setContext("Site footprint blocked", validation.firstIssue ? validation.firstIssue.message : "Choose another footprint.", "error");
+          return false;
+        }
+        const footprint = Object.assign({}, validation.rectangle, { orientation: Math.round(selection.orientation || 0) });
+        const snapshot = infrastructureSnapshot(active.siteKind, footprint, permit, validation.frontageCells);
+        if (active.siteKind === "mine") {
+          if (!permit) return false;
+          permit.selectedFootprint = footprint;
+          permit.footprintSnapshot = snapshot;
+          permit.placementRequired = false;
+          permit.placementStatus = "selected";
+          state.mineParcel = permit;
+          state.selectedMineParcelId = permit.id;
+          setContext("Mine footprint selected", footprint.w + "×" + footprint.h + " site recorded against the geology permit with " + validation.frontageCells.length + " road-access tile" + (validation.frontageCells.length === 1 ? "" : "s") + ". Clear the selected site, then open its construction project from the outside edge.", "success");
+        } else {
+          const parcel = {
+            id: allocateSiteId("warehouse-land"),
+            x: footprint.x,
+            y: footprint.y,
+            w: footprint.w,
+            h: footprint.h,
+            selectedFootprint: footprint,
+            footprintSnapshot: snapshot,
+            assignedMineIds: [],
+            placementRequired: false,
+            placementStatus: "selected",
+            status: "available"
+          };
+          state.warehouseParcels.push(parcel);
+          state.warehouseParcel = parcel;
+          state.selectedWarehouseParcelId = parcel.id;
+          setContext("Warehouse site selected", footprint.w + "×" + footprint.h + " warehouse land is filed with road frontage. Review the purchase agreement at Town Hall for $" + CONFIG.warehouseLandPrice + ".", "success");
+        }
+        sitePlacement = null;
+        if (active.controller && typeof active.controller.detach === "function") active.controller.detach();
+        suppressPlacementClick = true;
+        renderInterface();
+        return true;
+      }
+
+      function beginInfrastructurePlacement(siteKind) {
+        if (state.location !== "townhall") return;
+        if (state.roadPlanning) {
+          setContext("Road survey active", "Submit or cancel the current road route before selecting an infrastructure site.", "warning");
+          return;
+        }
+        const placementApi = window.PinebarrowPlacement;
+        if (!placementApi || typeof placementApi.createPointerController !== "function") {
+          setContext("Site planner loading", "The shared map planner is still loading. Try the Town Hall action again in a moment.", "warning");
+          return;
+        }
+        const permit = siteKind === "mine" ? state.mineParcel : null;
+        if (siteKind === "mine") {
+          const permitted = permit && (permit.status === "leased" || permit.status === "owned");
+          if (!permitted || state.mines.some(function (mine) { return mine.parcelId === permit.id; }) || siteProjectFor("mine", permit.id)) {
+            setContext("Mine site unavailable", "Select a leased or owned mine permit with no active mine or construction project.", "warning");
+            return;
+          }
+        } else if (!state.mineParcels.some(function (parcel) { return parcel.status === "owned"; })) {
+          setContext("Mine ownership required", "Purchase at least one mine deed before filing an independent warehouse purchase agreement.", "warning");
+          return;
+        }
+        if (sitePlacement) cancelInfrastructurePlacement(null, false);
+        const limits = infrastructureLimits(siteKind);
+        const active = {
+          siteKind: siteKind,
+          parcelId: permit ? permit.id : null,
+          preview: null,
+          controller: null
+        };
+        const validatePreview = function (session) {
+          const rectangle = session && session.geometry ? session.geometry.rectangle : null;
+          const validation = validateInfrastructureFootprint(siteKind, rectangle, permit);
+          active.preview = { rectangle: validation.rectangle, validation: validation };
+          return validation;
+        };
+        const controller = placementApi.createPointerController({
+          mode: "area",
+          limits: limits,
+          toGrid: function (event) {
+            const rect = canvas.getBoundingClientRect();
+            return worldPoint(event.clientX - rect.left, event.clientY - rect.top);
+          },
+          validateCell: function (cell) { return infrastructureCellIssue(siteKind, cell, permit); },
+          validateSelection: function (selection) {
+            const validation = validateInfrastructureFootprint(siteKind, selection.rectangle, permit);
+            return validation.valid ? true : validation.issues;
+          },
+          onStart: function (session) {
+            validatePreview(session);
+          },
+          onPreview: function (session) {
+            validatePreview(session);
+          },
+          onCommit: function (selection) {
+            commitInfrastructurePlacement(selection);
+          },
+          onBlocked: function (validation) {
+            active.preview = { rectangle: validation.rectangle || (controller.session.geometry && controller.session.geometry.rectangle), validation: validation };
+            suppressPlacementClick = true;
+            setContext("Site footprint blocked", validation.firstIssue ? validation.firstIssue.message : "Drag a valid starter footprint on the map.", "error");
+          },
+          onCancel: function () {
+            if (sitePlacement === active) cancelInfrastructurePlacement(null, false);
+          }
+        });
+        active.controller = controller;
+        sitePlacement = active;
+        state.overview = true;
+        controller.attach(canvas);
+        setContext(siteKind === "mine" ? "Select mine footprint" : "Select warehouse site", "Drag across the map to mark the 2×2 " + (siteKind === "mine" ? "geology permit" : "warehouse lot") + ". The outline must keep road access and avoid water, roads, structures, and existing parcels. Press Esc to cancel.");
+      }
+
       function townHallText() {
         const surveyText = state.prospectorHired
           ? "Your prospector is permanently employed with " + prospectsRemaining() + " of " + CONFIG.prospectsPerDay + " surveys left today. "
@@ -3527,7 +3866,7 @@
         }
         if (!state.mineParcel) return surveyText + "Explore the open first extraction field, choose ground outside the road reserve, and survey a visible outcrop or soil patch.";
         if (state.mineParcel.status === "leased") return surveyText + "Lease payments count toward the $" + CONFIG.landPurchasePrice + " deed. Remaining buyout: $" + landBuyoutRemaining() + ".";
-        if (state.mineParcel.status === "owned" && state.warehouseParcel && state.warehouseParcel.status === "available") return surveyText + "Your mine land is owned. The neighboring 2×2 warehouse parcel costs $" + CONFIG.warehouseLandPrice + ".";
+        if (state.mineParcel.status === "owned" && state.warehouseParcel && state.warehouseParcel.status === "available") return surveyText + "Your mine land is owned. The selected warehouse purchase agreement costs $" + CONFIG.warehouseLandPrice + ".";
         return surveyText + "Your company has " + state.mines.length + " of " + mineSlotLimit() + " active mine slots and " + state.warehouses.length + " warehouses. Road Surveys create turning, two-wide routes; Town Hall then quotes purchased stone and labor at the live market price.";
       }
 
@@ -3538,6 +3877,12 @@
         parcel.status = "leased";
         parcel.leaseCredit += CONFIG.landLeasePerDay;
         parcel.lastLeaseDay = state.day;
+        // New permits require an explicit footprint before construction. Old
+        // saves are migrated as legacy permits and retain their prior layout.
+        parcel.placementRequired = true;
+        parcel.placementStatus = "permit";
+        parcel.selectedFootprint = null;
+        parcel.footprintSnapshot = null;
         state.mineParcels.push(parcel);
         state.surveyParcels = state.surveyParcels.filter(function (survey) { return survey.id !== parcel.id; });
         const nextSurvey = state.surveyParcels.length ? (prospectAtSlot(1) || prospectAtSlot(2) || state.surveyParcels[0]) : null;
@@ -3545,9 +3890,9 @@
         state.surveyParcel = nextSurvey;
         state.mineParcel = parcel;
         state.selectedMineParcelId = parcel.id;
-        state.warehouseParcel = warehouseParcelForMineParcel(parcel);
+        state.warehouseParcel = warehouseParcelForMineParcel(parcel) || state.warehouseParcel;
         state.selectedWarehouseParcelId = state.warehouseParcel ? state.warehouseParcel.id : null;
-        setContext("Mine land leased", "$" + CONFIG.landLeasePerDay + " paid and credited toward the $" + CONFIG.landPurchasePrice + " purchase. Claim " + state.mineParcels.length + " is committed" + (state.surveyParcels.length ? ", and the other saved prospect remains available." : "."));
+        setContext("Mine land leased", "$" + CONFIG.landLeasePerDay + " paid and credited toward the $" + CONFIG.landPurchasePrice + " purchase. Claim " + state.mineParcels.length + " is committed; select its actual mine footprint at Town Hall before construction." + (state.surveyParcels.length ? " The other saved prospect remains available." : ""));
       }
 
       function landBuyoutRemaining(parcel) {
@@ -3566,12 +3911,7 @@
         state.cash -= remaining;
         state.mineParcel.status = "owned";
         state.mineParcel.leaseCredit = CONFIG.landPurchasePrice;
-        state.warehouseParcel = warehouseParcelForMineParcel(state.mineParcel) || findWarehouseParcelFor(state.mineParcel);
-        if (state.warehouseParcel && !state.warehouseParcels.includes(state.warehouseParcel)) state.warehouseParcels.push(state.warehouseParcel);
-        state.selectedWarehouseParcelId = state.warehouseParcel ? state.warehouseParcel.id : null;
-        setContext("Mine land owned", state.warehouseParcel
-          ? "The Leased Mine is now an Owned Mine. Its adjacent highlighted 2×2 parcel can be purchased for a warehouse."
-          : "The Leased Mine is now an Owned Mine. Clear more neighboring land before adding its warehouse parcel.");
+        setContext("Mine land owned", "The Leased Mine is now an Owned Mine. Choose an independent warehouse site from Town Hall whenever you are ready; no warehouse land is created automatically.");
       }
 
       function buyWarehouseLand() {
@@ -3592,7 +3932,13 @@
         const permitted = state.mineParcel && (state.mineParcel.status === "leased" || state.mineParcel.status === "owned");
         const existingMine = state.mineParcel && state.mines.find(function (mine) { return mine.parcelId === state.mineParcel.id; });
         const existingProject = state.mineParcel && siteProjectFor("mine", state.mineParcel.id);
-        if (!permitted || existingMine || existingProject || !parcelCleared(state.mineParcel) || !besideParcel(state.mineParcel)) return;
+        if (!permitted || existingMine || existingProject) return;
+        if (infrastructurePlacementRequired(state.mineParcel)) {
+          setContext("Mine footprint required", "Return to Town Hall and drag a 2×2 mine footprint inside this geology permit before opening construction.", "warning");
+          return;
+        }
+        const footprint = selectedFootprintFor(state.mineParcel);
+        if (!footprint || !parcelCleared(footprint) || !besideParcel(footprint)) return;
         if (state.mines.length >= mineSlotLimit()) {
           const nextUnlock = CONFIG.mineSlotUnlockDays[state.mines.length] || CONFIG.mineSlotUnlockDays[CONFIG.mineSlotUnlockDays.length - 1];
           setContext("Mine slot locked", "Your company can operate " + mineSlotLimit() + " mine" + (mineSlotLimit() === 1 ? "" : "s") + " today. The next operating permit unlocks on Day " + nextUnlock + ".");
@@ -3607,10 +3953,10 @@
         const newMine = {
           id: allocateSiteId("mine"),
           parcelId: state.mineParcel.id,
-          x: state.mineParcel.x,
-          y: state.mineParcel.y,
-          w: 2,
-          h: 2,
+          x: footprint.x,
+          y: footprint.y,
+          w: footprint.w,
+          h: footprint.h,
           level: 1,
           baseMaterial: state.mineParcel.material,
           material: state.mineParcel.material,
@@ -3665,6 +4011,9 @@
         }
         const definition = CONFIG.buildingDefinitions[siteKind];
         if (!definition) return false;
+        const footprint = selectedFootprintFor(parcel);
+        if (!footprint) return false;
+        const snapshot = parcel.footprintSnapshot || infrastructureSnapshot(siteKind, footprint, parcel, infrastructureFrontageCells(footprint));
         const project = openConstructionProject({
           buildingId: siteKind,
           ownerId: "player",
@@ -3672,18 +4021,20 @@
           siteKind: siteKind,
           siteParcelId: parcel.id,
           point: {
-            x: parcel.x,
-            y: parcel.y,
-            w: definition.footprint.w,
-            h: definition.footprint.h,
+            x: footprint.x,
+            y: footprint.y,
+            w: footprint.w,
+            h: footprint.h,
             doorX: state.player.x,
             doorY: state.player.y
           },
-          cost: definition.baseCost
+          cost: definition.baseCost,
+          footprintSnapshot: snapshot,
+          requiredBuilderLevel: snapshot && snapshot.requiredBuilderLevel
         });
         if (!project) return false;
         parcel.constructionProjectId = project.id;
-        setContext(siteKind === "mine" ? "Mine project opened" : "Warehouse project opened", definition.label + " now follows the shared builder, supply, logistics, and hauling pipeline. Take the project to Town Hall for contract bids.", "success");
+        setContext(siteKind === "mine" ? "Mine project opened" : "Warehouse project opened", definition.label + " keeps the selected " + footprint.w + "×" + footprint.h + " footprint and now follows the shared builder, supply, logistics, and hauling pipeline. Take the project to Town Hall for contract bids.", "success");
         return true;
       }
 
@@ -4016,7 +4367,13 @@
       function buildWarehouse() {
         const existingWarehouse = state.warehouseParcel && state.warehouses.find(function (warehouse) { return warehouse.parcelId === state.warehouseParcel.id; });
         const existingProject = state.warehouseParcel && siteProjectFor("warehouse", state.warehouseParcel.id);
-        if (!state.warehouseParcel || state.warehouseParcel.status !== "owned" || existingWarehouse || existingProject || !parcelCleared(state.warehouseParcel) || !besideParcel(state.warehouseParcel)) return;
+        if (!state.warehouseParcel || state.warehouseParcel.status !== "owned" || existingWarehouse || existingProject) return;
+        if (infrastructurePlacementRequired(state.warehouseParcel)) {
+          setContext("Warehouse footprint required", "Return to Town Hall and select this warehouse site before opening construction.", "warning");
+          return;
+        }
+        const footprint = selectedFootprintFor(state.warehouseParcel);
+        if (!footprint || !parcelCleared(footprint) || !besideParcel(footprint)) return;
         if (!state.legacyConstructionMode) {
           createSiteConstructionProject("warehouse", state.warehouseParcel);
           return;
@@ -4026,12 +4383,13 @@
         const newWarehouse = {
           id: allocateSiteId("warehouse"),
           parcelId: state.warehouseParcel.id,
-          x: state.warehouseParcel.x,
-          y: state.warehouseParcel.y,
-          w: 2,
-          h: 2,
+          x: footprint.x,
+          y: footprint.y,
+          w: footprint.w,
+          h: footprint.h,
           level: 1,
           storage: emptyMaterialStore(),
+          assignedMineIds: assignedMineIdsForParcel(state.warehouseParcel),
           doorX: state.player.x,
           doorY: state.player.y
         };
@@ -4576,15 +4934,19 @@
       }
 
       function linkedWarehouseForMine(mine) {
+        if (!mine) return null;
+        const explicitlyAssigned = state.warehouses.find(function (warehouse) {
+          return assignedMineIdsForWarehouse(warehouse).includes(mine.id);
+        });
+        if (explicitlyAssigned) return explicitlyAssigned;
         const mineParcel = parcelForMine(mine);
         if (!mineParcel) return null;
-        const warehouseParcel = state.warehouseParcels.find(function (parcel) { return parcel.mineParcelId === mineParcel.id; });
-        return warehouseParcel ? state.warehouses.find(function (warehouse) { return warehouse.parcelId === warehouseParcel.id; }) || null : null;
+        const legacyParcel = state.warehouseParcels.find(function (parcel) { return parcel.mineParcelId === mineParcel.id; });
+        return legacyParcel ? state.warehouses.find(function (warehouse) { return warehouse.parcelId === legacyParcel.id; }) || null : null;
       }
 
       function linkedMineForWarehouse(warehouse) {
-        const warehouseParcel = parcelForWarehouse(warehouse);
-        return warehouseParcel ? state.mines.find(function (mine) { return mine.parcelId === warehouseParcel.mineParcelId; }) || null : null;
+        return linkedMinesForWarehouse(warehouse)[0] || null;
       }
 
       function mineCleanOutputPerCycle(mine) {
@@ -4674,7 +5036,7 @@
       function renderWarehouseManagement() {
         if (!el.warehouseManagementBoard) return;
         if (!state.warehouses.length) {
-          el.warehouseManagementBoard.innerHTML = '<p class="empty-management-state">No warehouses are built. Purchase the prepared parcel beside an owned mine, clear its 2×2 footprint, and build from the outside edge.</p>';
+          el.warehouseManagementBoard.innerHTML = '<p class="empty-management-state">No warehouses are built. Select an independent road-fronted parcel at Town Hall, purchase it, clear its 2×2 footprint, and build from the outside edge.</p>';
           return;
         }
         el.warehouseManagementBoard.innerHTML = state.warehouses.map(function (warehouse, index) {
@@ -5274,8 +5636,10 @@
         if (button === el.buyLand) return "You need $" + landBuyoutRemaining() + " to finish buying this land.";
         if (button === el.buyWarehouseLand) return "You need $" + CONFIG.warehouseLandPrice + " to buy the warehouse parcel.";
         if (button === el.buildMine) {
+          if (infrastructurePlacementRequired(state.mineParcel)) return "Return to Town Hall and select the 2×2 mine footprint inside this geology permit.";
           if (state.mines.length >= mineSlotLimit()) return "Your current operating permits allow " + mineSlotLimit() + " mine" + (mineSlotLimit() === 1 ? "" : "s") + ". More slots unlock as campaign days advance.";
-          return parcelCleared(state.mineParcel) ? (besideParcel(state.mineParcel) ? "You need $" + CONFIG.mineBuildCost + " to build the mine." : "Stand directly outside the highlighted 2×2 boundary, not inside it.") : "Clear all four tiles in the 2×2 mine parcel first.";
+          const footprint = selectedFootprintFor(state.mineParcel);
+          return parcelCleared(footprint) ? (besideParcel(footprint) ? "You need $" + CONFIG.mineBuildCost + " to build the mine." : "Stand directly outside the selected " + footprint.w + "×" + footprint.h + " boundary, not inside it.") : "Clear all " + (footprint.w * footprint.h) + " tiles in the selected mine footprint first.";
         }
         if (button === el.loadMine) return freeCargo() <= .01 ? "Your truck is full." : "The mine is still filling its stockpile.";
         if (button === el.upgradeMine) {
@@ -5283,7 +5647,11 @@
           if (state.mine && activeCompanyContractForMine(state.mine) && mineMaterialForLevel(state.mine, state.mine.level + 1) !== state.mine.material) return "Finish this mine's company contract before drilling into a different ore seam.";
           return "You need the required cash and ownership level for this upgrade.";
         }
-        if (button === el.buildWarehouse) return parcelCleared(state.warehouseParcel) ? (besideParcel(state.warehouseParcel) ? "You need $" + CONFIG.warehouseBuildCost + " to build the warehouse." : "Stand directly outside the highlighted 2×2 boundary, not inside it. Use Quick travel: Warehouse site.") : "Clear all four tiles in the 2×2 warehouse parcel first.";
+        if (button === el.buildWarehouse) {
+          if (infrastructurePlacementRequired(state.warehouseParcel)) return "Return to Town Hall and select this warehouse footprint first.";
+          const footprint = selectedFootprintFor(state.warehouseParcel);
+          return parcelCleared(footprint) ? (besideParcel(footprint) ? "You need $" + CONFIG.warehouseBuildCost + " to build the warehouse." : "Stand directly outside the selected " + footprint.w + "×" + footprint.h + " boundary, not inside it. Use Quick travel: Warehouse site.") : "Clear all " + (footprint.w * footprint.h) + " tiles in the selected warehouse footprint first.";
+        }
         if (button === el.unloadWarehouse) return usedCargo() <= .01 ? "Your truck is empty." : "The warehouse is full.";
         if (button === el.loadWarehouse) return freeCargo() <= .01 ? "Your truck is full." : "The warehouse is empty.";
         if (button === el.upgradeWarehouse) return state.warehouse && state.warehouse.level >= CONFIG.maxWarehouseLevel ? "This warehouse is already at maximum level." : "You need the required cash for the next warehouse level.";
@@ -5327,6 +5695,83 @@
           '</article>');
         }
         return '<section class="townhall-prospect-board" aria-label="Mining prospects"><header><span>Mining prospects</span><strong>' + state.surveyParcels.length + ' / ' + CONFIG.maxActiveProspects + ' active</strong></header><div class="townhall-prospect-grid">' + cards.join("") + '</div></section>';
+      }
+
+      function townHallInfrastructurePlanningMarkup() {
+        const mineParcel = state.mineParcel;
+        const mineReady = mineParcel && (mineParcel.status === "leased" || mineParcel.status === "owned") &&
+          !state.mines.some(function (mine) { return mine.parcelId === mineParcel.id; }) && !siteProjectFor("mine", mineParcel.id);
+        const ownedMine = state.mineParcels.some(function (parcel) { return parcel.status === "owned"; });
+        const warehouseParcel = state.warehouseParcel;
+        const mineStatus = !mineReady ? "Lease or select a mine permit" : infrastructurePlacementRequired(mineParcel) ? "Footprint not selected" : "" + selectedFootprintFor(mineParcel).w + "×" + selectedFootprintFor(mineParcel).h + " selected";
+        const warehouseStatus = warehouseParcel
+          ? (warehouseParcel.status === "available" ? "Purchase agreement ready" : warehouseParcel.status === "owned" ? "Land owned" : warehouseParcel.status)
+          : "No warehouse lot selected";
+        return '<section class="townhall-prospect-board townhall-project-ledger" aria-label="Infrastructure siting"><header><span>Infrastructure siting</span><strong>project-ledger route</strong></header>' +
+          '<p class="townhall-proposal-overflow">Mine permits keep the surveyed geology. Warehouses are independently selected, then purchased and built through the same construction ledger.</p>' +
+          '<div class="townhall-project-actions"><strong>Mine footprint · ' + detailText(mineStatus) + '</strong><p>Drag the starter 2×2 mine inside its geology permit. The map records the road-access edge with the proposal.</p>' +
+            '<button type="button" data-site-plan-action="mine"' + (mineReady ? "" : " disabled") + '>' + (mineReady && !infrastructurePlacementRequired(mineParcel) ? "Re-select mine footprint" : "Select mine footprint") + '</button></div>' +
+          '<div class="townhall-project-actions"><strong>Warehouse lot · ' + detailText(warehouseStatus) + '</strong><p>Select an independent starter warehouse with road access. It does not appear automatically beside a mine.</p>' +
+            '<button type="button" data-site-plan-action="warehouse"' + (ownedMine ? "" : " disabled") + '>Select warehouse site</button></div>' +
+        '</section>';
+      }
+
+      function routeMineToWarehouse(mineId, warehouseId) {
+        if (state.location !== "townhall") return;
+        const mine = state.mines.find(function (record) { return record.id === mineId; });
+        const warehouse = state.warehouses.find(function (record) { return record.id === warehouseId; });
+        if (!mine || !warehouse) return;
+        const mineParcel = parcelForMine(mine);
+        state.warehouses.forEach(function (record) {
+          record.assignedMineIds = assignedMineIdsForWarehouse(record).filter(function (id) { return id !== mine.id; });
+          const parcel = parcelForWarehouse(record);
+          if (!parcel) return;
+          parcel.assignedMineIds = assignedMineIdsForParcel(parcel).filter(function (id) { return id !== mine.id; });
+          if (mineParcel && parcel.mineParcelId === mineParcel.id) parcel.mineParcelId = null;
+        });
+        warehouse.assignedMineIds = Array.from(new Set((warehouse.assignedMineIds || []).concat(mine.id)));
+        const targetParcel = parcelForWarehouse(warehouse);
+        if (targetParcel) targetParcel.assignedMineIds = Array.from(new Set((targetParcel.assignedMineIds || []).concat(mine.id)));
+        setContext("Warehouse route assigned", "Mine " + (state.mines.indexOf(mine) + 1) + " now routes to Warehouse " + (state.warehouses.indexOf(warehouse) + 1) + ". Any previous warehouse route was safely removed.", "success");
+        saveState(true);
+        renderInterface();
+      }
+
+      function clearMineWarehouseRoute(mineId, warehouseId) {
+        if (state.location !== "townhall") return;
+        const mine = state.mines.find(function (record) { return record.id === mineId; });
+        const warehouse = state.warehouses.find(function (record) { return record.id === warehouseId; });
+        if (!mine || !warehouse) return;
+        const mineParcel = parcelForMine(mine);
+        warehouse.assignedMineIds = assignedMineIdsForWarehouse(warehouse).filter(function (id) { return id !== mine.id; });
+        const parcel = parcelForWarehouse(warehouse);
+        if (parcel) {
+          parcel.assignedMineIds = assignedMineIdsForParcel(parcel).filter(function (id) { return id !== mine.id; });
+          if (mineParcel && parcel.mineParcelId === mineParcel.id) parcel.mineParcelId = null;
+        }
+        setContext("Warehouse route cleared", "Mine " + (state.mines.indexOf(mine) + 1) + " is no longer assigned to Warehouse " + (state.warehouses.indexOf(warehouse) + 1) + ".", "success");
+        saveState(true);
+        renderInterface();
+      }
+
+      function townHallWarehouseRoutingMarkup() {
+        if (!state.warehouses.length) return "";
+        return '<section class="townhall-prospect-board townhall-project-ledger" aria-label="Warehouse routing"><header><span>Warehouse routing</span><strong>one active destination per mine</strong></header>' +
+          state.warehouses.map(function (warehouse, index) {
+            const linked = linkedMinesForWarehouse(warehouse);
+            const linkedIds = new Set(linked.map(function (mine) { return mine.id; }));
+            const links = linked.map(function (mine) {
+              return '<span><b>Mine ' + (state.mines.indexOf(mine) + 1) + '</b><em>' + detailText(materialNames[mine.material]) + '</em><button type="button" data-route-action="clear" data-mine-id="' + detailText(mine.id) + '" data-warehouse-id="' + detailText(warehouse.id) + '">Unassign</button></span>';
+            }).join("");
+            const available = state.mines.filter(function (mine) { return !linkedIds.has(mine.id); }).map(function (mine) {
+              return '<button type="button" data-route-action="assign" data-mine-id="' + detailText(mine.id) + '" data-warehouse-id="' + detailText(warehouse.id) + '">Route Mine ' + (state.mines.indexOf(mine) + 1) + ' here</button>';
+            }).join("");
+            return '<div class="townhall-project-actions"><strong>Warehouse ' + (index + 1) + '</strong><p>' + (linked.length ? linked.length + ' mine route' + (linked.length === 1 ? "" : "s") + ' assigned.' : 'No mine route assigned.') + '</p>' +
+              (links ? '<div class="townhall-contract-list">' + links + '</div>' : '') +
+              (available ? '<div class="townhall-contract-list"><small>Assigning a mine moves it safely from any prior warehouse.</small>' + available + '</div>' : '') +
+            '</div>';
+          }).join("") +
+        '</section>';
       }
 
       function proposalDisplayText(value, fallback) {
@@ -5530,6 +5975,7 @@
             h: point.h,
             level: 1,
             storage: emptyMaterialStore(),
+            assignedMineIds: assignedMineIdsForParcel(parcel),
             doorX: point.doorX,
             doorY: point.doorY
           };
@@ -5679,7 +6125,8 @@
         const definition = CONFIG.buildingDefinitions[options.buildingId];
         if (!definition) return null;
         const point = options.point || {};
-        const requirements = normalizeRequirementStore(definition.resources);
+        const requirements = normalizeRequirementStore(options.requirements || definition.resources);
+        const requiredBuilderLevel = Math.max(1, Math.round(options.requiredBuilderLevel || definition.requiredBuilderLevel || 1));
         const project = {
           id: allocateConstructionProjectId(),
           proposalId: options.proposalId || null,
@@ -5694,11 +6141,13 @@
           h: Number.isFinite(point.h) ? point.h : definition.footprint.h,
           doorX: Number.isFinite(point.doorX) ? point.doorX : point.x,
           doorY: Number.isFinite(point.doorY) ? point.doorY : point.y,
+          footprintSnapshot: options.footprintSnapshot || null,
+          requiredBuilderLevel: requiredBuilderLevel,
           level: 1,
           status: "awaiting-builder",
           requirements: requirements,
           delivered: normalizeDeliveredStore({}, requirements),
-          laborRequired: Math.max(0, Math.round(definition.labor || 0)),
+          laborRequired: Math.max(0, Math.round(options.laborRequired == null ? definition.labor || 0 : options.laborRequired)),
           laborDelivered: 0,
           buildProgress: 0,
           procurementContractIds: [],
@@ -5712,21 +6161,21 @@
           cost: Math.round(options.cost || definition.baseCost),
           housingCapacity: definition.housingCapacity || 0,
           createdDay: state.day,
-          deadlineDay: state.day + Math.max(1, Math.round(definition.buildTimeDays || 1)) + 3,
+          deadlineDay: state.day + Math.max(1, Math.round(options.buildTimeDays == null ? definition.buildTimeDays || 1 : options.buildTimeDays)) + 3,
           delayDays: 0,
           completedDay: null,
           buildingRecordId: null
         };
         state.constructionProjects.push(project);
         CONFIG.constructionBuilders.filter(function (builder) {
-          return project.ownerId === "crowe" ? builder.id === "crowe-construction" : builder.level >= definition.requiredBuilderLevel;
+          return project.ownerId === "crowe" ? builder.id === "crowe-construction" : builder.level >= project.requiredBuilderLevel;
         }).forEach(function (builder) {
           state.constructionBids.push({
             id: allocateConstructionBidId(),
             projectId: project.id,
             builderId: builder.id,
             builderLabel: builder.label,
-            requiredBuilderLevel: definition.requiredBuilderLevel,
+            requiredBuilderLevel: project.requiredBuilderLevel,
             price: Math.round(project.cost * builder.priceMultiplier),
             durationDays: Math.max(1, Math.round(definition.buildTimeDays * builder.durationMultiplier)),
             status: "open"
@@ -6087,7 +6536,7 @@
             ["Stone market", "$" + prices.stone + "/t"],
             ["Approved stone", approval ? approval.stoneTons.toFixed(1) + " t · $" + approval.stoneCost : "None"],
             ["Contract total", approval ? "$" + approval.totalCost : "Not quoted"]
-          ]) + townHallProspectBoardMarkup() + townHallResidentialBoardMarkup() + townHallProjectLedgerMarkup() + townHallWorkforceBoardMarkup();
+          ]) + townHallProspectBoardMarkup() + townHallInfrastructurePlanningMarkup() + townHallResidentialBoardMarkup() + townHallProjectLedgerMarkup() + townHallWarehouseRoutingMarkup() + townHallWorkforceBoardMarkup();
           return;
         }
 
@@ -6100,8 +6549,8 @@
         if (state.location === "mine" && state.mine) {
           const mineIndex = state.mines.indexOf(state.mine) + 1;
           const parcel = parcelForMine(state.mine);
-          const warehouseParcel = warehouseParcelForMineParcel(parcel);
-          const linkedWarehouse = warehouseParcel && state.warehouses.find(function (warehouse) { return warehouse.parcelId === warehouseParcel.id; });
+          const linkedWarehouse = linkedWarehouseForMine(state.mine);
+          const warehouseParcel = linkedWarehouse ? parcelForWarehouse(linkedWarehouse) : warehouseParcelForMineParcel(parcel);
           const currentHaul = activeHaulForMine(state.mine);
           const companyContract = activeCompanyContractForMine(state.mine);
           const dedicatedWorkers = mineRequiresDedicatedWorker(state.mine) ? workersAssignedTo("mine", state.mine.id) : state.workers;
@@ -6129,8 +6578,7 @@
 
         if (state.location === "warehouse" && state.warehouse) {
           const warehouseIndex = state.warehouses.indexOf(state.warehouse) + 1;
-          const parcel = parcelForWarehouse(state.warehouse);
-          const linkedMine = parcel && state.mines.find(function (mine) { return mine.parcelId === parcel.mineParcelId; });
+          const linkedMines = linkedMinesForWarehouse(state.warehouse);
           const stored = usedStore(state.warehouse.storage);
           el.locationKicker.textContent = "Warehouse " + warehouseIndex + " operations";
           el.locationDetails.hidden = false;
@@ -6139,7 +6587,7 @@
             ["Stored", round1(stored).toFixed(1) + " / " + warehouseCapacity().toFixed(1) + " t"],
             ["Free space", round1(Math.max(0, warehouseCapacity() - stored)).toFixed(1) + " t"],
             ["Inventory", cargoSummary(state.warehouse.storage)],
-            ["Connected mine", linkedMine ? "Mine " + (state.mines.indexOf(linkedMine) + 1) + " · " + materialNames[linkedMine.material] : "No mine link"],
+            ["Connected mines", linkedMines.length ? linkedMines.map(function (mine) { return "Mine " + (state.mines.indexOf(mine) + 1) + " · " + materialNames[mine.material]; }).join(" / ") : "No mine link"],
             ["Workers", warehouseRequiresDedicatedWorker(state.warehouse) ? String(workersAssignedTo("warehouse", state.warehouse.id)) + " assigned" : "Legacy shared crew"],
             ["Next capacity", state.warehouse.level >= CONFIG.maxWarehouseLevel ? "Maximum" : CONFIG.warehouseCapacityByLevel[state.warehouse.level + 1] + " t"]
           ]);
@@ -6147,28 +6595,31 @@
         }
 
         if (state.location === "mine-site" && state.mineParcel) {
-          const clearedCells = parcelCells(state.mineParcel).filter(function (cell) { return isSurveyableGround(cell.x, cell.y); }).length;
+          const footprint = selectedFootprintFor(state.mineParcel);
+          const clearedCells = parcelCells(footprint).filter(function (cell) { return isSurveyableGround(cell.x, cell.y); }).length;
           el.locationDetails.hidden = false;
           el.locationDetails.innerHTML = detailCards([
             ["Permit", parcelLabel(state.mineParcel)],
             ["Survey", materialNames[state.mineParcel.material] + " · " + Math.round(state.mineParcel.ratio * 100) + "% dirt"],
             ["Claim depth", (state.mineParcel.depth || 0) + " tiles"],
-            ["Prepared", clearedCells + " / 4 tiles"]
+            ["Footprint", infrastructurePlacementRequired(state.mineParcel) ? "Select at Town Hall" : footprint.w + "×" + footprint.h + " selected"],
+            ["Prepared", clearedCells + " / " + (footprint.w * footprint.h) + " tiles"]
           ]) + (siteProjectFor("mine", state.mineParcel.id) ? standaloneProjectActionMarkup(siteProjectFor("mine", state.mineParcel.id)) : "");
           return;
         }
 
         if (state.location === "warehouse-site" && state.warehouseParcel) {
-          const clearedCells = parcelCells(state.warehouseParcel).filter(function (cell) { return isSurveyableGround(cell.x, cell.y); }).length;
-          const linkedMine = state.mines.find(function (mine) {
-            const parcel = parcelForMine(mine);
-            return parcel && parcel.id === state.warehouseParcel.mineParcelId;
-          });
+          const footprint = selectedFootprintFor(state.warehouseParcel);
+          const clearedCells = parcelCells(footprint).filter(function (cell) { return isSurveyableGround(cell.x, cell.y); }).length;
+          const linkedMines = assignedMineIdsForParcel(state.warehouseParcel).map(function (mineId) {
+            return state.mines.find(function (mine) { return mine.id === mineId; }) || null;
+          }).filter(Boolean);
           el.locationDetails.hidden = false;
           el.locationDetails.innerHTML = detailCards([
             ["Deed", state.warehouseParcel.status === "owned" ? "Owned" : "Not owned"],
-            ["Prepared", clearedCells + " / 4 tiles"],
-            ["Connected mine", linkedMine ? "Mine " + (state.mines.indexOf(linkedMine) + 1) : "No mine link"],
+            ["Footprint", infrastructurePlacementRequired(state.warehouseParcel) ? "Select at Town Hall" : footprint.w + "×" + footprint.h + " selected"],
+            ["Prepared", clearedCells + " / " + (footprint.w * footprint.h) + " tiles"],
+            ["Connected mines", linkedMines.length ? linkedMines.map(function (mine) { return "Mine " + (state.mines.indexOf(mine) + 1); }).join(" / ") : "No mine link"],
             ["Build cost", "$" + CONFIG.warehouseBuildCost]
           ]) + (siteProjectFor("warehouse", state.warehouseParcel.id) ? standaloneProjectActionMarkup(siteProjectFor("warehouse", state.warehouseParcel.id)) : "");
         }
@@ -6246,8 +6697,10 @@
         el.contextTitle.textContent = state.contextTitle;
         el.context.textContent = state.contextText;
         root.dataset.roadPlanning = state.roadPlanning ? "true" : "false";
+        root.dataset.sitePlacement = sitePlacement ? sitePlacement.siteKind : "";
         if (el.mapTip) {
-          if (state.roadPlanning) el.mapTip.textContent = "ROAD SURVEY · tap a continuous route · two tiles wide";
+          if (sitePlacement) el.mapTip.textContent = (sitePlacement.siteKind === "mine" ? "MINE FOOTPRINT" : "WAREHOUSE SITE") + " · drag a 2×2 lot · Esc cancels";
+          else if (state.roadPlanning) el.mapTip.textContent = "ROAD SURVEY · tap a continuous route · two tiles wide";
           else if (inputMode === "controller") el.mapTip.textContent = "Controller connected · RT drive · X cut · Y menu";
           else if (inputMode === "keyboard") el.mapTip.textContent = "Keyboard drive · E menu · Space cut";
           else el.mapTip.textContent = "Tap map · Arrows / WASD · Controller ready";
@@ -6270,6 +6723,10 @@
         const parcelWarehouse = state.warehouseParcel && state.warehouses.find(function (warehouse) { return warehouse.parcelId === state.warehouseParcel.id; });
         const mineProject = state.mineParcel && siteProjectFor("mine", state.mineParcel.id);
         const warehouseProject = state.warehouseParcel && siteProjectFor("warehouse", state.warehouseParcel.id);
+        const mineFootprint = selectedFootprintFor(state.mineParcel);
+        const warehouseFootprint = selectedFootprintFor(state.warehouseParcel);
+        const minePlacementPending = infrastructurePlacementRequired(state.mineParcel);
+        const warehousePlacementPending = infrastructurePlacementRequired(state.warehouseParcel);
         const mineUpgradeCost = state.mine && state.mine.level < CONFIG.maxMineLevel ? CONFIG.mineUpgradeCosts[state.mine.level] : 0;
         const warehouseUpgradeCost = state.warehouse && state.warehouse.level < CONFIG.maxWarehouseLevel ? CONFIG.warehouseUpgradeCosts[state.warehouse.level] : 0;
 
@@ -6394,7 +6851,7 @@
         el.buyWarehouseLand.textContent = "Buy warehouse land · $" + CONFIG.warehouseLandPrice;
 
         el.buildMine.hidden = !atConstructionEdge || !minePermitted || Boolean(parcelMine) || Boolean(mineProject);
-        el.buildMine.disabled = !parcelCleared(state.mineParcel) || !besideParcel(state.mineParcel) || (state.legacyConstructionMode && state.cash < CONFIG.mineBuildCost) || state.mines.length >= mineSlotLimit();
+        el.buildMine.disabled = minePlacementPending || !parcelCleared(mineFootprint) || !besideParcel(mineFootprint) || (state.legacyConstructionMode && state.cash < CONFIG.mineBuildCost) || state.mines.length >= mineSlotLimit();
         el.buildMine.textContent = state.legacyConstructionMode ? "Build mine " + (state.mines.length + 1) + "/" + mineSlotLimit() + " · $" + CONFIG.mineBuildCost : "Open mine construction project";
         el.loadMine.hidden = state.location !== "mine";
         el.loadMine.disabled = !state.mine || !atStructureDoor(state.mine) || (mineRequiresDedicatedWorker(state.mine) && workersAssignedTo("mine", state.mine.id) < 1) || mineStockUsed() <= .01 || freeCargo() <= .01;
@@ -6408,7 +6865,7 @@
         el.upgradeMine.disabled = !state.mine || state.mine.level >= CONFIG.maxMineLevel || state.cash < mineUpgradeCost || Boolean(upgradeChangesContractSeam) || (state.mine.level >= 3 && (!activeMineParcel || activeMineParcel.status !== "owned"));
 
         el.buildWarehouse.hidden = !atConstructionEdge || !(state.warehouseParcel && state.warehouseParcel.status === "owned") || Boolean(parcelWarehouse) || Boolean(warehouseProject);
-        el.buildWarehouse.disabled = !parcelCleared(state.warehouseParcel) || !besideParcel(state.warehouseParcel) || (state.legacyConstructionMode && state.cash < CONFIG.warehouseBuildCost);
+        el.buildWarehouse.disabled = warehousePlacementPending || !parcelCleared(warehouseFootprint) || !besideParcel(warehouseFootprint) || (state.legacyConstructionMode && state.cash < CONFIG.warehouseBuildCost);
         el.buildWarehouse.textContent = state.legacyConstructionMode ? "Build starter warehouse · $" + CONFIG.warehouseBuildCost : "Open warehouse construction project";
         el.unloadWarehouse.hidden = state.location !== "warehouse" || !state.warehouse;
         el.unloadWarehouse.disabled = !state.warehouse || (warehouseRequiresDedicatedWorker(state.warehouse) && workersAssignedTo("warehouse", state.warehouse.id) < 1) || usedCargo() <= .01 || usedStore(state.warehouse.storage) >= warehouseCapacity() - .01;
@@ -7645,6 +8102,35 @@
         ctx.restore();
       }
 
+      function drawInfrastructurePlacementPreview(colors) {
+        if (!sitePlacement || !sitePlacement.preview || !sitePlacement.preview.rectangle) return;
+        const rectangle = sitePlacement.preview.rectangle;
+        const validation = sitePlacement.preview.validation || {};
+        const valid = validation.valid;
+        const point = screenPoint(rectangle.x, rectangle.y);
+        const width = rectangle.w * drawView.scale;
+        const height = rectangle.h * drawView.scale;
+        const accent = valid ? colors.owned : "#e06b5d";
+        ctx.save();
+        ctx.globalAlpha = valid ? .26 : .32;
+        ctx.fillStyle = accent;
+        ctx.fillRect(point.x, point.y, width, height);
+        ctx.globalAlpha = .98;
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = Math.max(2, drawView.scale * .13);
+        ctx.setLineDash([Math.max(3, drawView.scale * .34), Math.max(2, drawView.scale * .22)]);
+        ctx.strokeRect(point.x, point.y, width, height);
+        ctx.setLineDash([]);
+        if (drawView.scale >= 4) {
+          ctx.font = "900 " + Math.max(8, drawView.scale * .32) + "px system-ui, sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillStyle = valid ? "#effff5" : "#ffe2dc";
+          ctx.fillText((sitePlacement.siteKind === "mine" ? "MINE" : "WAREHOUSE") + " · " + rectangle.w + "×" + rectangle.h, point.x + width / 2, point.y + height / 2);
+        }
+        ctx.restore();
+      }
+
       function drawMap() {
         resizeCanvas();
         calculateView();
@@ -7706,6 +8192,7 @@
         drawTownBlocksAndLots(colors);
         drawRoadAccents(colors);
         drawRoadSurvey(colors);
+        drawInfrastructurePlacementPreview(colors);
         buildings.forEach(function (building) { drawBuilding(building, colors); });
         businessLots.forEach(function (business) {
           const record = state.townBusinesses[business.id];
@@ -7847,6 +8334,10 @@
       }
 
       canvas.addEventListener("click", function (event) {
+        if (sitePlacement || suppressPlacementClick) {
+          suppressPlacementClick = false;
+          return;
+        }
         if (systemMenuOpen) closeSystemMenu();
         closeFastTravel();
         const rect = canvas.getBoundingClientRect();
@@ -7912,6 +8403,9 @@
       });
       document.addEventListener("keydown", handleKeyboardDown);
       document.addEventListener("keyup", handleKeyboardUp);
+      window.addEventListener("blur", function () {
+        cancelInfrastructurePlacement("The map lost focus, so the uncommitted site selection was cancelled.", false);
+      });
       el.unstuck.addEventListener("click", unstuckToRoad);
       el.hire.addEventListener("click", hireProspector);
       el.hireWorker.addEventListener("click", hireMineWorker);
@@ -7960,6 +8454,17 @@
                 renderInterface();
               }
             }
+            return;
+          }
+          const sitePlanButton = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-site-plan-action]") : null;
+          if (sitePlanButton) {
+            beginInfrastructurePlacement(sitePlanButton.dataset.sitePlanAction);
+            return;
+          }
+          const routeButton = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-route-action]") : null;
+          if (routeButton) {
+            if (routeButton.dataset.routeAction === "assign") routeMineToWarehouse(routeButton.dataset.mineId, routeButton.dataset.warehouseId);
+            else if (routeButton.dataset.routeAction === "clear") clearMineWarehouseRoute(routeButton.dataset.mineId, routeButton.dataset.warehouseId);
             return;
           }
           const propertyButton = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-property-action]") : null;

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
+import * as PinebarrowFootprints from "../public/pinebarrow-footprints.js";
+import * as PinebarrowPlacement from "../public/pinebarrow-placement.js";
 
 const SAVE_KEY = "pinebarrow-land-company-save-v1";
 const PROFILE_KEY = "pinebarrow-land-company-profile-v1-1";
@@ -34,6 +36,11 @@ class FakeElement {
     this.listeners.set(type, listeners);
   }
 
+  removeEventListener(type, listener) {
+    const listeners = this.listeners.get(type) ?? [];
+    this.listeners.set(type, listeners.filter((candidate) => candidate !== listener));
+  }
+
   click() {
     for (const listener of this.listeners.get("click") ?? []) listener({});
   }
@@ -55,6 +62,10 @@ class FakeElement {
   }
 
   focus() {}
+
+  setPointerCapture() {}
+
+  releasePointerCapture() {}
 
   appendChild(child) {
     child.parentElement = this;
@@ -167,6 +178,8 @@ function createEngineHarness(savedState, engineSource, options = {}) {
     },
     addEventListener() {},
   };
+  if (options.placementApi) window.PinebarrowPlacement = options.placementApi;
+  if (options.footprintsApi) window.PinebarrowFootprints = options.footprintsApi;
 
   const animationFrames = [];
   const requestAnimationFrame = (callback) => {
@@ -251,6 +264,31 @@ function createEngineHarness(savedState, engineSource, options = {}) {
   };
 }
 
+function locationActionTarget(attribute, dataset) {
+  return {
+    closest(selector) {
+      return selector === attribute ? { dataset } : null;
+    },
+  };
+}
+
+function overviewPointer(tileX, tileY, pointerId = 1) {
+  const worldWidth = 90;
+  const worldHeight = 292;
+  const width = 1000;
+  const height = 650;
+  const scale = Math.min((width - 8) / worldWidth, (height - 8) / worldHeight);
+  const offsetX = (width - worldWidth * scale) / 2;
+  const offsetY = (height - worldHeight * scale) / 2;
+  return {
+    button: 0,
+    pointerId,
+    clientX: offsetX + (tileX + .25) * scale,
+    clientY: offsetY + (tileY + .25) * scale,
+    preventDefault() {},
+  };
+}
+
 test("two independent prospects survive save/reload and neither replaces the other", async () => {
   const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
   const legacyFirstTile = { x: 76, y: 169 };
@@ -272,7 +310,7 @@ test("two independent prospects survive save/reload and neither replaces the oth
   };
 
   const migrated = createEngineHarness(oldSave, engineSource);
-  assert.equal(migrated.saved().version, 14);
+  assert.equal(migrated.saved().version, 15);
   assert.equal(migrated.saved().worldLayoutVersion, 2);
   assert.deepEqual(migrated.saved().player, firstTile);
   assert.equal(migrated.saved().prospectsUsedToday, 0);
@@ -490,7 +528,7 @@ test("generic proposal records persist across save and reload without activating
   }, engineSource);
 
   const saved = game.saved();
-  assert.equal(saved.version, 14);
+  assert.equal(saved.version, 15);
   assert.equal(saved.proposals.length, 3);
   assert.deepEqual(saved.proposals, proposals);
   assert.equal(saved.nextProposalId, 4);
@@ -847,7 +885,7 @@ test("legacy P4 assets migrate north without losing IDs, stock, roads, or cargo"
   }, engineSource);
 
   const saved = game.saved();
-  assert.equal(saved.version, 14);
+  assert.equal(saved.version, 15);
   assert.equal(saved.worldLayoutVersion, 2);
   assert.deepEqual(saved.player, { x: 75, y: 122 });
   assert.deepEqual(saved.cargo, { stone: 2.5, clay: 0, coal: 0, iron: 0, copper: 0, tin: 0, quartz: 0, silver: 0, gold: 0, sapphire: 0, logs: 0, dirt: 1 });
@@ -1545,7 +1583,7 @@ test("Town Hall routes a residential proposal through builder and procurement re
   details.emit("click", { target: { closest: () => ({ dataset: { projectAction: "approve", proposalId: "proposal-house-1" } }) } });
 
   let saved = game.saved();
-  assert.equal(saved.version, 14);
+  assert.equal(saved.version, 15);
   assert.equal(saved.proposals[0].status, "approved");
   assert.equal(saved.proposals[0].stage, "coming-soon");
   assert.equal(saved.constructionProjects.length, 0);
@@ -1573,7 +1611,7 @@ test("Town Hall routes a residential proposal through builder and procurement re
   assert.equal(saved.procurementContracts[0].providerId, "player-company");
 
   const reloaded = createEngineHarness(saved, engineSource).saved();
-  assert.equal(reloaded.version, 14);
+  assert.equal(reloaded.version, 15);
   assert.deepEqual(reloaded.constructionProjects, saved.constructionProjects);
   assert.deepEqual(reloaded.constructionBids, saved.constructionBids);
   assert.deepEqual(reloaded.procurementContracts, saved.procurementContracts);
@@ -1886,6 +1924,136 @@ test("completed town shops collect rent and remain recoverable after sale", asyn
   assert.equal(saved.developedBuildings[0].ownerId, "player");
   assert.equal(saved.developedBuildings[0].forSale, false);
   assert.equal(saved.cash, 135);
+});
+
+test("Town Hall records a selected mine footprint and an independent warehouse purchase lot", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const plannerOptions = { placementApi: PinebarrowPlacement, footprintsApi: PinebarrowFootprints };
+  const save = {
+    version: 15,
+    worldLayoutVersion: 2,
+    day: 3,
+    minutes: 480,
+    cash: 1200,
+    player: { x: 37, y: 141 },
+    selected: { type: "building", id: "townhall", x: 37, y: 141 },
+    location: "townhall",
+    mineParcels: [{
+      id: "claim-selected-site",
+      x: 47,
+      y: 121,
+      w: 2,
+      h: 2,
+      status: "leased",
+      material: "stone",
+      ratio: .4,
+      depth: 2,
+      leaseCredit: 45,
+      lastLeaseDay: 3,
+      placementRequired: true,
+    }],
+    selectedMineParcelId: "claim-selected-site",
+  };
+  const mineGame = createEngineHarness(save, engineSource, plannerOptions);
+  mineGame.frame(0);
+  mineGame.element("pb7-location-details").emit("click", {
+    target: locationActionTarget("[data-site-plan-action]", { sitePlanAction: "mine" }),
+  });
+  mineGame.frame(16);
+  const mineCanvas = mineGame.element("pb7-map");
+  mineCanvas.emit("pointerdown", { ...overviewPointer(47, 121), currentTarget: mineCanvas });
+  mineCanvas.emit("pointermove", { ...overviewPointer(48, 122), currentTarget: mineCanvas });
+  mineCanvas.emit("pointerup", { ...overviewPointer(48, 122), currentTarget: mineCanvas });
+  const selectedMine = mineGame.saved();
+  assert.equal(selectedMine.version, 15);
+  assert.deepEqual(selectedMine.mineParcels[0].selectedFootprint, { x: 47, y: 121, w: 2, h: 2, orientation: 0 });
+  assert.equal(selectedMine.mineParcels[0].placementRequired, false);
+  assert.equal(selectedMine.mineParcels[0].footprintSnapshot.designId, "mine-starter");
+  assert.equal(selectedMine.warehouseParcels.length, 0, "buying mine land no longer creates a neighboring warehouse parcel");
+
+  mineGame.element("pb7-buy-land").click();
+  const ownedMine = mineGame.saved();
+  assert.equal(ownedMine.mineParcels[0].status, "owned");
+  assert.equal(ownedMine.warehouseParcels.length, 0, "the mine-deed action never creates warehouse land");
+
+  const constructionSave = structuredClone(ownedMine);
+  constructionSave.player = { x: 46, y: 121 };
+  constructionSave.location = "mine-site";
+  constructionSave.cleared = Array.from(new Set((constructionSave.cleared || []).concat(["47,121", "48,121", "47,122", "48,122"])));
+  const constructionGame = createEngineHarness(constructionSave, engineSource, plannerOptions);
+  constructionGame.element("pb7-build-mine").click();
+  const project = constructionGame.saved().constructionProjects.find((record) => record.siteKind === "mine");
+  assert.ok(project);
+  assert.deepEqual({ x: project.x, y: project.y, w: project.w, h: project.h }, { x: 47, y: 121, w: 2, h: 2 });
+  assert.equal(project.footprintSnapshot.designId, "mine-starter");
+
+  const warehouseSave = structuredClone(ownedMine);
+  warehouseSave.location = "townhall";
+  warehouseSave.player = { x: 37, y: 141 };
+  const warehouseGame = createEngineHarness(warehouseSave, engineSource, plannerOptions);
+  warehouseGame.frame(0);
+  warehouseGame.element("pb7-location-details").emit("click", {
+    target: locationActionTarget("[data-site-plan-action]", { sitePlanAction: "warehouse" }),
+  });
+  warehouseGame.frame(16);
+  const warehouseCanvas = warehouseGame.element("pb7-map");
+  warehouseCanvas.emit("pointerdown", { ...overviewPointer(47, 123), currentTarget: warehouseCanvas });
+  warehouseCanvas.emit("pointermove", { ...overviewPointer(48, 124), currentTarget: warehouseCanvas });
+  warehouseCanvas.emit("pointerup", { ...overviewPointer(48, 124), currentTarget: warehouseCanvas });
+  const selectedWarehouse = warehouseGame.saved();
+  assert.equal(selectedWarehouse.warehouseParcels.length, 1);
+  assert.equal(selectedWarehouse.warehouseParcels[0].status, "available");
+  assert.equal(selectedWarehouse.warehouseParcels[0].mineParcelId, undefined);
+  assert.deepEqual(selectedWarehouse.warehouseParcels[0].assignedMineIds, []);
+  assert.deepEqual(selectedWarehouse.warehouseParcels[0].selectedFootprint, { x: 47, y: 123, w: 2, h: 2, orientation: 0 });
+  assert.equal(selectedWarehouse.warehouseParcels[0].footprintSnapshot.designId, "warehouse-starter");
+});
+
+test("v14 warehouse links migrate once and reassignment preserves a single explicit route", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const oldSave = {
+    version: 14,
+    worldLayoutVersion: 2,
+    day: 5,
+    minutes: 480,
+    cash: 1200,
+    player: { x: 37, y: 141 },
+    selected: { type: "building", id: "townhall", x: 37, y: 141 },
+    location: "townhall",
+    mineParcels: [
+      { id: "claim-route-a", x: 47, y: 121, w: 2, h: 2, status: "owned", material: "stone", ratio: .4, depth: 2, mineId: "mine-route-a" },
+      { id: "claim-route-b", x: 52, y: 121, w: 2, h: 2, status: "owned", material: "coal", ratio: .3, depth: 2, mineId: "mine-route-b" },
+    ],
+    mines: [
+      { id: "mine-route-a", parcelId: "claim-route-a", x: 47, y: 121, w: 2, h: 2, level: 1, baseMaterial: "stone", material: "stone", ratio: .4, depth: 2, stockMaterial: 0, stockDirt: 0 },
+      { id: "mine-route-b", parcelId: "claim-route-b", x: 52, y: 121, w: 2, h: 2, level: 1, baseMaterial: "coal", material: "coal", ratio: .3, depth: 2, stockMaterial: 0, stockDirt: 0 },
+    ],
+    warehouseParcels: [
+      { id: "warehouse-route-a", mineParcelId: "claim-route-a", warehouseId: "warehouse-a", x: 47, y: 123, w: 2, h: 2, status: "owned" },
+      { id: "warehouse-route-b", mineParcelId: "claim-route-b", warehouseId: "warehouse-b", x: 52, y: 123, w: 2, h: 2, status: "owned" },
+    ],
+    warehouses: [
+      { id: "warehouse-a", parcelId: "warehouse-route-a", x: 47, y: 123, w: 2, h: 2, level: 1, storage: {} },
+      { id: "warehouse-b", parcelId: "warehouse-route-b", x: 52, y: 123, w: 2, h: 2, level: 1, storage: {} },
+    ],
+  };
+  const game = createEngineHarness(oldSave, engineSource);
+  const migrated = game.saved();
+  assert.equal(migrated.version, 15);
+  assert.deepEqual(migrated.warehouses.find((warehouse) => warehouse.id === "warehouse-a").assignedMineIds, ["mine-route-a"]);
+  assert.deepEqual(migrated.warehouses.find((warehouse) => warehouse.id === "warehouse-b").assignedMineIds, ["mine-route-b"]);
+
+  game.element("pb7-location-details").emit("click", {
+    target: locationActionTarget("[data-route-action]", { routeAction: "assign", mineId: "mine-route-a", warehouseId: "warehouse-b" }),
+  });
+  const reassigned = game.saved();
+  assert.deepEqual(reassigned.warehouses.find((warehouse) => warehouse.id === "warehouse-a").assignedMineIds, []);
+  assert.deepEqual(reassigned.warehouses.find((warehouse) => warehouse.id === "warehouse-b").assignedMineIds.sort(), ["mine-route-a", "mine-route-b"]);
+  assert.equal(reassigned.warehouseParcels.find((parcel) => parcel.id === "warehouse-route-a").mineParcelId, null);
+
+  const reloaded = createEngineHarness(reassigned, engineSource).saved();
+  assert.deepEqual(reloaded.warehouses.find((warehouse) => warehouse.id === "warehouse-a").assignedMineIds, []);
+  assert.deepEqual(reloaded.warehouses.find((warehouse) => warehouse.id === "warehouse-b").assignedMineIds.sort(), ["mine-route-a", "mine-route-b"]);
 });
 
 test("Crowe uses the same construction record and contract stages", async () => {

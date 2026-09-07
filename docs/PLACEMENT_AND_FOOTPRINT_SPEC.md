@@ -1,6 +1,6 @@
 # Pinebarrow Land Company — Placement, Footprint, and Builder Complexity
 
-**Status:** C2.2 implemented; C2.3 is the next runtime checkpoint
+**Status:** C2.3 implemented; C2.4 is the next runtime checkpoint
 **Baseline:** v24 branch `e34553cded3ecf3944fa1ba6c588fb6f8bf14149`
 **Related scope:** `docs/FULL_GAME_CONTENT_CONTRACT.md`
 
@@ -218,6 +218,14 @@ To protect the work from usage limits, C2 is split into these independently comm
 | C2.3 | Replace fixed mine/warehouse placement with player-selected footprints; preserve legacy saves and remove new auto-adjacent warehouse creation | Mine geology, road frontage, independent warehouse assignment, and migration tests |
 | C2.4 | Connect residential lots, house designs/upgrades, and road corridor selection to the shared project mechanism | House placement/upgrade, two-wide road, four-wide main-street, long-route packaging, and project-ledger tests |
 | C2.5 | Browser/mobile smoke and integration gate | Touch drag, diagonal drag, preview readability, save/reload, full tests/build/lint, then update the PR handoff |
+
+### C2.3 completion notes
+
+- Save schema v15 preserves the old mine and warehouse records while adding explicit `selectedFootprint`, immutable footprint snapshots, and `assignedMineIds` route records.
+- A leased or owned mine permit now opens a Town Hall map-selection mode. The starter 2×2 mine must remain inside the surveyed geology permit and retain a recorded company-road access edge before it can enter the existing construction ledger.
+- A warehouse is selected independently at Town Hall, then follows its own purchase agreement, clearing, project, builder, procurement, logistics, and hauling path. Buying a mine deed no longer creates a neighboring warehouse parcel.
+- Warehouse routing is a Town Hall management action. A warehouse may carry multiple mine routes, while moving a mine to another warehouse clears its prior active route in the same saved update.
+- Version-14 saves retain their old adjacent link as a compatibility route. The migration copies that link once into `assignedMineIds`; future saves use the explicit route record rather than positional array pairing.
 
 No C2 checkpoint should add School or research behavior yet. It must only create the placement and project foundation those later buildings will use.
 

@@ -700,6 +700,10 @@
       }
 
       function beginManualDrive() {
+        if (sitePlacement) {
+          setContext("Site selection active", "The truck stays parked while you place this site. Drag the highlighted 2×2 footprint on the selected permit, or press Esc to return to Town Hall.");
+          return;
+        }
         if (!state.started || state.menuOpen || systemMenuOpen) return;
         if (state.path.length || movementSegment) settleMovementForReroute();
         state.path = [];
@@ -709,7 +713,7 @@
       }
 
       function requestManualStep(direction) {
-        if (!direction || !state.started || state.menuOpen || systemMenuOpen || state.path.length || movementSegment) return false;
+        if (!direction || sitePlacement || !state.started || state.menuOpen || systemMenuOpen || state.path.length || movementSegment) return false;
         const targetX = state.player.x + direction.x;
         const targetY = state.player.y + direction.y;
         setTruckHeading(state.player.x, state.player.y, targetX, targetY);
@@ -979,6 +983,11 @@
       }
 
       function toggleOverviewFromInput() {
+        if (sitePlacement) {
+          state.overview = false;
+          setContext("Placement view locked", "The selected permit stays centered until you place the 2×2 footprint or press Esc to cancel.");
+          return;
+        }
         state.overview = !state.overview;
         renderInterface();
       }
@@ -3942,7 +3951,15 @@
       function enterPlacementView(active, focus) {
         active.cameraFocus = focus;
         state.overview = false;
-        state.zoomIndex = Math.max(1, state.zoomIndex);
+        state.zoomIndex = Math.max(active.siteKind === "mine" ? 2 : 1, state.zoomIndex);
+      }
+
+      function selectedMinePlacementPermit(requestedParcelId) {
+        const selectedId = typeof requestedParcelId === "string" && requestedParcelId ? requestedParcelId : state.selectedMineParcelId;
+        const selected = state.mineParcels.find(function (parcel) { return parcel.id === selectedId; }) || null;
+        if (selected) return selected;
+        const activeId = state.mineParcel && state.mineParcel.id;
+        return state.mineParcels.find(function (parcel) { return parcel.id === activeId; }) || null;
       }
 
       function beginResidentialPlacement(designId, upgradeBuildingId) {
@@ -4049,7 +4066,7 @@
         return true;
       }
 
-      function beginInfrastructurePlacement(siteKind) {
+      function beginInfrastructurePlacement(siteKind, requestedParcelId) {
         if (state.location !== "townhall") return;
         if (state.roadPlanning) {
           setContext("Road survey active", "Submit or cancel the current road route before selecting an infrastructure site.", "warning");
@@ -4060,13 +4077,16 @@
           setContext("Site planner loading", "The shared map planner is still loading. Try the Town Hall action again in a moment.", "warning");
           return;
         }
-        const permit = siteKind === "mine" ? state.mineParcel : null;
+        const permit = siteKind === "mine" ? selectedMinePlacementPermit(requestedParcelId) : null;
         if (siteKind === "mine") {
           const permitted = permit && (permit.status === "leased" || permit.status === "owned");
           if (!permitted || state.mines.some(function (mine) { return mine.parcelId === permit.id; }) || siteProjectFor("mine", permit.id)) {
             setContext("Mine site unavailable", "Select a leased or owned mine permit with no active mine or construction project.", "warning");
             return;
           }
+          state.mineParcel = permit;
+          state.selectedMineParcelId = permit.id;
+          state.selected = { type: "mine-site", x: permit.x, y: permit.y };
         } else if (!state.mineParcels.some(function (parcel) { return parcel.status === "owned"; })) {
           setContext("Mine ownership required", "Purchase at least one mine deed before filing an independent warehouse purchase agreement.", "warning");
           return;
@@ -4119,7 +4139,7 @@
         sitePlacement = active;
         enterPlacementView(active, placementCameraTarget(siteKind, permit, null));
         controller.attach(canvas);
-        setContext(siteKind === "mine" ? "Select mine footprint" : "Select warehouse site", "The camera is centered on the selection area. Drag across the map to mark the 2×2 " + (siteKind === "mine" ? "geology permit" : "warehouse lot") + "; + and − keep this placement view centered. The outline must keep road access and avoid water, roads, structures, and existing parcels. Press Esc to cancel.");
+        setContext(siteKind === "mine" ? "Select mine footprint" : "Select warehouse site", "The camera is locked on the selected area. Drag across the map to mark the 2×2 " + (siteKind === "mine" ? "geology permit" : "warehouse lot") + "; + and − keep this placement view centered. The outline must keep road access and avoid water, roads, structures, and existing parcels. Press Esc to cancel.");
       }
 
       function townHallText() {
@@ -4160,6 +4180,7 @@
         state.warehouseParcel = warehouseParcelForMineParcel(parcel) || state.warehouseParcel;
         state.selectedWarehouseParcelId = state.warehouseParcel ? state.warehouseParcel.id : null;
         setContext("Mine land leased", "$" + CONFIG.landLeasePerDay + " paid and credited toward the $" + CONFIG.landPurchasePrice + " purchase. Claim " + state.mineParcels.length + " is committed; select its actual mine footprint at Town Hall before construction." + (state.surveyParcels.length ? " The other saved prospect remains available." : ""));
+        if (window.PinebarrowPlacement && typeof window.PinebarrowPlacement.createPointerController === "function") beginInfrastructurePlacement("mine", parcel.id);
       }
 
       function landBuyoutRemaining(parcel) {
@@ -6109,6 +6130,7 @@
         const mineParcel = state.mineParcel;
         const mineReady = mineParcel && (mineParcel.status === "leased" || mineParcel.status === "owned") &&
           !state.mines.some(function (mine) { return mine.parcelId === mineParcel.id; }) && !siteProjectFor("mine", mineParcel.id);
+        const minePlanParcelAttribute = mineReady ? ' data-site-plan-parcel-id="' + detailText(mineParcel.id) + '"' : "";
         const ownedMine = state.mineParcels.some(function (parcel) { return parcel.status === "owned"; });
         const warehouseParcel = state.warehouseParcel;
         const mineStatus = !mineReady ? "Lease or select a mine permit" : infrastructurePlacementRequired(mineParcel) ? "Footprint not selected" : "" + selectedFootprintFor(mineParcel).w + "×" + selectedFootprintFor(mineParcel).h + " selected";
@@ -6119,7 +6141,7 @@
         return '<section class="townhall-prospect-board townhall-project-ledger" aria-label="Infrastructure siting"><header><span>Infrastructure siting</span><strong>project-ledger route</strong></header>' +
           '<p class="townhall-proposal-overflow">Mine permits keep the surveyed geology. Warehouses are independently selected, then purchased and built through the same construction ledger.</p>' +
           '<div class="townhall-project-actions"><strong>Mine footprint · ' + detailText(mineStatus) + '</strong><p>Drag the starter 2×2 mine inside its geology permit. The map records the road-access edge with the proposal.</p>' +
-            '<button type="button" data-site-plan-action="mine"' + (mineReady ? "" : " disabled") + '>' + (mineReady && !infrastructurePlacementRequired(mineParcel) ? "Re-select mine footprint" : "Select mine footprint") + '</button></div>' +
+            '<button type="button" data-site-plan-action="mine"' + minePlanParcelAttribute + (mineReady ? "" : " disabled") + '>' + (mineReady && !infrastructurePlacementRequired(mineParcel) ? "Re-select mine footprint" : "Select mine footprint") + '</button></div>' +
           '<div class="townhall-project-actions"><strong>Warehouse lot · ' + detailText(warehouseStatus) + '</strong><p>Select an independent starter warehouse with road access. It does not appear automatically beside a mine.</p>' +
             '<button type="button" data-site-plan-action="warehouse"' + (ownedMine ? "" : " disabled") + '>Select warehouse site</button></div>' +
           '<div class="townhall-project-actions"><strong>Road corridor · project-backed</strong><p>' + (roadApproval ? "An approved route is protected below. Open its construction project or cancel it before surveying another corridor." : "Drag a centered route line; paving expands evenly on each side, including at turns. Town Hall then opens builder, stone-supply, logistics, and hauling contracts. Long routes are packaged in groups of ten paving tiles.") + '</p>' +
@@ -7192,7 +7214,7 @@
         root.dataset.roadPlanning = state.roadPlanning ? "true" : "false";
         root.dataset.sitePlacement = sitePlacement ? sitePlacement.siteKind : "";
         if (el.mapTip) {
-          if (sitePlacement) el.mapTip.textContent = sitePlacement.siteKind === "mine" ? "MINE FOOTPRINT · drag a 2×2 lot · Esc cancels" : sitePlacement.siteKind === "warehouse" ? "WAREHOUSE SITE · drag a 2×2 lot · Esc cancels" : "RESIDENTIAL LOT · drag the selected house footprint · Esc cancels";
+          if (sitePlacement) el.mapTip.textContent = sitePlacement.siteKind === "mine" ? "MINE FOOTPRINT · selected permit locked · drag a 2×2 lot · Esc cancels" : sitePlacement.siteKind === "warehouse" ? "WAREHOUSE SITE · drag a 2×2 lot · Esc cancels" : "RESIDENTIAL LOT · drag the selected house footprint · Esc cancels";
           else if (state.roadPlanning) el.mapTip.textContent = "ROAD SURVEY · drag a connected " + activeRoadProfile().width + "-wide corridor · Esc cancels";
           else if (inputMode === "controller") el.mapTip.textContent = "Controller connected · RT drive · X cut · Y menu";
           else if (inputMode === "keyboard") el.mapTip.textContent = "Keyboard drive · E menu · Space cut";
@@ -7375,6 +7397,7 @@
 
         el.zoomIn.disabled = !state.overview && state.zoomIndex >= 2;
         el.zoomOut.disabled = state.overview;
+        el.overview.disabled = Boolean(sitePlacement);
         el.overview.setAttribute("aria-pressed", state.overview ? "true" : "false");
         el.overview.setAttribute("aria-label", state.overview ? "Follow truck" : "World map");
         el.overview.title = state.overview ? "Follow truck" : "World map";
@@ -8928,10 +8951,6 @@
       });
       document.addEventListener("keydown", handleKeyboardDown);
       document.addEventListener("keyup", handleKeyboardUp);
-      window.addEventListener("blur", function () {
-        cancelInfrastructurePlacement("The map lost focus, so the uncommitted site selection was cancelled.", false);
-        if (state.roadPlanning) cancelRoadSurvey();
-      });
       el.unstuck.addEventListener("click", unstuckToRoad);
       el.hire.addEventListener("click", hireProspector);
       el.hireWorker.addEventListener("click", hireMineWorker);
@@ -8984,7 +9003,7 @@
           }
           const sitePlanButton = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-site-plan-action]") : null;
           if (sitePlanButton) {
-            beginInfrastructurePlacement(sitePlanButton.dataset.sitePlanAction);
+            beginInfrastructurePlacement(sitePlanButton.dataset.sitePlanAction, sitePlanButton.dataset.sitePlanParcelId || null);
             return;
           }
           const residentialPlanButton = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-residential-plan]") : null;

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Corrective checkpoint C2.4.4 — prospect-focused mine siting
+
+- Claiming a surveyed mine permit at Town Hall now immediately opens its 2×2 footprint selection, centered tightly on that exact prospect rather than the truck at Town Hall.
+- The selection carries the permit's stable ID from the Town Hall action through placement, so a saved mine claim cannot be redirected to another permit.
+- Mine siting remains active through zoom, truck-control input, and transient mobile focus changes; the overview control is locked until the footprint is placed or cancelled with Escape.
+- Added regression coverage for the full claim-to-placement flow, focused tile selection, and selection persistence.
+
 ### Corrective checkpoint C2.4.3 — centered road corridors
 
 - Road surveys now treat the line the player draws as the true centerline: a 2-wide company road paves one tile on each side, while the 4-wide Main Street paves two tiles on each side.

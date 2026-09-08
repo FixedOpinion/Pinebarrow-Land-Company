@@ -138,6 +138,7 @@ function createEngineHarness(savedState, engineSource, options = {}) {
   root.querySelectorAll = (selector) => selector === "[data-hauler-size]" ? haulers : selector === "[data-profile-slot]" ? profileSlots : [];
 
   const documentListeners = new Map();
+  const windowListeners = new Map();
   const documentElement = new FakeElement("html");
   const document = {
     activeElement: null,
@@ -176,7 +177,11 @@ function createEngineHarness(savedState, engineSource, options = {}) {
       setItem: (key, value) => storage.set(key, value),
       removeItem: (key) => storage.delete(key),
     },
-    addEventListener() {},
+    addEventListener(type, listener) {
+      const listeners = windowListeners.get(type) ?? [];
+      listeners.push(listener);
+      windowListeners.set(type, listeners);
+    },
   };
   if (options.placementApi) window.PinebarrowPlacement = options.placementApi;
   if (options.footprintsApi) window.PinebarrowFootprints = options.footprintsApi;
@@ -257,6 +262,9 @@ function createEngineHarness(savedState, engineSource, options = {}) {
         ...overrides,
       });
       return prevented;
+    },
+    dispatchWindow(type, event = {}) {
+      for (const listener of windowListeners.get(type) ?? []) listener(event);
     },
     frame: runAnimationFrame,
     fullscreenElement: () => document.fullscreenElement,
@@ -2039,6 +2047,70 @@ test("completed town shops collect rent and remain recoverable after sale", asyn
   assert.equal(saved.cash, 135);
 });
 
+test("claiming a prospect opens a focused mine placement that survives navigation input", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const plannerOptions = { placementApi: PinebarrowPlacement, footprintsApi: PinebarrowFootprints };
+  const prospect = {
+    id: "permit-focused-mine",
+    x: 47,
+    y: 121,
+    w: 2,
+    h: 2,
+    status: "surveyed",
+    material: "stone",
+    ratio: .4,
+    depth: 2,
+    leaseCredit: 0,
+    lastLeaseDay: 3,
+    prospectSlot: 1,
+  };
+  const game = createEngineHarness({
+    version: 16,
+    worldLayoutVersion: 2,
+    day: 3,
+    minutes: 480,
+    cash: 1200,
+    player: { x: 37, y: 141 },
+    selected: { type: "building", id: "townhall", x: 37, y: 141 },
+    location: "townhall",
+    prospectorHired: true,
+    prospectorDay: 3,
+    prospectsUsedToday: 1,
+    surveyParcels: [prospect],
+    surveyParcel: prospect,
+    selectedSurveyId: prospect.id,
+    mineParcels: [],
+    warehouseParcels: [],
+    mines: [],
+    warehouses: [],
+    nextSiteId: 1,
+  }, engineSource, plannerOptions);
+
+  game.frame(0);
+  game.element("pb7-lease").click();
+  assert.equal(game.saved().mineParcels[0].id, prospect.id);
+  assert.equal(game.element("pinebarrow-visible-menu-demo").dataset.sitePlacement, "mine");
+  assert.equal(game.element("pb7-overview").disabled, true);
+  assert.match(game.element("pb7-map-tip").textContent, /selected permit locked/);
+
+  game.dispatchKey("keydown", "ArrowRight");
+  game.frame(16);
+  game.dispatchKey("keyup", "ArrowRight");
+  assert.deepEqual(game.saved().player, { x: 37, y: 141 }, "navigation input must not move the truck away from the selected permit");
+  assert.equal(game.element("pinebarrow-visible-menu-demo").dataset.sitePlacement, "mine");
+
+  game.dispatchWindow("blur");
+  assert.equal(game.element("pinebarrow-visible-menu-demo").dataset.sitePlacement, "mine", "a transient focus change must not cancel the uncommitted selection");
+
+  game.element("pb7-zoom-out").click();
+  game.frame(32);
+  const canvas = game.element("pb7-map");
+  canvas.emit("pointerdown", { ...placementPointer(47, 121, 48, 122, 1), currentTarget: canvas });
+  canvas.emit("pointermove", { ...placementPointer(48, 122, 48, 122, 1), currentTarget: canvas });
+  canvas.emit("pointerup", { ...placementPointer(48, 122, 48, 122, 1), currentTarget: canvas });
+  assert.deepEqual(game.saved().mineParcels[0].selectedFootprint, { x: 47, y: 121, w: 2, h: 2, orientation: 0 });
+});
+
 test("Town Hall records a selected mine footprint and an independent warehouse purchase lot", async () => {
   const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
   const plannerOptions = { placementApi: PinebarrowPlacement, footprintsApi: PinebarrowFootprints };
@@ -2069,8 +2141,9 @@ test("Town Hall records a selected mine footprint and an independent warehouse p
   };
   const mineGame = createEngineHarness(save, engineSource, plannerOptions);
   mineGame.frame(0);
+  assert.match(mineGame.element("pb7-location-details").innerHTML, /data-site-plan-parcel-id="claim-selected-site"/);
   mineGame.element("pb7-location-details").emit("click", {
-    target: locationActionTarget("[data-site-plan-action]", { sitePlanAction: "mine" }),
+    target: locationActionTarget("[data-site-plan-action]", { sitePlanAction: "mine", sitePlanParcelId: "claim-selected-site" }),
   });
   mineGame.frame(16);
   const mineCanvas = mineGame.element("pb7-map");

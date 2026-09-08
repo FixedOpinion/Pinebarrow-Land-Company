@@ -5548,21 +5548,72 @@
         return packages;
       }
 
+      function roadCenterline(points) {
+        const api = window.PinebarrowPlacement;
+        if (api && typeof api.corridorCenterline === "function") return api.corridorCenterline(points);
+        const route = [];
+        const seen = new Set();
+        (points || []).forEach(function (value) {
+          const point = { x: Math.round(value.x), y: Math.round(value.y) };
+          const key = keyFor(point.x, point.y);
+          if (seen.has(key)) return;
+          seen.add(key);
+          route.push(point);
+        });
+        if (!route.length) return [];
+        const centerline = [route[0]];
+        route.slice(1).forEach(function (next) {
+          let x = centerline[centerline.length - 1].x;
+          let y = centerline[centerline.length - 1].y;
+          const stepX = Math.sign(next.x - x);
+          const stepY = Math.sign(next.y - y);
+          while (x !== next.x || y !== next.y) {
+            const remainingX = Math.abs(next.x - x);
+            const remainingY = Math.abs(next.y - y);
+            if (remainingX >= remainingY && x !== next.x) x += stepX;
+            else if (y !== next.y) y += stepY;
+            centerline.push({ x: x, y: y });
+          }
+        });
+        return centerline;
+      }
+
+      function centeredRoadOffsets(width) {
+        const laneWidth = Math.max(1, Math.round(width || activeRoadProfile().width || 2));
+        const tilesBeforeCenterline = Math.floor(laneWidth / 2);
+        return Array.from({ length: laneWidth }, function (_value, index) { return index - tilesBeforeCenterline; });
+      }
+
       function expandedRoadCells(points, width) {
         const laneWidth = Math.max(1, Math.round(width || activeRoadProfile().width || 2));
         const api = window.PinebarrowPlacement;
         if (api && typeof api.corridorCells === "function") {
           return new Set(api.corridorCells(points, laneWidth).map(function (cell) { return keyFor(cell.x, cell.y); }));
         }
+        const centerline = roadCenterline(points);
         const cells = new Set();
-        for (let index = 0; index < points.length - 1; index += 1) {
-          const start = points[index];
-          const end = points[index + 1];
-          const horizontal = start.y === end.y;
-          [start, end].forEach(function (point) {
-            cells.add(keyFor(point.x, point.y));
-            for (let lane = 0; lane < laneWidth; lane += 1) cells.add(horizontal ? keyFor(point.x, point.y + lane) : keyFor(point.x + lane, point.y));
-          });
+        const offsets = centeredRoadOffsets(laneWidth);
+        if (!centerline.length) return cells;
+        if (centerline.length === 1) {
+          offsets.forEach(function (offset) { cells.add(keyFor(centerline[0].x + offset, centerline[0].y)); });
+          return cells;
+        }
+        for (let index = 1; index < centerline.length; index += 1) {
+          const start = centerline[index - 1];
+          const end = centerline[index];
+          if (start.y === end.y) {
+            const firstX = Math.min(start.x, end.x);
+            const lastX = Math.max(start.x, end.x);
+            for (let x = firstX; x <= lastX; x += 1) {
+              offsets.forEach(function (offset) { cells.add(keyFor(x, start.y + offset)); });
+            }
+          } else {
+            const firstY = Math.min(start.y, end.y);
+            const lastY = Math.max(start.y, end.y);
+            for (let y = firstY; y <= lastY; y += 1) {
+              offsets.forEach(function (offset) { cells.add(keyFor(start.x + offset, y)); });
+            }
+          }
         }
         return cells;
       }
@@ -5572,13 +5623,18 @@
         return !isLakeCell(x, y) && !isTreeAt(x, y) && !isStructureCell(x, y) && !mineParcelAt(x, y) && !warehouseParcelAt(x, y);
       }
 
-      function draftConnectsToRoad(points) {
+      function draftConnectsToRoad(points, width) {
         if (!points.length) return false;
-        const first = points[0];
-        return [
-          { x: first.x + 1, y: first.y }, { x: first.x - 1, y: first.y },
-          { x: first.x, y: first.y + 1 }, { x: first.x, y: first.y - 1 }
-        ].some(function (point) { return isPavedClaimRoad(point.x, point.y); });
+        const firstSegment = points.slice(0, Math.min(2, points.length));
+        return Array.from(expandedRoadCells(firstSegment, width)).some(function (key) {
+          const point = pointFromKey(key);
+          if (!point) return false;
+          if (isPavedClaimRoad(point.x, point.y)) return true;
+          return [
+            { x: point.x + 1, y: point.y }, { x: point.x - 1, y: point.y },
+            { x: point.x, y: point.y + 1 }, { x: point.x, y: point.y - 1 }
+          ].some(function (neighbor) { return isPavedClaimRoad(neighbor.x, neighbor.y); });
+        });
       }
 
       function roadDraftNewTiles(points, width) {
@@ -5613,7 +5669,7 @@
             validateSelection: function (selection) {
               const points = controller.session.points || [];
               if (points.length < CONFIG.roadMinimumSurveyPoints) return { code: "route-short", message: "Drag across at least two connected route points." };
-              if (!draftConnectsToRoad(points)) return { code: "road-connection", message: "Begin beside an existing paved company road." };
+              if (!draftConnectsToRoad(points, profile.width)) return { code: "road-connection", message: "Begin with the centered corridor touching an existing paved company road." };
               const blocked = (selection.cells || []).map(function (cell) { return cell; }).find(function (cell) { return !isPavedClaimRoad(cell.x, cell.y) && !isRoadSurveyCellLegal(cell.x, cell.y); });
               return blocked ? { code: "road-blocked", message: "The " + profile.width + "-wide corridor is blocked at " + blocked.x + "," + blocked.y + "." } : true;
             },
@@ -5634,7 +5690,8 @@
           roadPlacementController = controller;
           controller.attach(canvas);
         }
-        setContext("Road survey active", "Drag a continuous route on open claim ground. This " + profile.width + "-wide corridor may turn and is split into 10-tile construction packages. The first point must touch existing pavement; press Esc to cancel.");
+        const tilesEachSide = Math.max(1, Math.floor(profile.width / 2));
+        setContext("Road survey active", "Drag the road centerline on open claim ground. This " + profile.width + "-wide corridor keeps " + tilesEachSide + " tile" + (tilesEachSide === 1 ? "" : "s") + " on each side of that line, may turn, and is split into 10-tile construction packages. Begin touching existing pavement; press Esc to cancel.");
       }
 
       function planRoadPoint(x, y) {
@@ -5655,30 +5712,30 @@
           }
         }
         const candidate = points.concat({ x: x, y: y });
-        if (!points.length && !draftConnectsToRoad(candidate)) {
-          setContext("Road connection required", "Begin on an open tile touching the existing paved road.");
+        if (!points.length && !draftConnectsToRoad(candidate, activeRoadProfile().width)) {
+          setContext("Road connection required", "Begin with the centered corridor touching the existing paved road.");
           return true;
         }
-        const expanded = candidate.length > 1 ? expandedRoadCells(candidate, activeRoadProfile().width) : new Set([key]);
+        const expanded = expandedRoadCells(candidate, activeRoadProfile().width);
         const blocked = Array.from(expanded).map(pointFromKey).find(function (point) {
           return point && !isPavedClaimRoad(point.x, point.y) && !isRoadSurveyCellLegal(point.x, point.y);
         });
         if (blocked) {
-          setContext("Road survey blocked", "The two-wide route crosses water, a tree, company parcel, or structure at " + blocked.x + "," + blocked.y + ". Clear it or turn around it.");
+          setContext("Road survey blocked", "The centered " + activeRoadProfile().width + "-wide route crosses water, a tree, company parcel, or structure at " + blocked.x + "," + blocked.y + ". Clear it or turn around it.");
           return true;
         }
         state.roadDraft.push(key);
         state.roadApproval = null;
         const newTiles = roadDraftNewTiles(candidate, activeRoadProfile().width).length;
-        setContext("Road route marked", candidate.length + " linked points create " + newTiles + " new " + activeRoadProfile().width + "-wide road tiles. Release to review the route at Town Hall.");
+        setContext("Road route marked", candidate.length + " linked center points create " + newTiles + " new " + activeRoadProfile().width + "-wide road tiles. Release to review the route at Town Hall.");
         return true;
       }
 
       function submitRoadSurvey() {
         if (state.location !== "townhall") return;
         const points = roadDraftPoints();
-        if (points.length < CONFIG.roadMinimumSurveyPoints || !draftConnectsToRoad(points)) {
-          setContext("Road survey incomplete", "Mark at least two connected route points beginning beside an existing paved road, then submit again.");
+        if (points.length < CONFIG.roadMinimumSurveyPoints || !draftConnectsToRoad(points, activeRoadProfile().width)) {
+          setContext("Road survey incomplete", "Mark at least two connected center points beginning at existing pavement, then submit again.");
           return;
         }
         const profile = activeRoadProfile();
@@ -6065,7 +6122,7 @@
             '<button type="button" data-site-plan-action="mine"' + (mineReady ? "" : " disabled") + '>' + (mineReady && !infrastructurePlacementRequired(mineParcel) ? "Re-select mine footprint" : "Select mine footprint") + '</button></div>' +
           '<div class="townhall-project-actions"><strong>Warehouse lot · ' + detailText(warehouseStatus) + '</strong><p>Select an independent starter warehouse with road access. It does not appear automatically beside a mine.</p>' +
             '<button type="button" data-site-plan-action="warehouse"' + (ownedMine ? "" : " disabled") + '>Select warehouse site</button></div>' +
-          '<div class="townhall-project-actions"><strong>Road corridor · project-backed</strong><p>' + (roadApproval ? "An approved route is protected below. Open its construction project or cancel it before surveying another corridor." : "Drag a connected route, then Town Hall opens builder, stone-supply, logistics, and hauling contracts. Long routes are packaged in groups of ten paving tiles.") + '</p>' +
+          '<div class="townhall-project-actions"><strong>Road corridor · project-backed</strong><p>' + (roadApproval ? "An approved route is protected below. Open its construction project or cancel it before surveying another corridor." : "Drag a centered route line; paving expands evenly on each side, including at turns. Town Hall then opens builder, stone-supply, logistics, and hauling contracts. Long routes are packaged in groups of ten paving tiles.") + '</p>' +
             '<button type="button" data-road-profile="company-road"' + (roadApproval ? " disabled" : "") + '>Survey 2-wide company road</button><button type="button" data-road-profile="main-street"' + (roadApproval ? " disabled" : "") + '>Survey 4-wide main street · City Planner</button></div>' +
         '</section>';
       }
@@ -8523,7 +8580,9 @@
       function drawRoadSurvey(colors) {
         const points = roadDraftPoints();
         if (!points.length) return;
-        const previewCells = points.length > 1 ? expandedRoadCells(points) : new Set([keyFor(points[0].x, points[0].y)]);
+        const profile = state.roadApproval ? roadProfileFor(state.roadApproval.profileId) : activeRoadProfile();
+        const previewCells = expandedRoadCells(points, profile.width);
+        const centerline = roadCenterline(points);
         ctx.save();
         ctx.globalAlpha = state.roadApproval ? .5 : .42;
         ctx.fillStyle = state.roadApproval ? colors.leased : colors.owned;
@@ -8538,8 +8597,8 @@
         ctx.lineWidth = Math.max(2, drawView.scale * .16);
         ctx.setLineDash([Math.max(4, drawView.scale * .48), Math.max(3, drawView.scale * .34)]);
         ctx.beginPath();
-        points.forEach(function (point, index) {
-          const screen = screenPoint(point.x + .5, point.y + .5);
+        centerline.forEach(function (point, index) {
+          const screen = screenPoint(point.x, point.y);
           if (!index) ctx.moveTo(screen.x, screen.y);
           else ctx.lineTo(screen.x, screen.y);
         });

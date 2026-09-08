@@ -105,7 +105,7 @@ function gridSegment(start, end) {
   return points;
 }
 
-export function corridorCells(points, width = 2) {
+export function corridorCenterline(points) {
   const route = uniquePoints(points || []);
   if (!route.length) return [];
   const centerline = [];
@@ -113,19 +113,43 @@ export function corridorCells(points, width = 2) {
     if (!index) centerline.push(next);
     else centerline.push(...gridSegment(centerline[centerline.length - 1], next).slice(1));
   });
+  return centerline;
+}
+
+function centeredOffsets(width) {
   const laneWidth = Math.max(1, integer(width, 2));
+  const tilesBeforeCenterline = Math.floor(laneWidth / 2);
+  return Array.from({ length: laneWidth }, (_value, index) => index - tilesBeforeCenterline);
+}
+
+export function corridorCells(points, width = 2) {
+  const centerline = corridorCenterline(points);
+  if (!centerline.length) return [];
+  const laneWidth = Math.max(1, integer(width, 2));
+  const offsets = centeredOffsets(laneWidth);
   const cells = new Map();
-  centerline.forEach((current, index) => {
-    const previous = centerline[Math.max(0, index - 1)];
-    const following = centerline[Math.min(centerline.length - 1, index + 1)];
-    const horizontal = previous.x !== following.x;
-    for (let offset = 0; offset < laneWidth; offset += 1) {
-      const cell = horizontal
-        ? { x: current.x, y: current.y + offset }
-        : { x: current.x + offset, y: current.y };
-      cells.set(pointKey(cell), cell);
+  const add = (cell) => cells.set(pointKey(cell), cell);
+  if (centerline.length === 1) {
+    offsets.forEach((offset) => add({ x: centerline[0].x + offset, y: centerline[0].y }));
+    return Array.from(cells.values());
+  }
+  for (let index = 1; index < centerline.length; index += 1) {
+    const start = centerline[index - 1];
+    const end = centerline[index];
+    if (start.y === end.y) {
+      const firstX = Math.min(start.x, end.x);
+      const lastX = Math.max(start.x, end.x);
+      for (let x = firstX; x <= lastX; x += 1) {
+        offsets.forEach((offset) => add({ x, y: start.y + offset }));
+      }
+    } else {
+      const firstY = Math.min(start.y, end.y);
+      const lastY = Math.max(start.y, end.y);
+      for (let y = firstY; y <= lastY; y += 1) {
+        offsets.forEach((offset) => add({ x: start.x + offset, y }));
+      }
     }
-  });
+  }
   return Array.from(cells.values());
 }
 
@@ -371,6 +395,7 @@ const api = {
   rectangleCells,
   rectangleMetrics,
   rotateRectangle,
+  corridorCenterline,
   corridorCells,
   validateSelection,
   createSelectionSession,

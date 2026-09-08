@@ -4,6 +4,7 @@ import {
   beginSelection,
   cancelSelection,
   commitSelection,
+  corridorCenterline,
   corridorCells,
   createPointerController,
   createSelectionSession,
@@ -106,14 +107,27 @@ test("rotation changes the footprint orientation without changing its anchor", (
   assert.equal(session.validation.valid, true);
 });
 
-test("corridor selection follows diagonal movement and expands to the configured width", () => {
-  const cells = corridorCells([{ x: 1, y: 1 }, { x: 3, y: 3 }], 2);
-  assert.deepEqual(cells, [
-    { x: 1, y: 1 }, { x: 1, y: 2 },
-    { x: 2, y: 1 }, { x: 2, y: 2 },
-    { x: 2, y: 3 }, { x: 3, y: 2 },
-    { x: 3, y: 3 }, { x: 4, y: 3 },
+test("corridor selection centers paving on the drawn line and keeps turns square", () => {
+  assert.deepEqual(corridorCenterline([{ x: 1, y: 1 }, { x: 3, y: 3 }]), [
+    { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 2, y: 2 }, { x: 3, y: 2 }, { x: 3, y: 3 },
   ]);
+  const cells = corridorCells([{ x: 1, y: 1 }, { x: 3, y: 3 }], 2);
+  assert.deepEqual(cells.map((cell) => `${cell.x},${cell.y}`).sort(), [
+    "1,0", "1,1", "1,2", "2,0", "2,1", "2,2", "2,3", "3,1", "3,2", "3,3",
+  ]);
+  assert.ok(cells.some((cell) => cell.x === 1 && cell.y === 0), "paving reaches above the horizontal centerline");
+  assert.ok(cells.some((cell) => cell.x === 1 && cell.y === 1), "paving reaches below the horizontal centerline");
+});
+
+test("four-wide corridors keep two paving tiles on each side of their centerline", () => {
+  const cells = corridorCells([{ x: 8, y: 10 }, { x: 11, y: 10 }], 4);
+  assert.equal(cells.length, 16);
+  [8, 9, 10, 11].forEach((x) => {
+    [8, 9, 10, 11].forEach((y) => {
+      assert.ok(cells.some((cell) => cell.x === x && cell.y === y), `expected paving at ${x},${y}`);
+    });
+  });
+  assert.equal(cells.some((cell) => cell.y === 7 || cell.y === 12), false);
 });
 
 test("pointer cancellation clears the transient selection without committing it", () => {

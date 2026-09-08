@@ -1330,7 +1330,7 @@ test("the HUD removes the road-tile counter while retaining the readable truck g
   assert.match(styleSource, /\.truck-stat\[data-status="blocked"\]/);
 });
 
-test("Town Hall turns a turning two-wide road into a contract-backed construction project", async () => {
+test("Town Hall turns a centered two-wide road into a contract-backed construction project", async () => {
   const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
   const roadDraft = ["46,122", "46,123", "47,123"];
   const cleared = ["46,122", "47,122", "46,123", "47,123", "46,124", "47,124"];
@@ -1356,7 +1356,7 @@ test("Town Hall turns a turning two-wide road into a contract-backed constructio
   game.element("pb7-road-submit").click();
   const approved = game.saved();
   assert.ok(approved.roadApproval);
-  assert.equal(approved.roadApproval.routeTiles.length, 6);
+  assert.deepEqual(approved.roadApproval.routeTiles, ["46,122", "46,123", "47,122", "47,123"]);
   assert.equal(approved.roadApproval.stonePrice, 58);
   assert.equal(approved.cargo.stone, 2);
 
@@ -1377,7 +1377,7 @@ test("Town Hall turns a turning two-wide road into a contract-backed constructio
   assert.equal(opened.constructionProjects.length, 1);
   assert.equal(opened.constructionProjects[0].siteKind, "road");
   assert.equal(opened.constructionProjects[0].roadProfileId, "company-road");
-  assert.equal(opened.constructionProjects[0].roadRouteTiles.length, 6);
+  assert.equal(opened.constructionProjects[0].roadRouteTiles.length, 4);
   assert.equal(opened.constructionProjects[0].roadPackages.length, 1);
   assert.equal(opened.constructionBids.length, 3);
   assert.equal(opened.procurementContracts.length, 3);
@@ -1395,10 +1395,10 @@ test("Town Hall turns a turning two-wide road into a contract-backed constructio
   for (let tick = 1; tick <= 90; tick += 1) ready.frame(tick * 1000);
   const built = ready.saved();
   assert.equal(built.roadContractsCompleted, 1);
-  assert.equal(built.roadTiles.length, 6);
+  assert.equal(built.roadTiles.length, 4);
   assert.ok(built.roadMarketImpact.strength > 0);
-  assert.equal(built.cargo.stone, 0);
-  assert.match(built.contextText, /paved 6 route tiles/i);
+  assert.equal(built.cargo.stone, 0.6);
+  assert.match(built.contextText, /paved 4 route tiles/i);
   assert.equal(ready.element("pinebarrow-visible-menu-demo").dataset.resourceRoadOverlaps, "0");
 });
 

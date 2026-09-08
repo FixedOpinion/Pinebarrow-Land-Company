@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Corrective checkpoint C2.4.3 — centered road corridors
+
+- Road surveys now treat the line the player draws as the true centerline: a 2-wide company road paves one tile on each side, while the 4-wide Main Street paves two tiles on each side.
+- Reworked corridor expansion to join centered strips by segment, keeping paving and the dashed survey line aligned through turns instead of shifting the road to one side.
+- Updated Town Hall and live survey guidance to explain the centered placement rule. Existing approved and completed road routes keep their saved tiles unchanged.
+- Added placement regressions for centered diagonal turns and the four-wide Main Street footprint.
+
 ### Corrective checkpoint C2.4.2 — project-opening and road-approval recovery
 
 - Opening a mine or warehouse construction project now immediately opens its Project Ledger in read-only site mode, rather than leaving the player with an apparently inactive button. Builder awards and procurement bids remain Town Hall actions.

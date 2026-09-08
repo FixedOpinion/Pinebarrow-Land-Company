@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Corrective checkpoint C2.4.7 — Town Market construction supply
+
+- The Town Market is now two-way: it sells every construction material at the live town price and loads purchases directly into the truck.
+- Bought cargo is already consumed before emergency cash procurement by awarded road and building supply contracts, so stone can be purchased for the first access road before a mine exists.
+- Added a regression for buying live-priced stone into the construction supply path.
+
 ### Corrective checkpoint C2.4.6 — bidirectional road surveying
 
 - Company roads may now be drawn from a mine or future site back to the starter pavement, or from pavement outward. A survey still must connect at one end to existing paved company road; this removes the start-end circularity without allowing disconnected roads.

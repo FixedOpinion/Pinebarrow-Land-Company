@@ -364,7 +364,7 @@ export default function Home() {
               <div>
                 <p className="eyebrow">Pinebarrow mercantile exchange</p>
                 <h2 id="pb7-market-title">Market</h2>
-                <p>List truck cargo at your own asking price. Company orders are tracked separately in Contract Management.</p>
+                <p>Buy construction supplies at the live town price or list truck cargo at your own asking price. Company orders are tracked separately in Contract Management.</p>
               </div>
               <button id="pb7-market-close" className="newspaper-close" type="button" aria-label="Return to Market services">×</button>
             </header>
@@ -375,6 +375,22 @@ export default function Home() {
             </nav>
 
             <section id="pb7-exchange-panel" className="market-panel" aria-labelledby="pb7-exchange-title">
+              <div className="market-supply-desk">
+                <div className="market-panel-heading">
+                  <div>
+                    <span>Town supply desk</span>
+                    <h3>Buy building materials</h3>
+                  </div>
+                  <small>Loads into your truck and is used first by awarded construction supply contracts.</small>
+                </div>
+                <div className="exchange-order-form market-purchase-form">
+                  <label htmlFor="pb7-market-buy-material"><span>Material</span><select id="pb7-market-buy-material" /></label>
+                  <label htmlFor="pb7-market-buy-quantity"><span>Quantity (tons)</span><input id="pb7-market-buy-quantity" type="number" min="0.1" step="0.1" defaultValue="1" /></label>
+                  <div className="market-purchase-total"><span>Live total</span><strong id="pb7-market-buy-total">$0</strong></div>
+                  <button id="pb7-market-buy" type="button">Buy &amp; load truck</button>
+                </div>
+                <p id="pb7-market-buy-hint" className="market-feedback" aria-live="polite">Select a material to buy.</p>
+              </div>
               <div className="market-panel-heading">
                 <div>
                   <span>Grand Exchange</span>

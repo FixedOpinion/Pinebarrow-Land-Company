@@ -521,6 +521,11 @@
         exchangeOffer: root.querySelector("#pb7-exchange-offer"),
         exchangeHint: root.querySelector("#pb7-exchange-hint"),
         exchangeOrders: root.querySelector("#pb7-exchange-orders"),
+        marketBuyMaterial: root.querySelector("#pb7-market-buy-material"),
+        marketBuyQuantity: root.querySelector("#pb7-market-buy-quantity"),
+        marketBuyTotal: root.querySelector("#pb7-market-buy-total"),
+        marketBuy: root.querySelector("#pb7-market-buy"),
+        marketBuyHint: root.querySelector("#pb7-market-buy-hint"),
         managementScreen: root.querySelector("#pb7-management-screen"),
         managementClose: root.querySelector("#pb7-management-close"),
         managementSummary: root.querySelector("#pb7-management-summary"),
@@ -4951,8 +4956,19 @@
         return cargoKeys.filter(function (material) { return material !== "dirt" && state.cargo[material] >= .05; });
       }
 
+      function marketPurchasableMaterials() {
+        return CONFIG.constructionMaterials.filter(function (material) {
+          return materialNames[material] && Number.isFinite(prices[material]);
+        });
+      }
+
+      function marketPurchaseCost(material, quantity) {
+        const tons = Math.max(0, round1(Number(quantity) || 0));
+        return Math.ceil(tons * Math.max(1, Number(prices[material]) || 1));
+      }
+
       function renderExchangeTerminal() {
-        if (!el.exchangeBoard || !el.exchangeOrders || !el.exchangeMaterial) return;
+        if (!el.exchangeBoard || !el.exchangeOrders || !el.exchangeMaterial || !el.marketBuyMaterial || !el.marketBuyQuantity || !el.marketBuyTotal || !el.marketBuy || !el.marketBuyHint) return;
         el.exchangeBoard.innerHTML = Object.keys(basePrices).map(function (material) {
           const current = prices[material];
           const change = Math.round((current / basePrices[material] - 1) * 100);
@@ -4962,6 +4978,33 @@
             '<strong>$' + current + '<small>/t</small></strong><em>' + (change > 0 ? "▲" : change < 0 ? "▼" : "•") + Math.abs(change) + '%</em>' +
           '</button>';
         }).join("");
+
+        const previousPurchaseMaterial = el.marketBuyMaterial.value;
+        const purchasable = marketPurchasableMaterials();
+        el.marketBuyMaterial.innerHTML = purchasable.map(function (material) {
+          return '<option value="' + material + '">' + detailText(materialNames[material]) + ' · $' + prices[material] + '/t</option>';
+        }).join("");
+        if (purchasable.includes(previousPurchaseMaterial)) el.marketBuyMaterial.value = previousPurchaseMaterial;
+        const purchaseMaterial = el.marketBuyMaterial.value || purchasable[0] || "";
+        const freeSpace = round1(freeCargo());
+        let purchaseQuantity = round1(Number(el.marketBuyQuantity.value));
+        if (!Number.isFinite(purchaseQuantity) || purchaseQuantity < .1) purchaseQuantity = Math.min(1, freeSpace);
+        if (purchaseQuantity > freeSpace) purchaseQuantity = freeSpace;
+        el.marketBuyQuantity.max = freeSpace.toFixed(1);
+        el.marketBuyQuantity.value = purchaseQuantity >= .1 ? purchaseQuantity.toFixed(1) : "";
+        const purchaseCost = purchaseMaterial && purchaseQuantity >= .1 ? marketPurchaseCost(purchaseMaterial, purchaseQuantity) : 0;
+        el.marketBuyTotal.textContent = purchaseCost ? "$" + purchaseCost : "—";
+        el.marketBuy.textContent = purchaseCost ? "Buy & load · $" + purchaseCost : "Buy & load truck";
+        el.marketBuy.disabled = !purchaseMaterial || purchaseQuantity < .1 || state.cash < purchaseCost;
+        if (!purchaseMaterial) {
+          el.marketBuyHint.textContent = "The Town Market has no construction material listed today.";
+        } else if (freeSpace < .1) {
+          el.marketBuyHint.textContent = "Your truck is full. Deliver, sell, or use cargo before loading more " + materialNames[purchaseMaterial].toLowerCase() + ".";
+        } else if (state.cash < purchaseCost) {
+          el.marketBuyHint.textContent = round1(purchaseQuantity).toFixed(1) + " t of " + materialNames[purchaseMaterial].toLowerCase() + " costs $" + purchaseCost + "; company funds are $" + Math.round(state.cash) + ".";
+        } else {
+          el.marketBuyHint.textContent = "Town price: $" + prices[purchaseMaterial] + "/t. Bought material loads into your truck and is used before emergency cash procurement on awarded projects.";
+        }
 
         const previous = el.exchangeMaterial.value;
         const available = marketableCargoMaterials();
@@ -5025,6 +5068,31 @@
           listedAt: absoluteGameMinutes()
         });
         setContext("Sell offer posted", round1(quantity).toFixed(1) + " t " + materialNames[material].toLowerCase() + " is listed at $" + askPrice + "/t. Buyers evaluate it every " + CONFIG.exchangeTickMinutes + " game minutes; it may fill in pieces or all at once.", "success");
+        marketScreenOpen = true;
+        marketScreenTab = "exchange";
+      }
+
+      function buyMarketMaterial() {
+        if (state.location !== "market") return;
+        const material = el.marketBuyMaterial.value;
+        const quantity = round1(Number(el.marketBuyQuantity.value));
+        const freeSpace = round1(freeCargo());
+        if (!material || !marketPurchasableMaterials().includes(material) || !Number.isFinite(quantity) || quantity < .1) {
+          setContext("Market purchase not ready", "Choose a listed material and a valid quantity.");
+          return;
+        }
+        if (quantity > freeSpace + .001) {
+          setContext("Truck space required", "Only " + freeSpace.toFixed(1) + " t of truck space is open for this market purchase.");
+          return;
+        }
+        const cost = marketPurchaseCost(material, quantity);
+        if (state.cash < cost) {
+          setContext("Market funds required", round1(quantity).toFixed(1) + " t of " + materialNames[material].toLowerCase() + " costs $" + cost + " at today's Town Market price.");
+          return;
+        }
+        state.cash -= cost;
+        state.cargo[material] = round1((Number(state.cargo[material]) || 0) + quantity);
+        setContext("Market purchase loaded", round1(quantity).toFixed(1) + " t of " + materialNames[material].toLowerCase() + " was loaded into the truck for $" + cost + ". Awarded construction supply contracts use truck inventory before emergency cash procurement.", "success");
         marketScreenOpen = true;
         marketScreenTab = "exchange";
       }
@@ -9103,6 +9171,12 @@
         renderInterface();
       });
       el.exchangeOffer.addEventListener("click", placeExchangeOffer);
+      el.marketBuyMaterial.addEventListener("change", function () {
+        el.marketBuyQuantity.value = Math.min(1, freeCargo()).toFixed(1);
+        renderInterface();
+      });
+      el.marketBuyQuantity.addEventListener("change", renderInterface);
+      el.marketBuy.addEventListener("click", buyMarketMaterial);
       el.exchangeBoard.addEventListener("click", function (event) {
         const button = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-exchange-pick]") : null;
         if (!button) return;

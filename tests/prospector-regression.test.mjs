@@ -1518,6 +1518,32 @@ test("Marketplace sell offers use player price and fill over game time", async (
   assert.ok(afterBuyers.cash > 96);
 });
 
+test("Market sells live-priced stone into the truck for construction supply", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const game = createEngineHarness({
+    version: 16,
+    worldLayoutVersion: 2,
+    day: 1,
+    minutes: 480,
+    cash: 100,
+    player: { x: 15, y: 142 },
+    selected: { type: "road", x: 15, y: 142 },
+    location: "market",
+    cleared: [],
+  }, engineSource);
+
+  game.element("pb7-marketplace").click();
+  game.element("pb7-market-buy-material").value = "stone";
+  game.element("pb7-market-buy-quantity").value = "1.5";
+  game.element("pb7-market-buy").click();
+  const purchased = game.saved();
+
+  assert.equal(purchased.cargo.stone, 1.5);
+  assert.equal(purchased.cash, 13);
+  assert.match(purchased.contextTitle, /market purchase loaded/i);
+  assert.match(purchased.contextText, /construction supply contracts/i);
+});
+
 test("a fulfilled founding contract creates a Coming Soon business", async () => {
   const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
   const mine = {

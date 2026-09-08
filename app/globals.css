@@ -3180,6 +3180,18 @@ body {
   margin-bottom: 12px;
 }
 
+.market-supply-desk {
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--card) 88%, var(--primary) 12%);
+}
+
+.market-supply-desk .market-panel-heading {
+  margin-bottom: 10px;
+}
+
 .exchange-quote {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -3284,6 +3296,31 @@ body {
   font-size: 10px;
   font-weight: 900;
   cursor: pointer;
+}
+
+.market-purchase-total {
+  display: grid;
+  min-height: 42px;
+  align-content: center;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid #d8dfef;
+  border-radius: 10px;
+  color: var(--foreground);
+  background: #f8f9ff;
+}
+
+.market-purchase-total span {
+  color: var(--muted-foreground);
+  font-size: 8px;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.market-purchase-total strong {
+  font-size: 14px;
+  font-weight: 950;
 }
 
 .market-feedback,

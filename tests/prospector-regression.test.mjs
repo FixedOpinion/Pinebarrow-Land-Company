@@ -2093,6 +2093,10 @@ test("claiming a prospect opens a focused mine placement that survives navigatio
   assert.equal(game.element("pb7-overview").disabled, true);
   assert.match(game.element("pb7-map-tip").textContent, /selected permit locked/);
 
+  game.element("pb7-menu-close").click();
+  assert.equal(game.element("pb7-menu-layer").hidden, true);
+  assert.equal(game.element("pinebarrow-visible-menu-demo").dataset.sitePlacement, "mine", "closing the Town Hall panel must leave the mine footprint selection active");
+
   game.dispatchKey("keydown", "ArrowRight");
   game.frame(16);
   game.dispatchKey("keyup", "ArrowRight");

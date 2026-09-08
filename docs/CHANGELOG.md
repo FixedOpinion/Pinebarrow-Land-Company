@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Corrective checkpoint C2.4.5 — placement panel close
+
+- Closing the Town Hall action panel no longer cancels an active mine, warehouse, or residential placement. The panel can now be dismissed to expose the map while the selection remains active; Escape still explicitly cancels the placement.
+- Added a regression test for closing the mine-claim panel before dragging the footprint.
+
 ### Corrective checkpoint C2.4.4 — prospect-focused mine siting
 
 - Claiming a surveyed mine permit at Town Hall now immediately opens its 2×2 footprint selection, centered tightly on that exact prospect rather than the truck at Town Hall.

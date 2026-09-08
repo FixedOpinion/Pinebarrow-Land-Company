@@ -3052,7 +3052,6 @@
       }
 
       function closeMenu() {
-        if (sitePlacement) cancelInfrastructurePlacement("Closing the menu leaves this map selection uncommitted.", false);
         if (state.roadPlanning) cancelRoadSurvey();
         state.menuOpen = false;
         newsReaderOpen = false;

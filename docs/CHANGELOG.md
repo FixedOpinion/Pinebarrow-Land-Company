@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Corrective checkpoint C2.4.2 — project-opening and road-approval recovery
+
+- Opening a mine or warehouse construction project now immediately opens its Project Ledger in read-only site mode, rather than leaving the player with an apparently inactive button. Builder awards and procurement bids remain Town Hall actions.
+- Added a persistent **View site project** action at an active mine or warehouse construction site, so closing the ledger does not lose the project view.
+- Protected an approved road route from being erased by the still-visible survey controls. Those controls disable while the approval is pending, and the route survives save/reload until it becomes a construction project or is explicitly cancelled.
+- Opening an approved road project now opens the Project Ledger directly.
+- Added regression coverage for site-project visibility, Town Hall-only contract awards, road-approval reload persistence, and protection from accidental re-survey.
+
 ### Corrective checkpoint C2.4.1 — permit selection and project ledger
 
 - Replaced full-world placement overview with a zoomed placement view centered on the selected mine permit, existing house upgrade, or relevant development area. The + and − controls now keep the active selection centered instead of jumping back to the truck at Town Hall.

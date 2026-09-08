@@ -4302,6 +4302,7 @@
         if (!project) return false;
         parcel.constructionProjectId = project.id;
         setContext(siteKind === "mine" ? "Mine project opened" : "Warehouse project opened", definition.label + " keeps the selected " + footprint.w + "×" + footprint.h + " footprint and now follows the shared builder, supply, logistics, and hauling pipeline. At Town Hall, choose Open project ledger to award the builder and contract work.", "success");
+        openManagementScreen("projects");
         return true;
       }
 
@@ -4901,15 +4902,11 @@
       }
 
       function managementAccessAvailable() {
-        return ["townhall", "market", "mine", "warehouse"].includes(state.location);
+        return ["townhall", "market", "mine", "warehouse", "mine-site", "warehouse-site"].includes(state.location);
       }
 
       function openManagementScreen(tab) {
         if (!managementAccessAvailable()) return;
-        if (tab === "projects" && state.location !== "townhall") {
-          setContext("Town Hall required", "Builder bids and project contracts are awarded at Town Hall. Drive there, then open Project Ledger.", "warning");
-          return;
-        }
         managementScreenTab = ["projects", "mines", "warehouses", "contracts"].includes(tab) ? tab : "mines";
         managementScreenOpen = true;
         marketScreenOpen = false;
@@ -5593,6 +5590,10 @@
 
       function startRoadSurvey(profileId) {
         if (state.location !== "townhall") return;
+        if (state.roadApproval) {
+          setContext("Approved road route protected", "This route is already awaiting project opening. Use Open approved road project or cancel it before starting another survey.", "warning");
+          return;
+        }
         const profile = roadProfileFor(profileId || "company-road");
         state.roadPlanning = true;
         state.roadPlanningProfile = profile.id;
@@ -5747,7 +5748,7 @@
         state.roadDraft = [];
         setContext("Road project opened", profile.label + " is now in the ledger with " + project.roadPackages.length + " construction package" + (project.roadPackages.length === 1 ? "" : "s") + ". Award a qualified builder, then bid its supply, logistics, and hauling contracts.", "success");
         saveState(true);
-        renderInterface();
+        openManagementScreen("projects");
       }
 
       function cancelRoadSurvey() {
@@ -6057,14 +6058,15 @@
         const warehouseStatus = warehouseParcel
           ? (warehouseParcel.status === "available" ? "Purchase agreement ready" : warehouseParcel.status === "owned" ? "Land owned" : warehouseParcel.status)
           : "No warehouse lot selected";
+        const roadApproval = state.roadApproval;
         return '<section class="townhall-prospect-board townhall-project-ledger" aria-label="Infrastructure siting"><header><span>Infrastructure siting</span><strong>project-ledger route</strong></header>' +
           '<p class="townhall-proposal-overflow">Mine permits keep the surveyed geology. Warehouses are independently selected, then purchased and built through the same construction ledger.</p>' +
           '<div class="townhall-project-actions"><strong>Mine footprint · ' + detailText(mineStatus) + '</strong><p>Drag the starter 2×2 mine inside its geology permit. The map records the road-access edge with the proposal.</p>' +
             '<button type="button" data-site-plan-action="mine"' + (mineReady ? "" : " disabled") + '>' + (mineReady && !infrastructurePlacementRequired(mineParcel) ? "Re-select mine footprint" : "Select mine footprint") + '</button></div>' +
           '<div class="townhall-project-actions"><strong>Warehouse lot · ' + detailText(warehouseStatus) + '</strong><p>Select an independent starter warehouse with road access. It does not appear automatically beside a mine.</p>' +
             '<button type="button" data-site-plan-action="warehouse"' + (ownedMine ? "" : " disabled") + '>Select warehouse site</button></div>' +
-          '<div class="townhall-project-actions"><strong>Road corridor · project-backed</strong><p>Drag a connected route, then Town Hall opens builder, stone-supply, logistics, and hauling contracts. Long routes are packaged in groups of ten paving tiles.</p>' +
-            '<button type="button" data-road-profile="company-road">Survey 2-wide company road</button><button type="button" data-road-profile="main-street">Survey 4-wide main street · City Planner</button></div>' +
+          '<div class="townhall-project-actions"><strong>Road corridor · project-backed</strong><p>' + (roadApproval ? "An approved route is protected below. Open its construction project or cancel it before surveying another corridor." : "Drag a connected route, then Town Hall opens builder, stone-supply, logistics, and hauling contracts. Long routes are packaged in groups of ten paving tiles.") + '</p>' +
+            '<button type="button" data-road-profile="company-road"' + (roadApproval ? " disabled" : "") + '>Survey 2-wide company road</button><button type="button" data-road-profile="main-street"' + (roadApproval ? " disabled" : "") + '>Survey 4-wide main street · City Planner</button></div>' +
         '</section>';
       }
 
@@ -6758,6 +6760,10 @@
       }
 
       function handleProjectAction(action, id) {
+        if (["award-builder", "bid-procurement"].includes(action) && state.location !== "townhall") {
+          setContext("Town Hall required", "This project can be reviewed at the site, but builder awards and contract bids are completed at Town Hall.", "warning");
+          return;
+        }
         if (action === "approve") approveDevelopmentProposal(id);
         else if (action === "purchase") purchaseDevelopmentProposal(id);
         else if (action === "create-project") createConstructionProject(id);
@@ -6830,16 +6836,19 @@
         const definition = constructionProjectDefinition(project);
         const builderBids = constructionBidsForProject(project.id);
         const procurement = procurementContractsForProject(project.id);
-        let html = '<div class="townhall-project-actions"><strong>' + detailText(definition.label) + ' · ' + detailText(projectStatusText(project)) + '</strong><p>Project ' + detailText(project.id) + ' · labor ' + round1(project.laborDelivered).toFixed(1) + '/' + project.laborRequired + ' · deadline day ' + project.deadlineDay + '</p>';
+        const canAwardContracts = state.location === "townhall";
+        const townHallNote = canAwardContracts ? "" : '<p>Project review only at this site. Drive to Town Hall to award the builder and bid the project contracts.</p>';
+        const awardDisabled = canAwardContracts ? "" : " disabled";
+        let html = '<div class="townhall-project-actions"><strong>' + detailText(definition.label) + ' · ' + detailText(projectStatusText(project)) + '</strong><p>Project ' + detailText(project.id) + ' · labor ' + round1(project.laborDelivered).toFixed(1) + '/' + project.laborRequired + ' · deadline day ' + project.deadlineDay + '</p>' + townHallNote;
         if (project.status === "awaiting-builder") {
           html += '<div class="townhall-contract-list"><small>Builder bids</small>' + builderBids.map(function (bid) {
-            return '<span><b>' + detailText(bid.builderLabel) + '</b><em>$' + bid.price + ' · ' + bid.durationDays + ' days</em><button type="button" data-project-action="award-builder" data-bid-id="' + detailText(bid.id) + '">Award bid</button></span>';
+            return '<span><b>' + detailText(bid.builderLabel) + '</b><em>$' + bid.price + ' · ' + bid.durationDays + ' days</em><button type="button" data-project-action="award-builder" data-bid-id="' + detailText(bid.id) + '"' + awardDisabled + '>' + (canAwardContracts ? "Award bid" : "Town Hall required") + '</button></span>';
           }).join("") + '</div>';
         } else {
           const openContracts = procurement.filter(function (contract) { return contract.status === "open"; });
           html += '<div class="townhall-contract-list"><small>Supply, logistics &amp; hauling</small>' +
             (openContracts.length ? openContracts.map(function (contract) {
-              return '<span><b>' + detailText(projectContractLabel(contract)) + '</b><em>' + detailText(contract.category) + '</em><button type="button" data-project-action="bid-procurement" data-procurement-id="' + detailText(contract.id) + '">Bid this contract</button></span>';
+              return '<span><b>' + detailText(projectContractLabel(contract)) + '</b><em>' + detailText(contract.category) + '</em><button type="button" data-project-action="bid-procurement" data-procurement-id="' + detailText(contract.id) + '"' + awardDisabled + '>' + (canAwardContracts ? "Bid this contract" : "Town Hall required") + '</button></span>';
             }).join("") : '<p>All contracts have providers. Delivery, settlement, labor, and completion run with time.</p>') + '</div>';
         }
         return html + '</div>';
@@ -7178,9 +7187,14 @@
         el.marketplace.disabled = false;
         el.contracts.hidden = state.location !== "market";
         el.contracts.disabled = false;
-        el.companyManagement.hidden = !["townhall", "mine", "warehouse"].includes(state.location);
+        const siteProject = state.location === "mine-site" && state.mineParcel
+          ? siteProjectFor("mine", state.mineParcel.id)
+          : state.location === "warehouse-site" && state.warehouseParcel
+            ? siteProjectFor("warehouse", state.warehouseParcel.id)
+            : null;
+        el.companyManagement.hidden = !["townhall", "mine", "warehouse"].includes(state.location) && !siteProject;
         el.companyManagement.disabled = false;
-        el.companyManagement.textContent = state.location === "townhall" ? "Open project ledger" : state.location === "mine" ? "Open Mine Management" : "Open Warehouse Management";
+        el.companyManagement.textContent = state.location === "townhall" ? "Open project ledger" : siteProject ? "View site project" : state.location === "mine" ? "Open Mine Management" : "Open Warehouse Management";
         el.haulers.forEach(function (button) {
           const sizeKey = button.dataset.haulerSize;
           const hauler = CONFIG.haulers[sizeKey];
@@ -8873,7 +8887,7 @@
       el.marketplace.addEventListener("click", function () { openMarketScreen("exchange"); });
       el.contracts.addEventListener("click", function () { openManagementScreen("contracts"); });
       el.companyManagement.addEventListener("click", function () {
-        openManagementScreen(state.location === "townhall" ? "projects" : state.location === "warehouse" ? "warehouses" : "mines");
+        openManagementScreen(["townhall", "mine-site", "warehouse-site"].includes(state.location) ? "projects" : state.location === "warehouse" ? "warehouses" : "mines");
       });
       el.roadPlan.addEventListener("click", startRoadSurvey);
       el.roadSubmit.addEventListener("click", submitRoadSurvey);

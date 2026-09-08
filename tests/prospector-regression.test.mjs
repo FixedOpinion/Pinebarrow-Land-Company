@@ -1360,6 +1360,16 @@ test("Town Hall turns a turning two-wide road into a contract-backed constructio
   assert.equal(approved.roadApproval.stonePrice, 58);
   assert.equal(approved.cargo.stone, 2);
 
+  const reloadedApproval = createEngineHarness(approved, engineSource);
+  assert.ok(reloadedApproval.saved().roadApproval, "the approved route survives a fresh game load");
+  assert.deepEqual(reloadedApproval.saved().roadApproval.routeTiles, approved.roadApproval.routeTiles);
+  assert.equal(reloadedApproval.element("pb7-road-accept").hidden, false);
+  reloadedApproval.element("pb7-location-details").emit("click", {
+    target: locationActionTarget("[data-road-profile]", { roadProfile: "company-road" }),
+  });
+  assert.deepEqual(reloadedApproval.saved().roadApproval.routeTiles, approved.roadApproval.routeTiles, "starting another survey cannot erase an approved route");
+  assert.match(reloadedApproval.saved().contextText, /already awaiting project opening/i);
+
   game.element("pb7-road-accept").click();
   const opened = game.saved();
   assert.equal(opened.roadContractsCompleted, 0);
@@ -1371,6 +1381,8 @@ test("Town Hall turns a turning two-wide road into a contract-backed constructio
   assert.equal(opened.constructionProjects[0].roadPackages.length, 1);
   assert.equal(opened.constructionBids.length, 3);
   assert.equal(opened.procurementContracts.length, 3);
+  assert.equal(game.element("pb7-management-screen").hidden, false);
+  assert.equal(game.element("pb7-project-management-panel").hidden, false);
 
   const project = opened.constructionProjects[0];
   const ready = createEngineHarness({
@@ -1833,6 +1845,12 @@ test("new mine construction opens a shared project instead of spending cash dire
   assert.equal(saved.constructionProjects.length, 1);
   assert.equal(saved.constructionProjects[0].siteKind, "mine");
   assert.equal(saved.mineParcels[0].constructionProjectId, saved.constructionProjects[0].id);
+  assert.equal(game.element("pb7-management-screen").hidden, false, "opening the mine project shows its ledger immediately");
+  assert.equal(game.element("pb7-project-management-panel").hidden, false);
+  assert.match(game.element("pb7-project-management-board").innerHTML, /project review only at this site/i);
+  assert.match(game.element("pb7-project-management-board").innerHTML, /Town Hall required/);
+  assert.equal(game.element("pb7-company-management").hidden, false);
+  assert.equal(game.element("pb7-company-management").textContent, "View site project");
 
   const hall = createEngineHarness({ ...saved, player: { x: 37, y: 141 }, selected: { type: "building", id: "townhall", x: 37, y: 141 }, location: "townhall" }, engineSource);
   assert.match(hall.element("pb7-location-details").innerHTML, /Mine/);

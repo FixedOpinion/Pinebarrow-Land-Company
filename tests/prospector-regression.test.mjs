@@ -1410,6 +1410,33 @@ test("Town Hall turns a centered two-wide road into a contract-backed constructi
   assert.equal(ready.element("pinebarrow-visible-menu-demo").dataset.resourceRoadOverlaps, "0");
 });
 
+test("Town Hall accepts a two-wide road surveyed from a permit back to starter pavement", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const roadDraft = ["47,123", "46,123", "46,122"];
+  const cleared = ["46,122", "47,122", "46,123", "47,123", "46,124", "47,124"];
+  const game = createEngineHarness({
+    version: 16,
+    worldLayoutVersion: 2,
+    day: 1,
+    minutes: 480,
+    cash: 5000,
+    cargo: { stone: 2 },
+    player: { x: 45, y: 146 },
+    location: "townhall",
+    selected: { type: "road", x: 45, y: 146 },
+    cleared,
+    pavedDepth: 3,
+    roadDraft,
+    roadPlanning: true,
+    roadTiles: [],
+  }, engineSource);
+
+  game.element("pb7-road-submit").click();
+  const approved = game.saved();
+  assert.ok(approved.roadApproval, "a route may end on starter pavement");
+  assert.deepEqual(approved.roadApproval.routeTiles, ["46,122", "46,123", "47,122", "47,123"]);
+});
+
 test("road-contract stone demand rises on purchase day and corrects the next day", async () => {
   const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
   const common = {

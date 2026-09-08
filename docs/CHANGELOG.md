@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Corrective checkpoint C2.4.6 — bidirectional road surveying
+
+- Company roads may now be drawn from a mine or future site back to the starter pavement, or from pavement outward. A survey still must connect at one end to existing paved company road; this removes the start-end circularity without allowing disconnected roads.
+- Updated road instructions and validation feedback to state the endpoint connection rule.
+- Added a regression for a reversed two-wide starter-road route.
+
 ### Corrective checkpoint C2.4.5 — placement panel close
 
 - Closing the Town Hall action panel no longer cancels an active mine, warehouse, or residential placement. The panel can now be dismissed to expose the map while the selection remains active; Escape still explicitly cancels the placement.

@@ -5643,10 +5643,8 @@
         return !isLakeCell(x, y) && !isTreeAt(x, y) && !isStructureCell(x, y) && !mineParcelAt(x, y) && !warehouseParcelAt(x, y);
       }
 
-      function draftConnectsToRoad(points, width) {
-        if (!points.length) return false;
-        const firstSegment = points.slice(0, Math.min(2, points.length));
-        return Array.from(expandedRoadCells(firstSegment, width)).some(function (key) {
+      function roadSegmentTouchesPavement(points, width) {
+        return Array.from(expandedRoadCells(points, width)).some(function (key) {
           const point = pointFromKey(key);
           if (!point) return false;
           if (isPavedClaimRoad(point.x, point.y)) return true;
@@ -5654,6 +5652,18 @@
             { x: point.x + 1, y: point.y }, { x: point.x - 1, y: point.y },
             { x: point.x, y: point.y + 1 }, { x: point.x, y: point.y - 1 }
           ].some(function (neighbor) { return isPavedClaimRoad(neighbor.x, neighbor.y); });
+        });
+      }
+
+      function draftConnectsToRoad(points, width) {
+        if (!points.length) return false;
+        const segmentLength = Math.min(2, points.length);
+        const endpointSegments = [
+          points.slice(0, segmentLength),
+          points.slice(Math.max(0, points.length - segmentLength))
+        ];
+        return endpointSegments.some(function (segment) {
+          return roadSegmentTouchesPavement(segment, width);
         });
       }
 
@@ -5689,7 +5699,7 @@
             validateSelection: function (selection) {
               const points = controller.session.points || [];
               if (points.length < CONFIG.roadMinimumSurveyPoints) return { code: "route-short", message: "Drag across at least two connected route points." };
-              if (!draftConnectsToRoad(points, profile.width)) return { code: "road-connection", message: "Begin with the centered corridor touching an existing paved company road." };
+              if (!draftConnectsToRoad(points, profile.width)) return { code: "road-connection", message: "Finish one end of the centered corridor touching an existing paved company road." };
               const blocked = (selection.cells || []).map(function (cell) { return cell; }).find(function (cell) { return !isPavedClaimRoad(cell.x, cell.y) && !isRoadSurveyCellLegal(cell.x, cell.y); });
               return blocked ? { code: "road-blocked", message: "The " + profile.width + "-wide corridor is blocked at " + blocked.x + "," + blocked.y + "." } : true;
             },
@@ -5704,14 +5714,14 @@
               setContext("Road route captured", state.roadDraft.length + " connected center points are ready for Town Hall approval.", "success");
               renderInterface();
             },
-            onBlocked: function (validation) { setContext("Road corridor blocked", validation.firstIssue ? validation.firstIssue.message : "Drag a clear route beside existing pavement.", "error"); },
+            onBlocked: function (validation) { setContext("Road corridor blocked", validation.firstIssue ? validation.firstIssue.message : "Drag a clear route between your site and existing pavement.", "error"); },
             onCancel: function () { roadPlacementController = null; state.roadPlanning = false; state.roadDraft = []; renderInterface(); }
           });
           roadPlacementController = controller;
           controller.attach(canvas);
         }
         const tilesEachSide = Math.max(1, Math.floor(profile.width / 2));
-        setContext("Road survey active", "Drag the road centerline on open claim ground. This " + profile.width + "-wide corridor keeps " + tilesEachSide + " tile" + (tilesEachSide === 1 ? "" : "s") + " on each side of that line, may turn, and is split into 10-tile construction packages. Begin touching existing pavement; press Esc to cancel.");
+        setContext("Road survey active", "Drag the road centerline on open claim ground. This " + profile.width + "-wide corridor keeps " + tilesEachSide + " tile" + (tilesEachSide === 1 ? "" : "s") + " on each side of that line, may turn, and is split into 10-tile construction packages. Start at either end, then finish touching existing pavement; press Esc to cancel.");
       }
 
       function planRoadPoint(x, y) {
@@ -5720,7 +5730,7 @@
         const existingIndex = state.roadDraft.indexOf(key);
         if (existingIndex >= 0) {
           state.roadDraft = state.roadDraft.slice(0, existingIndex);
-          setContext("Road survey revised", state.roadDraft.length ? state.roadDraft.length + " center points remain. Continue drawing, or return to Town Hall." : "The route is empty. Tap beside an existing paved road to begin again.");
+          setContext("Road survey revised", state.roadDraft.length ? state.roadDraft.length + " center points remain. Continue drawing, or return to Town Hall." : "The route is empty. Start beside the project site or existing pavement, then connect the other end.");
           return true;
         }
         const points = roadDraftPoints();
@@ -5732,10 +5742,6 @@
           }
         }
         const candidate = points.concat({ x: x, y: y });
-        if (!points.length && !draftConnectsToRoad(candidate, activeRoadProfile().width)) {
-          setContext("Road connection required", "Begin with the centered corridor touching the existing paved road.");
-          return true;
-        }
         const expanded = expandedRoadCells(candidate, activeRoadProfile().width);
         const blocked = Array.from(expanded).map(pointFromKey).find(function (point) {
           return point && !isPavedClaimRoad(point.x, point.y) && !isRoadSurveyCellLegal(point.x, point.y);
@@ -5755,7 +5761,7 @@
         if (state.location !== "townhall") return;
         const points = roadDraftPoints();
         if (points.length < CONFIG.roadMinimumSurveyPoints || !draftConnectsToRoad(points, activeRoadProfile().width)) {
-          setContext("Road survey incomplete", "Mark at least two connected center points beginning at existing pavement, then submit again.");
+          setContext("Road survey incomplete", "Mark at least two connected center points with one end touching existing pavement, then submit again.");
           return;
         }
         const profile = activeRoadProfile();

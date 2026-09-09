@@ -3077,6 +3077,64 @@ body {
   box-shadow: 0 5px 0 rgba(152, 112, 0, 0.45), 0 10px 24px rgba(22, 33, 62, 0.2);
 }
 
+.road-survey-controls {
+  position: absolute;
+  z-index: 36;
+  top: 116px;
+  left: 7px;
+  display: grid;
+  gap: 7px;
+  width: 42px;
+}
+
+.road-survey-controls button {
+  min-height: 42px;
+  padding: 4px 2px;
+  border: 1px solid rgba(255, 232, 145, 0.9);
+  border-radius: 10px;
+  color: #fff6ce;
+  background: linear-gradient(145deg, rgba(37, 65, 105, 0.96), rgba(23, 39, 70, 0.98));
+  box-shadow: 0 3px 0 rgba(12, 24, 46, 0.9), 0 8px 15px rgba(10, 17, 32, 0.24);
+  font: 900 7px/1.05 system-ui, sans-serif;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.road-survey-controls button + button {
+  color: #e4fff4;
+  border-color: rgba(147, 237, 205, 0.9);
+  background: linear-gradient(145deg, rgba(33, 104, 89, 0.97), rgba(21, 70, 63, 0.98));
+}
+
+.road-survey-controls button:disabled {
+  opacity: .48;
+  cursor: default;
+  box-shadow: 0 2px 0 rgba(12, 24, 46, 0.7);
+}
+
+.road-survey-controls button:not(:disabled):active {
+  box-shadow: none;
+  transform: translateY(3px);
+}
+
+@media (orientation: landscape) and (max-height: 620px) {
+  .road-survey-controls {
+    top: 108px;
+    left: 5px;
+    gap: 5px;
+    width: 36px;
+  }
+
+  .road-survey-controls button {
+    min-height: 36px;
+    padding: 3px 1px;
+    border-radius: 8px;
+    font-size: 6px;
+  }
+}
+
 .market-terminal {
   position: relative;
   z-index: 4;

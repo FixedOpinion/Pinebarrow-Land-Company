@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Corrective checkpoint C2.4.8 — locked road tile selection
+
+- Replaced the always-on freehand road gesture with an explicit left-side **Start tiles** → **Lock route** flow after Town Hall selects a road survey.
+- A pass reads every tile crossed and locks to its dominant axis, so slight finger drift no longer creates unintended turns or jumps between centerlines. Intentional turns are made by locking one pass and starting the next from its endpoint.
+- A highlighted pass is only committed by **Lock route**; ordinary map taps, closing the Town Hall panel, and opening either menu now preserve the locked survey until the player explicitly submits or cancels it.
+- Road validation continues to allow contact with already paved company road, preventing starter-pavement overlap from being reported as a blocked corridor.
+- Added a regression for diagonal finger drift, route locking, post-lock map taps, and Town Hall panel dismissal. Verification: production build, 64 Node tests, and lint with no errors (one pre-existing unused-variable warning).
+
 ### Corrective checkpoint C2.4.7 — Town Market construction supply
 
 - The Town Market is now two-way: it sells every construction material at the live town price and loads purchases directly into the truck.

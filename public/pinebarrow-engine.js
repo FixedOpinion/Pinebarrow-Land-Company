@@ -482,6 +482,9 @@
         roadSubmit: root.querySelector("#pb7-road-submit"),
         roadAccept: root.querySelector("#pb7-road-accept"),
         roadCancel: root.querySelector("#pb7-road-cancel"),
+        roadSurveyControls: root.querySelector("#pb7-road-survey-controls"),
+        roadStartDraw: root.querySelector("#pb7-road-start-draw"),
+        roadLock: root.querySelector("#pb7-road-lock"),
         readNews: root.querySelector("#pb7-read-news"),
         clear: root.querySelector("#pb7-clear"),
         prospect: root.querySelector("#pb7-prospect"),
@@ -589,6 +592,8 @@
       let touchDrivePointerId = null;
       let sitePlacement = null;
       let roadPlacementController = null;
+      let roadDrawingActive = false;
+      let roadSurveyPreviewPoints = [];
       let suppressPlacementClick = false;
       const truckSprite = new Image();
       let truckSpriteReady = false;
@@ -910,7 +915,6 @@
       function openSystemMenuFromInput() {
         if (!state.started || systemMenuOpen) return;
         if (sitePlacement) cancelInfrastructurePlacement("Opening the company menu leaves this map selection uncommitted.", true);
-        if (state.roadPlanning) cancelRoadSurvey();
         settleMovementForReroute();
         state.path = [];
         state.pendingArrival = null;
@@ -927,7 +931,6 @@
       function openContextMenuFromInput() {
         if (!state.started || state.menuOpen) return;
         if (sitePlacement) cancelInfrastructurePlacement("Opening the context menu leaves this map selection uncommitted.", true);
-        if (state.roadPlanning) cancelRoadSurvey();
         settleMovementForReroute();
         systemMenuOpen = false;
         closeFastTravel();
@@ -3057,7 +3060,6 @@
       }
 
       function closeMenu() {
-        if (state.roadPlanning) cancelRoadSurvey();
         state.menuOpen = false;
         newsReaderOpen = false;
         marketScreenOpen = false;
@@ -3353,7 +3355,6 @@
         if (x < 0 || x >= WORLD_WIDTH || y < 0 || y >= WORLD_HEIGHT) return;
         if (sitePlacement) return;
         if (state.roadPlanning) {
-          planRoadPoint(x, y);
           return;
         }
         const building = buildingAt(x, y);
@@ -5742,6 +5743,187 @@
         });
       }
 
+      function sameRoadPoint(left, right) {
+        return Boolean(left && right && left.x === right.x && left.y === right.y);
+      }
+
+      function roadSurveyDisplayPoints() {
+        const draft = roadDraftPoints();
+        if (!roadSurveyPreviewPoints.length) return draft;
+        const preview = roadSurveyPreviewPoints.slice();
+        if (draft.length && sameRoadPoint(draft[draft.length - 1], preview[0])) preview.shift();
+        return draft.concat(preview);
+      }
+
+      function roadSurveyPointAvailable(point) {
+        return Boolean(point && (isPavedClaimRoad(point.x, point.y) || isRoadSurveyCellLegal(point.x, point.y)));
+      }
+
+      function straightRoadPoints(start, end, axis) {
+        if (!start || !end) return [];
+        const horizontal = axis === "x";
+        const distance = horizontal ? Math.abs(end.x - start.x) : Math.abs(end.y - start.y);
+        const step = Math.sign(horizontal ? end.x - start.x : end.y - start.y);
+        const points = [];
+        for (let offset = 0; offset <= distance; offset += 1) {
+          points.push(horizontal
+            ? { x: start.x + step * offset, y: start.y }
+            : { x: start.x, y: start.y + step * offset });
+        }
+        return points;
+      }
+
+      function detachRoadTileSelection() {
+        if (roadPlacementController && typeof roadPlacementController.detach === "function") roadPlacementController.detach();
+        roadPlacementController = null;
+        roadDrawingActive = false;
+      }
+
+      function startRoadTileSelection() {
+        if (state.location !== "townhall" || !state.roadPlanning || state.roadApproval) return;
+        detachRoadTileSelection();
+        roadSurveyPreviewPoints = [];
+        let activePointerId = null;
+        let anchor = null;
+        let axis = "";
+        let gestureComplete = false;
+        let lastBlockedKey = "";
+
+        function pointerIdFor(event) {
+          return event && event.pointerId != null ? event.pointerId : 1;
+        }
+
+        function pointForEvent(event) {
+          const rect = canvas.getBoundingClientRect();
+          return worldPoint(event.clientX - rect.left, event.clientY - rect.top);
+        }
+
+        function previewThrough(point, forceAxis) {
+          if (!anchor || !point) return;
+          const deltaX = point.x - anchor.x;
+          const deltaY = point.y - anchor.y;
+          if (!axis && (deltaX || deltaY)) {
+            const furthestDistance = Math.max(Math.abs(deltaX), Math.abs(deltaY));
+            if (!forceAxis && furthestDistance < 2) return;
+            axis = Math.abs(deltaX) >= Math.abs(deltaY) ? "x" : "y";
+          }
+          if (!axis) return;
+          const snapped = axis === "x" ? { x: point.x, y: anchor.y } : { x: anchor.x, y: point.y };
+          const candidate = straightRoadPoints(anchor, snapped, axis);
+          const blocked = candidate.find(function (candidatePoint) { return !roadSurveyPointAvailable(candidatePoint); });
+          if (blocked) {
+            const blockedKey = keyFor(blocked.x, blocked.y);
+            if (blockedKey !== lastBlockedKey) {
+              lastBlockedKey = blockedKey;
+              setContext("Road pass paused", "The center tile at " + blocked.x + "," + blocked.y + " is not clear. Lift your finger and redraw this pass around it.", "warning");
+            }
+            return;
+          }
+          lastBlockedKey = "";
+          roadSurveyPreviewPoints = candidate;
+          renderInterface();
+        }
+
+        function onPointerDown(event) {
+          if ((event.button != null && event.button !== 0) || gestureComplete) return;
+          event.preventDefault();
+          const touched = pointForEvent(event);
+          if (!roadSurveyPointAvailable(touched)) {
+            setContext("Road center blocked", "Start on open company ground or on an existing paved company road.", "warning");
+            return;
+          }
+          const draft = roadDraftPoints();
+          const last = draft[draft.length - 1];
+          if (last) {
+            const distanceToEnd = Math.abs(last.x - touched.x) + Math.abs(last.y - touched.y);
+            if (distanceToEnd > 1) {
+              setContext("Start from route end", "Touch the last locked center tile, or one tile directly beside it, before adding the next straight pass.", "warning");
+              return;
+            }
+            anchor = { x: last.x, y: last.y };
+            roadSurveyPreviewPoints = [{ x: anchor.x, y: anchor.y }];
+            if (!sameRoadPoint(anchor, touched)) previewThrough(touched);
+          } else {
+            anchor = { x: touched.x, y: touched.y };
+            roadSurveyPreviewPoints = [{ x: anchor.x, y: anchor.y }];
+          }
+          activePointerId = pointerIdFor(event);
+          if (canvas.setPointerCapture) canvas.setPointerCapture(activePointerId);
+          renderInterface();
+        }
+
+        function onPointerMove(event) {
+          if (activePointerId === null || pointerIdFor(event) !== activePointerId) return;
+          event.preventDefault();
+          previewThrough(pointForEvent(event));
+        }
+
+        function finishPointer(event, interrupted) {
+          if (activePointerId === null || pointerIdFor(event) !== activePointerId) return;
+          event.preventDefault();
+          previewThrough(pointForEvent(event), true);
+          if (canvas.releasePointerCapture) canvas.releasePointerCapture(activePointerId);
+          activePointerId = null;
+          gestureComplete = true;
+          suppressPlacementClick = true;
+          if (!roadSurveyPreviewPoints.length) {
+            setContext("Road pass not started", "Press Start tiles again, then touch an open center tile.", "warning");
+            return;
+          }
+          setContext(interrupted ? "Road pass held" : "Road pass ready", "The highlighted tiles are held safely. Press Lock route to save this pass, or Start tiles to redraw it.", "success");
+        }
+
+        function detach() {
+          canvas.removeEventListener("pointerdown", onPointerDown);
+          canvas.removeEventListener("pointermove", onPointerMove);
+          canvas.removeEventListener("pointerup", onPointerUp);
+          canvas.removeEventListener("pointercancel", onPointerCancel);
+          if (activePointerId !== null && canvas.releasePointerCapture) canvas.releasePointerCapture(activePointerId);
+          activePointerId = null;
+        }
+
+        function onPointerUp(event) {
+          finishPointer(event, false);
+        }
+
+        function onPointerCancel(event) {
+          finishPointer(event, true);
+        }
+
+        roadDrawingActive = true;
+        roadPlacementController = { detach: detach };
+        canvas.addEventListener("pointerdown", onPointerDown);
+        canvas.addEventListener("pointermove", onPointerMove);
+        canvas.addEventListener("pointerup", onPointerUp);
+        canvas.addEventListener("pointercancel", onPointerCancel);
+        setContext("Road tile selection ready", "Touch a center tile and drag in one direction. Every crossed tile is read, while small finger drift stays on that straight line. Press Lock route when the pass looks right.");
+      }
+
+      function lockRoadTileSelection() {
+        if (!state.roadPlanning || !roadSurveyPreviewPoints.length) {
+          setContext("No road pass to lock", "Press Start tiles, touch the map, and drag across the tiles you want before locking the route.", "warning");
+          return;
+        }
+        const merged = roadDraftPoints();
+        roadSurveyPreviewPoints.forEach(function (point) {
+          if (!merged.length || !sameRoadPoint(merged[merged.length - 1], point)) merged.push({ x: point.x, y: point.y });
+        });
+        state.roadDraft = merged.map(function (point) { return keyFor(point.x, point.y); });
+        state.roadApproval = null;
+        roadSurveyPreviewPoints = [];
+        detachRoadTileSelection();
+        const points = roadDraftPoints();
+        const profile = activeRoadProfile();
+        const connects = draftConnectsToRoad(points, profile.width);
+        const newTiles = roadDraftNewTiles(points, profile.width).length;
+        const nextStep = points.length < CONFIG.roadMinimumSurveyPoints
+          ? "Add at least one more center tile before submitting."
+          : connects
+            ? "The route reaches company pavement; reopen Town Hall and submit it when ready."
+            : "Use Start tiles again from the last locked center tile to extend it to company pavement.";
+        setContext("Road route locked", points.length + " center tiles now mark " + newTiles + " new " + profile.width + "-wide paving tiles. " + nextStep, "success");
+      }
+
       function startRoadSurvey(profileId) {
         if (state.location !== "townhall") return;
         if (state.roadApproval) {
@@ -5757,76 +5939,17 @@
         marketScreenOpen = false;
         managementScreenOpen = false;
         state.overview = true;
-        if (roadPlacementController && typeof roadPlacementController.detach === "function") roadPlacementController.detach();
-        const placementApi = window.PinebarrowPlacement;
-        if (placementApi && typeof placementApi.createPointerController === "function") {
-          const controller = placementApi.createPointerController({
-            mode: "corridor", width: profile.width,
-            toGrid: function (event) { const rect = canvas.getBoundingClientRect(); return worldPoint(event.clientX - rect.left, event.clientY - rect.top); },
-            validateCell: function (cell) { return isRoadSurveyCellLegal(cell.x, cell.y) ? true : { code: "road-blocked", message: "Roads cannot cross water, trees, structures, or unapproved land." }; },
-            validateSelection: function (selection) {
-              const points = controller.session.points || [];
-              if (points.length < CONFIG.roadMinimumSurveyPoints) return { code: "route-short", message: "Drag across at least two connected route points." };
-              if (!draftConnectsToRoad(points, profile.width)) return { code: "road-connection", message: "Finish one end of the centered corridor touching an existing paved company road." };
-              const blocked = (selection.cells || []).map(function (cell) { return cell; }).find(function (cell) { return !isPavedClaimRoad(cell.x, cell.y) && !isRoadSurveyCellLegal(cell.x, cell.y); });
-              return blocked ? { code: "road-blocked", message: "The " + profile.width + "-wide corridor is blocked at " + blocked.x + "," + blocked.y + "." } : true;
-            },
-            onStart: function () { state.roadDraft = controller.session.points.map(function (point) { return keyFor(point.x, point.y); }); renderInterface(); },
-            onPreview: function () { state.roadDraft = controller.session.points.map(function (point) { return keyFor(point.x, point.y); }); renderInterface(); },
-            onCommit: function () {
-              state.roadDraft = controller.session.points.map(function (point) { return keyFor(point.x, point.y); });
-              state.roadPlanning = false;
-              roadPlacementController = null;
-              controller.detach();
-              suppressPlacementClick = true;
-              setContext("Road route captured", state.roadDraft.length + " connected center points are ready for Town Hall approval.", "success");
-              renderInterface();
-            },
-            onBlocked: function (validation) { setContext("Road corridor blocked", validation.firstIssue ? validation.firstIssue.message : "Drag a clear route between your site and existing pavement.", "error"); },
-            onCancel: function () { roadPlacementController = null; state.roadPlanning = false; state.roadDraft = []; renderInterface(); }
-          });
-          roadPlacementController = controller;
-          controller.attach(canvas);
-        }
-        const tilesEachSide = Math.max(1, Math.floor(profile.width / 2));
-        setContext("Road survey active", "Drag the road centerline on open claim ground. This " + profile.width + "-wide corridor keeps " + tilesEachSide + " tile" + (tilesEachSide === 1 ? "" : "s") + " on each side of that line, may turn, and is split into 10-tile construction packages. Start at either end, then finish touching existing pavement; press Esc to cancel.");
-      }
-
-      function planRoadPoint(x, y) {
-        if (!state.roadPlanning) return false;
-        const key = keyFor(x, y);
-        const existingIndex = state.roadDraft.indexOf(key);
-        if (existingIndex >= 0) {
-          state.roadDraft = state.roadDraft.slice(0, existingIndex);
-          setContext("Road survey revised", state.roadDraft.length ? state.roadDraft.length + " center points remain. Continue drawing, or return to Town Hall." : "The route is empty. Start beside the project site or existing pavement, then connect the other end.");
-          return true;
-        }
-        const points = roadDraftPoints();
-        if (points.length) {
-          const last = points[points.length - 1];
-          if (Math.abs(last.x - x) + Math.abs(last.y - y) !== 1) {
-            setContext("Continuous route required", "Choose one tile directly north, south, east, or west of the last survey point. Roads cannot jump across land.");
-            return true;
-          }
-        }
-        const candidate = points.concat({ x: x, y: y });
-        const expanded = expandedRoadCells(candidate, activeRoadProfile().width);
-        const blocked = Array.from(expanded).map(pointFromKey).find(function (point) {
-          return point && !isPavedClaimRoad(point.x, point.y) && !isRoadSurveyCellLegal(point.x, point.y);
-        });
-        if (blocked) {
-          setContext("Road survey blocked", "The centered " + activeRoadProfile().width + "-wide route crosses water, a tree, company parcel, or structure at " + blocked.x + "," + blocked.y + ". Clear it or turn around it.");
-          return true;
-        }
-        state.roadDraft.push(key);
-        state.roadApproval = null;
-        const newTiles = roadDraftNewTiles(candidate, activeRoadProfile().width).length;
-        setContext("Road route marked", candidate.length + " linked center points create " + newTiles + " new " + activeRoadProfile().width + "-wide road tiles. Release to review the route at Town Hall.");
-        return true;
+        detachRoadTileSelection();
+        roadSurveyPreviewPoints = [];
+        setContext("Road survey selected", profile.label + " is ready. Use Start tiles on the left, drag one straight centerline pass, then press Lock route. Lock each pass before using Start tiles again for a deliberate turn.");
       }
 
       function submitRoadSurvey() {
         if (state.location !== "townhall") return;
+        if (roadDrawingActive) {
+          setContext("Lock the highlighted route", "Press Lock route on the left before sending the survey to Town Hall.", "warning");
+          return;
+        }
         const points = roadDraftPoints();
         if (points.length < CONFIG.roadMinimumSurveyPoints || !draftConnectsToRoad(points, activeRoadProfile().width)) {
           setContext("Road survey incomplete", "Mark at least two connected center points with one end touching existing pavement, then submit again.");
@@ -5838,7 +5961,7 @@
           setContext("No new road proposed", "This survey only overlaps road that is already paved. Extend it onto open land.");
           return;
         }
-        const blocked = routeTiles.map(pointFromKey).find(function (point) { return point && !isRoadSurveyCellLegal(point.x, point.y); });
+        const blocked = routeTiles.map(pointFromKey).find(function (point) { return point && !isPavedClaimRoad(point.x, point.y) && !isRoadSurveyCellLegal(point.x, point.y); });
         if (blocked) {
           setContext("Town Hall rejected route", "The proposed two-wide corridor is no longer clear at " + blocked.x + "," + blocked.y + ". Revise the survey and resubmit.");
           return;
@@ -5862,6 +5985,8 @@
           totalCost: stoneCost + laborCost
         };
         state.roadPlanning = false;
+        roadSurveyPreviewPoints = [];
+        detachRoadTileSelection();
         setContext("Town Hall approved the route", profile.label + " has " + routeTiles.length + " paving tiles in " + state.roadApproval.packages.length + " construction package" + (state.roadApproval.packages.length === 1 ? "" : "s") + ". Award a builder and the supply, logistics, and hauling contracts from the project ledger.");
       }
 
@@ -5904,8 +6029,8 @@
 
       function cancelRoadSurvey() {
         if (state.location !== "townhall" && !state.roadPlanning) return;
-        if (roadPlacementController && typeof roadPlacementController.detach === "function") roadPlacementController.detach();
-        roadPlacementController = null;
+        detachRoadTileSelection();
+        roadSurveyPreviewPoints = [];
         state.roadPlanning = false;
         state.roadDraft = [];
         state.roadApproval = null;
@@ -7286,9 +7411,21 @@
         el.context.textContent = state.contextText;
         root.dataset.roadPlanning = state.roadPlanning ? "true" : "false";
         root.dataset.sitePlacement = sitePlacement ? sitePlacement.siteKind : "";
+        const roadSurveyControlsVisible = state.location === "townhall" && state.roadPlanning && !state.roadApproval;
+        if (el.roadSurveyControls) el.roadSurveyControls.hidden = !roadSurveyControlsVisible;
+        if (el.roadStartDraw) {
+          el.roadStartDraw.disabled = !roadSurveyControlsVisible;
+          el.roadStartDraw.textContent = roadDrawingActive && roadSurveyPreviewPoints.length ? "Redraw tiles" : state.roadDraft.length ? "Add tiles" : "Start tiles";
+        }
+        if (el.roadLock) {
+          el.roadLock.disabled = !roadSurveyControlsVisible || !roadDrawingActive || !roadSurveyPreviewPoints.length;
+          el.roadLock.textContent = "Lock route";
+        }
         if (el.mapTip) {
           if (sitePlacement) el.mapTip.textContent = sitePlacement.siteKind === "mine" ? "MINE FOOTPRINT · selected permit locked · drag a 2×2 lot · Esc cancels" : sitePlacement.siteKind === "warehouse" ? "WAREHOUSE SITE · drag a 2×2 lot · Esc cancels" : "RESIDENTIAL LOT · drag the selected house footprint · Esc cancels";
-          else if (state.roadPlanning) el.mapTip.textContent = "ROAD SURVEY · drag a connected " + activeRoadProfile().width + "-wide corridor · Esc cancels";
+          else if (state.roadPlanning) el.mapTip.textContent = roadDrawingActive
+            ? roadSurveyPreviewPoints.length ? "ROAD SURVEY · route held · lock it on the left" : "ROAD SURVEY · touch the first center tile"
+            : "ROAD SURVEY · tap Start tiles on the left";
           else if (inputMode === "controller") el.mapTip.textContent = "Controller connected · RT drive · X cut · Y menu";
           else if (inputMode === "keyboard") el.mapTip.textContent = "Keyboard drive · E menu · Space cut";
           else el.mapTip.textContent = "Tap map · Arrows / WASD · Controller ready";
@@ -7387,7 +7524,7 @@
         el.roadPlan.hidden = state.location !== "townhall" || state.roadPlanning || state.roadDraft.length > 0 || Boolean(state.roadApproval);
         el.roadPlan.disabled = false;
         el.roadSubmit.hidden = state.location !== "townhall" || Boolean(state.roadApproval) || state.roadDraft.length === 0;
-        el.roadSubmit.disabled = state.roadDraft.length < CONFIG.roadMinimumSurveyPoints;
+        el.roadSubmit.disabled = roadDrawingActive || state.roadDraft.length < CONFIG.roadMinimumSurveyPoints;
         el.roadSubmit.textContent = "Submit " + roadDraftNewTiles(roadDraftPoints(), activeRoadProfile().width).length + "-tile " + activeRoadProfile().width + "-wide route for approval";
         el.roadAccept.hidden = state.location !== "townhall" || !state.roadApproval;
         el.roadAccept.disabled = !state.roadApproval;
@@ -8674,7 +8811,7 @@
       }
 
       function drawRoadSurvey(colors) {
-        const points = roadDraftPoints();
+        const points = roadSurveyDisplayPoints();
         if (!points.length) return;
         const profile = state.roadApproval ? roadProfileFor(state.roadApproval.profileId) : activeRoadProfile();
         const previewCells = expandedRoadCells(points, profile.width);
@@ -9041,6 +9178,8 @@
         openManagementScreen(["townhall", "mine-site", "warehouse-site"].includes(state.location) ? "projects" : state.location === "warehouse" ? "warehouses" : "mines");
       });
       el.roadPlan.addEventListener("click", startRoadSurvey);
+      el.roadStartDraw.addEventListener("click", startRoadTileSelection);
+      el.roadLock.addEventListener("click", lockRoadTileSelection);
       el.roadSubmit.addEventListener("click", submitRoadSurvey);
       el.roadAccept.addEventListener("click", acceptRoadContract);
       el.roadCancel.addEventListener("click", cancelRoadSurvey);

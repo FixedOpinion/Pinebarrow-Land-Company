@@ -162,7 +162,9 @@ export default function Home() {
               <div id="pb7-map-tip" className="map-tip" aria-live="polite">Tap map · Arrows / WASD · Controller ready</div>
               <section id="pb7-road-survey-controls" className="road-survey-controls" aria-label="Road survey controls" hidden>
                 <button id="pb7-road-start-draw" type="button" aria-label="Start road tile selection">Start<br />tiles</button>
-                <button id="pb7-road-lock" type="button" aria-label="Lock selected road route">Lock<br />route</button>
+                <button id="pb7-road-lock" type="button" aria-label="Commit current road segment">Commit<br />segment</button>
+                <button id="pb7-road-undo" type="button" aria-label="Undo last road segment">Undo<br />segment</button>
+                <button id="pb7-road-clear-route" type="button" aria-label="Clear road route">Clear<br />route</button>
               </section>
               <button id="pb7-play-fullscreen" className="fullscreen-launch" type="button" aria-label="Play Pinebarrow in full screen">
                 <span aria-hidden="true">⛶</span>

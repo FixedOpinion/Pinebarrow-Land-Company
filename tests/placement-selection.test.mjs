@@ -7,8 +7,10 @@ import {
   corridorCenterline,
   corridorCells,
   createPointerController,
+  createRoadSegmentController,
   createSelectionSession,
   normalizeRectangle,
+  orthogonalSegmentPoints,
   rectangleCells,
   rotateSelection,
   validateSelection,
@@ -43,6 +45,52 @@ class PointerTarget {
   releasePointerCapture(pointerId) {
     this.released.push(pointerId);
   }
+}
+
+class EventTargetStub {
+  constructor() {
+    this.listeners = new Map();
+  }
+
+  addEventListener(type, listener) {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  removeEventListener(type, listener) {
+    this.listeners.set(type, (this.listeners.get(type) ?? []).filter((item) => item !== listener));
+  }
+
+  emit(type, event = {}) {
+    for (const listener of this.listeners.get(type) ?? []) listener(event);
+  }
+}
+
+function roadControllerHarness() {
+  const target = new PointerTarget();
+  const windowTarget = new EventTargetStub();
+  const released = [];
+  const anchors = [];
+  const previews = [];
+  const cancelled = [];
+  const controller = createRoadSegmentController({
+    dragThresholdPx: 12,
+    windowTarget,
+    toGrid: (event) => ({ x: event.tileX, y: event.tileY }),
+    toClient: (event) => ({ x: event.clientX, y: event.clientY }),
+    validatePoint: () => true,
+    onStart: (anchor) => anchors.push(anchor),
+    onPreview: (points) => previews.push(points),
+    onRelease: (points) => released.push(points),
+    onCancel: () => cancelled.push(true),
+  });
+  controller.attach(target);
+  return { target, windowTarget, controller, anchors, previews, released, cancelled };
+}
+
+function roadPointer(pointerId, tileX, tileY, clientX, clientY) {
+  return { pointerId, button: 0, tileX, tileY, clientX, clientY, preventDefault() {} };
 }
 
 test("area selection normalizes diagonal drags into an inclusive rectangle", () => {
@@ -128,6 +176,78 @@ test("four-wide corridors keep two paving tiles on each side of their centerline
     });
   });
   assert.equal(cells.some((cell) => cell.y === 7 || cell.y === 12), false);
+});
+
+test("ROAD-REGRESSION-001 — first touch horizontal explosion", () => {
+  const road = roadControllerHarness();
+  road.target.emit("pointerdown", roadPointer(31, 46, 122, 180, 220));
+  road.target.emit("pointerup", roadPointer(31, 89, 122, 990, 220));
+  assert.deepEqual(road.anchors, [{ x: 46, y: 122 }]);
+  assert.equal(road.released.length, 0, "pointerup coordinates cannot manufacture a segment");
+  assert.deepEqual(road.controller.session.candidate, []);
+  assert.equal(road.controller.commit(), null);
+});
+
+test("road gestures require the CSS-pixel threshold and never resolve an equal diagonal as horizontal", () => {
+  const belowThreshold = roadControllerHarness();
+  belowThreshold.target.emit("pointerdown", roadPointer(32, 10, 10, 100, 100));
+  belowThreshold.target.emit("pointermove", roadPointer(32, 15, 10, 106, 106));
+  belowThreshold.target.emit("pointerup", roadPointer(32, 15, 10, 106, 106));
+  assert.equal(belowThreshold.released.length, 0);
+  assert.equal(belowThreshold.controller.session.axis, null);
+
+  const exactTie = roadControllerHarness();
+  exactTie.target.emit("pointerdown", roadPointer(33, 10, 10, 100, 100));
+  exactTie.target.emit("pointermove", roadPointer(33, 30, 30, 120, 120));
+  exactTie.target.emit("pointerup", roadPointer(33, 30, 30, 120, 120));
+  assert.equal(exactTie.released.length, 0);
+  assert.equal(exactTie.controller.session.axis, null, "an ambiguous diagonal has no forced axis");
+});
+
+test("road horizontal and vertical drags lock one axis despite finger wobble", () => {
+  const horizontal = roadControllerHarness();
+  horizontal.target.emit("pointerdown", roadPointer(34, 4, 8, 100, 100));
+  horizontal.target.emit("pointermove", roadPointer(34, 7, 9, 140, 114));
+  horizontal.target.emit("pointermove", roadPointer(34, 9, 14, 175, 170));
+  horizontal.target.emit("pointerup", roadPointer(34, 9, 14, 175, 170));
+  assert.equal(horizontal.controller.session.axis, "x");
+  assert.deepEqual(horizontal.released[0], orthogonalSegmentPoints({ x: 4, y: 8 }, { x: 9, y: 8 }, "x"));
+
+  const vertical = roadControllerHarness();
+  vertical.target.emit("pointerdown", roadPointer(35, 12, 6, 200, 100));
+  vertical.target.emit("pointermove", roadPointer(35, 13, 9, 210, 145));
+  vertical.target.emit("pointermove", roadPointer(35, 19, 12, 280, 190));
+  vertical.target.emit("pointerup", roadPointer(35, 19, 12, 280, 190));
+  assert.equal(vertical.controller.session.axis, "y");
+  assert.deepEqual(vertical.released[0], orthogonalSegmentPoints({ x: 12, y: 6 }, { x: 12, y: 12 }, "y"));
+});
+
+test("a released road candidate ignores unrelated touches until explicitly committed or redrawn", () => {
+  const road = roadControllerHarness();
+  road.target.emit("pointerdown", roadPointer(36, 2, 3, 50, 50));
+  road.target.emit("pointermove", roadPointer(36, 5, 3, 100, 54));
+  road.target.emit("pointerup", roadPointer(36, 5, 3, 100, 54));
+  const candidate = road.controller.session.candidate.map((point) => ({ ...point }));
+  road.target.emit("pointerdown", roadPointer(37, 40, 40, 500, 500));
+  road.target.emit("pointermove", roadPointer(37, 60, 40, 800, 500));
+  road.target.emit("pointerup", roadPointer(37, 60, 40, 800, 500));
+  assert.deepEqual(road.controller.session.candidate, candidate);
+  assert.equal(road.released.length, 1);
+  assert.deepEqual(road.controller.commit()?.points, candidate);
+});
+
+test("pointer cancel, lost capture, and window blur discard road candidates instead of committing", () => {
+  ["pointercancel", "lostpointercapture", "blur"].forEach((eventName, index) => {
+    const road = roadControllerHarness();
+    const pointerId = 40 + index;
+    road.target.emit("pointerdown", roadPointer(pointerId, 5, 5, 100, 100));
+    road.target.emit("pointermove", roadPointer(pointerId, 9, 5, 170, 103));
+    if (eventName === "blur") road.windowTarget.emit("blur");
+    else road.target.emit(eventName, roadPointer(pointerId, 9, 5, 170, 103));
+    assert.equal(road.cancelled.length, 1, `${eventName} reports cancellation`);
+    assert.deepEqual(road.controller.session.candidate, []);
+    assert.equal(road.controller.commit(), null);
+  });
 });
 
 test("pointer cancellation clears the transient selection without committing it", () => {

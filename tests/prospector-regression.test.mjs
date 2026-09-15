@@ -183,8 +183,8 @@ function createEngineHarness(savedState, engineSource, options = {}) {
       windowListeners.set(type, listeners);
     },
   };
-  if (options.placementApi) window.PinebarrowPlacement = options.placementApi;
-  if (options.footprintsApi) window.PinebarrowFootprints = options.footprintsApi;
+  window.PinebarrowPlacement = options.placementApi || PinebarrowPlacement;
+  window.PinebarrowFootprints = options.footprintsApi || PinebarrowFootprints;
 
   const animationFrames = [];
   const requestAnimationFrame = (callback) => {
@@ -1485,9 +1485,9 @@ test("Town Hall locks a touched straight road pass and protects it from later ma
 
   game.element("pb7-road-start-draw").click();
   const canvas = game.element("pb7-map");
-  canvas.emit("pointerdown", { ...overviewPointer(46, 122), currentTarget: canvas });
-  canvas.emit("pointermove", { ...overviewPointer(49, 123), currentTarget: canvas });
-  canvas.emit("pointerup", { ...overviewPointer(49, 123), currentTarget: canvas });
+  canvas.emit("pointerdown", { ...placementPointer(46, 122, 44.5, 123, 2), currentTarget: canvas });
+  canvas.emit("pointermove", { ...placementPointer(49, 123, 44.5, 123, 2), currentTarget: canvas });
+  canvas.emit("pointerup", { ...placementPointer(49, 123, 44.5, 123, 2), currentTarget: canvas });
   assert.equal(game.element("pb7-road-lock").disabled, false);
   game.element("pb7-road-lock").click();
 
@@ -1498,6 +1498,55 @@ test("Town Hall locks a touched straight road pass and protects it from later ma
   game.element("pb7-menu-close").click();
   assert.deepEqual(game.saved().roadDraft, lockedRoute, "ordinary map and menu clicks cannot delete a locked route");
   assert.equal(game.saved().roadPlanning, true, "the player can return to Town Hall and submit the protected route");
+});
+
+test("road turns require a second committed segment and undo restores the prior route", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const pageSource = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const cleared = [];
+  for (let x = 43; x <= 53; x += 1) {
+    for (let y = 119; y <= 128; y += 1) cleared.push(`${x},${y}`);
+  }
+  const game = createEngineHarness({
+    version: 16,
+    worldLayoutVersion: 2,
+    day: 1,
+    minutes: 480,
+    cash: 5000,
+    player: { x: 45, y: 146 },
+    location: "townhall",
+    selected: { type: "road", x: 45, y: 146 },
+    cleared,
+    pavedDepth: 3,
+    roadTiles: [],
+  }, engineSource);
+
+  assert.match(pageSource, /id="pb7-road-undo"/);
+  assert.match(pageSource, /id="pb7-road-clear-route"/);
+  game.element("pb7-road-plan").click();
+  game.frame(16);
+  const canvas = game.element("pb7-map");
+
+  game.element("pb7-road-start-draw").click();
+  canvas.emit("pointerdown", placementPointer(46, 122, 44.5, 123, 2, 51));
+  canvas.emit("pointermove", placementPointer(49, 123, 44.5, 123, 2, 51));
+  canvas.emit("pointerup", placementPointer(49, 123, 44.5, 123, 2, 51));
+  game.element("pb7-road-lock").click();
+  assert.deepEqual(game.saved().roadDraft, ["46,122", "47,122", "48,122", "49,122"]);
+
+  game.frame(32);
+  game.element("pb7-road-start-draw").click();
+  canvas.emit("pointerdown", placementPointer(49, 122, 49, 122, 2, 52));
+  canvas.emit("pointermove", placementPointer(50, 119, 49, 122, 2, 52));
+  canvas.emit("pointerup", placementPointer(50, 119, 49, 122, 2, 52));
+  assert.equal(game.element("pb7-road-lock").disabled, false, game.element("pb7-context").textContent);
+  game.element("pb7-road-lock").click();
+  assert.deepEqual(game.saved().roadDraft, ["46,122", "47,122", "48,122", "49,122", "49,121", "49,120", "49,119"]);
+
+  game.element("pb7-road-undo").click();
+  assert.deepEqual(game.saved().roadDraft, ["46,122", "47,122", "48,122", "49,122"]);
+  game.element("pb7-road-clear-route").click();
+  assert.deepEqual(game.saved().roadDraft, []);
 });
 
 test("road-contract stone demand rises on purchase day and corrects the next day", async () => {

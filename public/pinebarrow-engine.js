@@ -209,6 +209,8 @@
         roadLaborPerTile: 9,
         roadMinimumSurveyPoints: 2,
         roadPackageMaxTiles: 10,
+        roadGestureThresholdPx: 12,
+        roadPlanningZoomIndex: 2,
         roadProfiles: {
           "company-road": { id: "company-road", label: "Company access road", width: 2, requiredBuilderLevel: 1, buildTimeDays: 2 },
           "main-street": { id: "main-street", label: "Four-wide main street", width: 4, requiredBuilderLevel: 10, buildTimeDays: 4 }
@@ -485,6 +487,8 @@
         roadSurveyControls: root.querySelector("#pb7-road-survey-controls"),
         roadStartDraw: root.querySelector("#pb7-road-start-draw"),
         roadLock: root.querySelector("#pb7-road-lock"),
+        roadUndo: root.querySelector("#pb7-road-undo"),
+        roadClearRoute: root.querySelector("#pb7-road-clear-route"),
         readNews: root.querySelector("#pb7-read-news"),
         clear: root.querySelector("#pb7-clear"),
         prospect: root.querySelector("#pb7-prospect"),
@@ -594,6 +598,7 @@
       let roadPlacementController = null;
       let roadDrawingActive = false;
       let roadSurveyPreviewPoints = [];
+      let roadSurveyAnchorPoint = null;
       let suppressPlacementClick = false;
       const truckSprite = new Image();
       let truckSpriteReady = false;
@@ -969,7 +974,13 @@
 
       function activePlacementCameraFocus() {
         const focus = sitePlacement && sitePlacement.cameraFocus;
-        return focus && Number.isFinite(focus.x) && Number.isFinite(focus.y) ? focus : null;
+        if (focus && Number.isFinite(focus.x) && Number.isFinite(focus.y)) return focus;
+        if (state.roadPlanning) {
+          const draft = roadDraftPoints();
+          const endpoint = draft[draft.length - 1];
+          return endpoint || { x: PLAYER_ROAD_X + .5, y: TOWN_TOP - 2 };
+        }
+        return null;
       }
 
       function zoomInFromInput() {
@@ -5759,38 +5770,22 @@
         return Boolean(point && (isPavedClaimRoad(point.x, point.y) || isRoadSurveyCellLegal(point.x, point.y)));
       }
 
-      function straightRoadPoints(start, end, axis) {
-        if (!start || !end) return [];
-        const horizontal = axis === "x";
-        const distance = horizontal ? Math.abs(end.x - start.x) : Math.abs(end.y - start.y);
-        const step = Math.sign(horizontal ? end.x - start.x : end.y - start.y);
-        const points = [];
-        for (let offset = 0; offset <= distance; offset += 1) {
-          points.push(horizontal
-            ? { x: start.x + step * offset, y: start.y }
-            : { x: start.x, y: start.y + step * offset });
-        }
-        return points;
-      }
-
       function detachRoadTileSelection() {
         if (roadPlacementController && typeof roadPlacementController.detach === "function") roadPlacementController.detach();
         roadPlacementController = null;
         roadDrawingActive = false;
+        roadSurveyAnchorPoint = null;
       }
 
       function startRoadTileSelection() {
         if (state.location !== "townhall" || !state.roadPlanning || state.roadApproval) return;
         detachRoadTileSelection();
         roadSurveyPreviewPoints = [];
-        let activePointerId = null;
-        let anchor = null;
-        let axis = "";
-        let gestureComplete = false;
         let lastBlockedKey = "";
-
-        function pointerIdFor(event) {
-          return event && event.pointerId != null ? event.pointerId : 1;
+        const placement = window.PinebarrowPlacement;
+        if (!placement || typeof placement.createRoadSegmentController !== "function") {
+          setContext("Road selector unavailable", "The shared placement controller did not load. Reload the game before editing this survey; the saved route was not changed.", "danger");
+          return;
         }
 
         function pointForEvent(event) {
@@ -5798,39 +5793,10 @@
           return worldPoint(event.clientX - rect.left, event.clientY - rect.top);
         }
 
-        function previewThrough(point, forceAxis) {
-          if (!anchor || !point) return;
-          const deltaX = point.x - anchor.x;
-          const deltaY = point.y - anchor.y;
-          if (!axis && (deltaX || deltaY)) {
-            const furthestDistance = Math.max(Math.abs(deltaX), Math.abs(deltaY));
-            if (!forceAxis && furthestDistance < 2) return;
-            axis = Math.abs(deltaX) >= Math.abs(deltaY) ? "x" : "y";
-          }
-          if (!axis) return;
-          const snapped = axis === "x" ? { x: point.x, y: anchor.y } : { x: anchor.x, y: point.y };
-          const candidate = straightRoadPoints(anchor, snapped, axis);
-          const blocked = candidate.find(function (candidatePoint) { return !roadSurveyPointAvailable(candidatePoint); });
-          if (blocked) {
-            const blockedKey = keyFor(blocked.x, blocked.y);
-            if (blockedKey !== lastBlockedKey) {
-              lastBlockedKey = blockedKey;
-              setContext("Road pass paused", "The center tile at " + blocked.x + "," + blocked.y + " is not clear. Lift your finger and redraw this pass around it.", "warning");
-            }
-            return;
-          }
-          lastBlockedKey = "";
-          roadSurveyPreviewPoints = candidate;
-          renderInterface();
-        }
-
-        function onPointerDown(event) {
-          if ((event.button != null && event.button !== 0) || gestureComplete) return;
-          event.preventDefault();
-          const touched = pointForEvent(event);
+        function resolveAnchor(touched) {
           if (!roadSurveyPointAvailable(touched)) {
             setContext("Road center blocked", "Start on open company ground or on an existing paved company road.", "warning");
-            return;
+            return null;
           }
           const draft = roadDraftPoints();
           const last = draft[draft.length - 1];
@@ -5838,70 +5804,76 @@
             const distanceToEnd = Math.abs(last.x - touched.x) + Math.abs(last.y - touched.y);
             if (distanceToEnd > 1) {
               setContext("Start from route end", "Touch the last locked center tile, or one tile directly beside it, before adding the next straight pass.", "warning");
-              return;
+              return null;
             }
-            anchor = { x: last.x, y: last.y };
-            roadSurveyPreviewPoints = [{ x: anchor.x, y: anchor.y }];
-            if (!sameRoadPoint(anchor, touched)) previewThrough(touched);
-          } else {
-            anchor = { x: touched.x, y: touched.y };
-            roadSurveyPreviewPoints = [{ x: anchor.x, y: anchor.y }];
+            return { x: last.x, y: last.y };
           }
-          activePointerId = pointerIdFor(event);
-          if (canvas.setPointerCapture) canvas.setPointerCapture(activePointerId);
-          renderInterface();
+          return { x: touched.x, y: touched.y };
         }
 
-        function onPointerMove(event) {
-          if (activePointerId === null || pointerIdFor(event) !== activePointerId) return;
-          event.preventDefault();
-          previewThrough(pointForEvent(event));
-        }
-
-        function finishPointer(event, interrupted) {
-          if (activePointerId === null || pointerIdFor(event) !== activePointerId) return;
-          event.preventDefault();
-          previewThrough(pointForEvent(event), true);
-          if (canvas.releasePointerCapture) canvas.releasePointerCapture(activePointerId);
-          activePointerId = null;
-          gestureComplete = true;
-          suppressPlacementClick = true;
-          if (!roadSurveyPreviewPoints.length) {
-            setContext("Road pass not started", "Press Start tiles again, then touch an open center tile.", "warning");
-            return;
+        roadPlacementController = placement.createRoadSegmentController({
+          dragThresholdPx: CONFIG.roadGestureThresholdPx,
+          windowTarget: window,
+          toGrid: pointForEvent,
+          toClient: function (event) { return { x: event.clientX, y: event.clientY }; },
+          resolveAnchor: resolveAnchor,
+          validatePoint: roadSurveyPointAvailable,
+          onStart: function (anchor) {
+            roadSurveyAnchorPoint = anchor;
+            roadSurveyPreviewPoints = [];
+            renderInterface();
+          },
+          onPreview: function (candidate) {
+            lastBlockedKey = "";
+            roadSurveyPreviewPoints = candidate;
+            renderInterface();
+          },
+          onBlocked: function (validation) {
+            roadSurveyPreviewPoints = [];
+            const blocked = validation && validation.issue && validation.issue.cell;
+            const blockedKey = blocked ? keyFor(blocked.x, blocked.y) : "blocked";
+            if (blockedKey !== lastBlockedKey) {
+              lastBlockedKey = blockedKey;
+              setContext("Road pass paused", blocked
+                ? "The center tile at " + blocked.x + "," + blocked.y + " is not clear. Lift your finger and redraw this pass around it."
+                : "This straight road pass is blocked. Lift your finger and redraw it.", "warning");
+            }
+            renderInterface();
+          },
+          onRelease: function (candidate) {
+            roadSurveyPreviewPoints = candidate;
+            roadSurveyAnchorPoint = candidate[0] || roadSurveyAnchorPoint;
+            suppressPlacementClick = true;
+            setContext("Road pass ready", "The straight highlighted segment is only a candidate. Press Commit segment to add it, or Start tiles to redraw it.", "success");
+            renderInterface();
+          },
+          onAnchorOnly: function (anchor) {
+            roadSurveyAnchorPoint = anchor;
+            roadSurveyPreviewPoints = [];
+            suppressPlacementClick = true;
+            setContext("Anchor set — no road added", "A tap only records intent. Press Start tiles and drag at least " + CONFIG.roadGestureThresholdPx + " screen pixels to preview a straight segment.", "warning");
+            renderInterface();
+          },
+          onCancel: function () {
+            roadSurveyPreviewPoints = [];
+            roadSurveyAnchorPoint = null;
+            detachRoadTileSelection();
+            setContext("Road gesture cancelled", "No segment was added. Press Start tiles when you are ready to try again.", "warning");
+            renderInterface();
           }
-          setContext(interrupted ? "Road pass held" : "Road pass ready", "The highlighted tiles are held safely. Press Lock route to save this pass, or Start tiles to redraw it.", "success");
-        }
-
-        function detach() {
-          canvas.removeEventListener("pointerdown", onPointerDown);
-          canvas.removeEventListener("pointermove", onPointerMove);
-          canvas.removeEventListener("pointerup", onPointerUp);
-          canvas.removeEventListener("pointercancel", onPointerCancel);
-          if (activePointerId !== null && canvas.releasePointerCapture) canvas.releasePointerCapture(activePointerId);
-          activePointerId = null;
-        }
-
-        function onPointerUp(event) {
-          finishPointer(event, false);
-        }
-
-        function onPointerCancel(event) {
-          finishPointer(event, true);
-        }
-
+        });
         roadDrawingActive = true;
-        roadPlacementController = { detach: detach };
-        canvas.addEventListener("pointerdown", onPointerDown);
-        canvas.addEventListener("pointermove", onPointerMove);
-        canvas.addEventListener("pointerup", onPointerUp);
-        canvas.addEventListener("pointercancel", onPointerCancel);
-        setContext("Road tile selection ready", "Touch a center tile and drag in one direction. Every crossed tile is read, while small finger drift stays on that straight line. Press Lock route when the pass looks right.");
+        roadPlacementController.attach(canvas);
+        setContext("Road tile selection ready", "Touch an anchor and drag one straight segment. A tap alone adds nothing; the direction locks only after a deliberate screen-space drag.");
       }
 
       function lockRoadTileSelection() {
         if (!state.roadPlanning || !roadSurveyPreviewPoints.length) {
-          setContext("No road pass to lock", "Press Start tiles, touch the map, and drag across the tiles you want before locking the route.", "warning");
+          setContext("No road segment to commit", "Press Start tiles, touch the map, and drag across the tiles you want before committing the segment.", "warning");
+          return;
+        }
+        if (!roadPlacementController || !roadPlacementController.commit()) {
+          setContext("Road segment not ready", "Release a valid straight drag before committing this segment.", "warning");
           return;
         }
         const merged = roadDraftPoints();
@@ -5921,7 +5893,45 @@
           : connects
             ? "The route reaches company pavement; reopen Town Hall and submit it when ready."
             : "Use Start tiles again from the last locked center tile to extend it to company pavement.";
-        setContext("Road route locked", points.length + " center tiles now mark " + newTiles + " new " + profile.width + "-wide paving tiles. " + nextStep, "success");
+        setContext("Road segment committed", points.length + " center tiles now mark " + newTiles + " new " + profile.width + "-wide paving tiles. " + nextStep, "success");
+      }
+
+      function roadAxisBetween(start, end) {
+        if (!start || !end) return "";
+        if (start.y === end.y && start.x !== end.x) return "x";
+        if (start.x === end.x && start.y !== end.y) return "y";
+        return "";
+      }
+
+      function undoLastRoadSegment() {
+        if (!state.roadPlanning) return;
+        detachRoadTileSelection();
+        roadSurveyPreviewPoints = [];
+        const points = roadDraftPoints();
+        if (points.length < 2) {
+          state.roadDraft = [];
+          setContext("Road route empty", "There is no committed segment left to undo.", "warning");
+          renderInterface();
+          return;
+        }
+        const lastAxis = roadAxisBetween(points[points.length - 2], points[points.length - 1]);
+        let boundaryIndex = points.length - 1;
+        while (boundaryIndex > 0 && roadAxisBetween(points[boundaryIndex - 1], points[boundaryIndex]) === lastAxis) boundaryIndex -= 1;
+        const restored = boundaryIndex === 0 ? [] : points.slice(0, boundaryIndex + 1);
+        state.roadDraft = restored.map(function (point) { return keyFor(point.x, point.y); });
+        setContext("Last road segment undone", restored.length
+          ? "The prior route is restored exactly. Start tiles from its endpoint to continue."
+          : "The route is empty. Start tiles to draw a new first segment.", "success");
+        renderInterface();
+      }
+
+      function clearRoadRoute() {
+        if (!state.roadPlanning) return;
+        detachRoadTileSelection();
+        roadSurveyPreviewPoints = [];
+        state.roadDraft = [];
+        setContext("Road route cleared", "All editable road segments were cleared. No project, contract, material, or built road was created.");
+        renderInterface();
       }
 
       function startRoadSurvey(profileId) {
@@ -5938,7 +5948,8 @@
         state.menuOpen = false;
         marketScreenOpen = false;
         managementScreenOpen = false;
-        state.overview = true;
+        state.overview = false;
+        state.zoomIndex = Math.max(state.zoomIndex, CONFIG.roadPlanningZoomIndex);
         detachRoadTileSelection();
         roadSurveyPreviewPoints = [];
         setContext("Road survey selected", profile.label + " is ready. Use Start tiles on the left, drag one straight centerline pass, then press Lock route. Lock each pass before using Start tiles again for a deliberate turn.");
@@ -7419,12 +7430,14 @@
         }
         if (el.roadLock) {
           el.roadLock.disabled = !roadSurveyControlsVisible || !roadDrawingActive || !roadSurveyPreviewPoints.length;
-          el.roadLock.textContent = "Lock route";
+          el.roadLock.textContent = "Commit segment";
         }
+        if (el.roadUndo) el.roadUndo.disabled = !roadSurveyControlsVisible || roadDrawingActive || state.roadDraft.length < 2;
+        if (el.roadClearRoute) el.roadClearRoute.disabled = !roadSurveyControlsVisible || (!roadDrawingActive && state.roadDraft.length === 0);
         if (el.mapTip) {
           if (sitePlacement) el.mapTip.textContent = sitePlacement.siteKind === "mine" ? "MINE FOOTPRINT · selected permit locked · drag a 2×2 lot · Esc cancels" : sitePlacement.siteKind === "warehouse" ? "WAREHOUSE SITE · drag a 2×2 lot · Esc cancels" : "RESIDENTIAL LOT · drag the selected house footprint · Esc cancels";
           else if (state.roadPlanning) el.mapTip.textContent = roadDrawingActive
-            ? roadSurveyPreviewPoints.length ? "ROAD SURVEY · route held · lock it on the left" : "ROAD SURVEY · touch the first center tile"
+            ? roadSurveyPreviewPoints.length ? "ROAD SURVEY · straight segment held · commit it on the left" : roadSurveyAnchorPoint ? "ROAD SURVEY · anchor only · drag to make a segment" : "ROAD SURVEY · touch the first center tile"
             : "ROAD SURVEY · tap Start tiles on the left";
           else if (inputMode === "controller") el.mapTip.textContent = "Controller connected · RT drive · X cut · Y menu";
           else if (inputMode === "keyboard") el.mapTip.textContent = "Keyboard drive · E menu · Space cut";
@@ -8812,9 +8825,9 @@
 
       function drawRoadSurvey(colors) {
         const points = roadSurveyDisplayPoints();
-        if (!points.length) return;
+        if (!points.length && !roadSurveyAnchorPoint) return;
         const profile = state.roadApproval ? roadProfileFor(state.roadApproval.profileId) : activeRoadProfile();
-        const previewCells = expandedRoadCells(points, profile.width);
+        const previewCells = points.length ? expandedRoadCells(points, profile.width) : new Set();
         const centerline = roadCenterline(points);
         ctx.save();
         ctx.globalAlpha = state.roadApproval ? .5 : .42;
@@ -8836,6 +8849,17 @@
           else ctx.lineTo(screen.x, screen.y);
         });
         ctx.stroke();
+        if (roadSurveyAnchorPoint && !roadSurveyPreviewPoints.length) {
+          const anchor = screenPoint(roadSurveyAnchorPoint.x + .5, roadSurveyAnchorPoint.y + .5);
+          ctx.setLineDash([]);
+          ctx.fillStyle = "#ffd75e";
+          ctx.strokeStyle = "#172746";
+          ctx.lineWidth = Math.max(2, drawView.scale * .12);
+          ctx.beginPath();
+          ctx.arc(anchor.x, anchor.y, Math.max(4, drawView.scale * .28), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        }
         ctx.restore();
       }
 
@@ -9180,6 +9204,8 @@
       el.roadPlan.addEventListener("click", startRoadSurvey);
       el.roadStartDraw.addEventListener("click", startRoadTileSelection);
       el.roadLock.addEventListener("click", lockRoadTileSelection);
+      el.roadUndo.addEventListener("click", undoLastRoadSegment);
+      el.roadClearRoute.addEventListener("click", clearRoadRoute);
       el.roadSubmit.addEventListener("click", submitRoadSurvey);
       el.roadAccept.addEventListener("click", acceptRoadContract);
       el.roadCancel.addEventListener("click", cancelRoadSurvey);

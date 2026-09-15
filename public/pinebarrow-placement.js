@@ -6,6 +6,10 @@ const DEFAULT_LIMITS = Object.freeze({
   maxArea: 4,
 });
 
+const DEFAULT_ROAD_SEGMENT_OPTIONS = Object.freeze({
+  dragThresholdPx: 12,
+});
+
 function integer(value, fallback = 0) {
   return Number.isFinite(value) ? Math.round(value) : fallback;
 }
@@ -16,6 +20,13 @@ function point(value) {
 
 function pointKey(value) {
   return `${value.x},${value.y}`;
+}
+
+function screenPoint(value) {
+  return {
+    x: Number.isFinite(value?.x) ? Number(value.x) : 0,
+    y: Number.isFinite(value?.y) ? Number(value.y) : 0,
+  };
 }
 
 function uniquePoints(points) {
@@ -151,6 +162,241 @@ export function corridorCells(points, width = 2) {
     }
   }
   return Array.from(cells.values());
+}
+
+export function orthogonalSegmentPoints(start, end, axis) {
+  if (!start || !end || (axis !== "x" && axis !== "y")) return [];
+  const anchor = point(start);
+  const cursor = point(end);
+  const horizontal = axis === "x";
+  const distance = horizontal ? Math.abs(cursor.x - anchor.x) : Math.abs(cursor.y - anchor.y);
+  const step = Math.sign(horizontal ? cursor.x - anchor.x : cursor.y - anchor.y);
+  const points = [];
+  for (let offset = 0; offset <= distance; offset += 1) {
+    points.push(horizontal
+      ? { x: anchor.x + step * offset, y: anchor.y }
+      : { x: anchor.x, y: anchor.y + step * offset });
+  }
+  return points;
+}
+
+export function createRoadSegmentSession(options = {}) {
+  return {
+    status: "idle",
+    pointerId: null,
+    anchor: null,
+    anchorClient: null,
+    axis: null,
+    endpoint: null,
+    candidate: [],
+    validation: { valid: false, issue: null },
+    dragThresholdPx: Math.max(1, Number(options.dragThresholdPx) || DEFAULT_ROAD_SEGMENT_OPTIONS.dragThresholdPx),
+  };
+}
+
+export function beginRoadSegment(session, anchor, client, pointerId = null) {
+  if (!session || !anchor) return null;
+  session.status = "dragging";
+  session.pointerId = pointerId;
+  session.anchor = point(anchor);
+  session.anchorClient = screenPoint(client);
+  session.axis = null;
+  session.endpoint = null;
+  session.candidate = [];
+  session.validation = { valid: false, issue: null };
+  return session;
+}
+
+function roadSegmentIssue(candidate, options) {
+  if (typeof options.validatePoint === "function") {
+    const blocked = candidate.find((candidatePoint) => options.validatePoint(candidatePoint) !== true);
+    if (blocked) return { code: "blocked-cell", cell: blocked, message: `Tile ${blocked.x},${blocked.y} cannot be selected.` };
+  }
+  if (typeof options.validateSegment === "function") {
+    const result = options.validateSegment(candidate);
+    if (result !== true && result != null) {
+      if (typeof result === "string") return { code: "blocked-segment", message: result };
+      return { code: result.code || "blocked-segment", ...result };
+    }
+  }
+  return null;
+}
+
+export function updateRoadSegment(session, cursor, client, options = {}) {
+  if (!session || session.status !== "dragging" || !session.anchor) return session;
+  const currentClient = screenPoint(client);
+  const deltaX = currentClient.x - session.anchorClient.x;
+  const deltaY = currentClient.y - session.anchorClient.y;
+  if (!session.axis) {
+    if (Math.hypot(deltaX, deltaY) < session.dragThresholdPx) return session;
+    const horizontalDistance = Math.abs(deltaX);
+    const verticalDistance = Math.abs(deltaY);
+    if (horizontalDistance === verticalDistance) return session;
+    session.axis = horizontalDistance > verticalDistance ? "x" : "y";
+  }
+  const current = point(cursor);
+  const endpoint = session.axis === "x"
+    ? { x: current.x, y: session.anchor.y }
+    : { x: session.anchor.x, y: current.y };
+  const candidate = orthogonalSegmentPoints(session.anchor, endpoint, session.axis);
+  if (candidate.length < 2) {
+    session.endpoint = null;
+    session.candidate = [];
+    session.validation = { valid: false, issue: null };
+    return session;
+  }
+  const issue = roadSegmentIssue(candidate, options);
+  session.endpoint = endpoint;
+  session.candidate = candidate;
+  session.validation = { valid: !issue, issue };
+  return session;
+}
+
+export function cancelRoadSegment(session) {
+  if (!session) return null;
+  session.status = "idle";
+  session.pointerId = null;
+  session.anchor = null;
+  session.anchorClient = null;
+  session.axis = null;
+  session.endpoint = null;
+  session.candidate = [];
+  session.validation = { valid: false, issue: null };
+  return session;
+}
+
+export function commitRoadSegment(session) {
+  if (!session || session.status !== "candidate" || !session.validation.valid || session.candidate.length < 2) return null;
+  session.status = "committed";
+  session.pointerId = null;
+  return {
+    axis: session.axis,
+    anchor: point(session.anchor),
+    endpoint: point(session.endpoint),
+    points: session.candidate.map(point),
+  };
+}
+
+export function createRoadSegmentController(options = {}) {
+  const session = options.session || createRoadSegmentSession(options);
+  let target = null;
+  let windowTarget = null;
+  let detach = null;
+
+  function toGrid(event) {
+    return typeof options.toGrid === "function" ? options.toGrid(event) : { x: event.tileX, y: event.tileY };
+  }
+
+  function toClient(event) {
+    return typeof options.toClient === "function"
+      ? options.toClient(event)
+      : { x: Number(event.clientX) || 0, y: Number(event.clientY) || 0 };
+  }
+
+  function emit(name, value) {
+    const callback = options[name];
+    if (typeof callback === "function") callback(value, session);
+  }
+
+  function pointerMatches(event) {
+    return session.pointerId == null || event?.pointerId == null || session.pointerId === event.pointerId;
+  }
+
+  function releasePointer(event) {
+    if (session.pointerId == null) return;
+    const captureTarget = event?.currentTarget || target;
+    if (captureTarget?.releasePointerCapture) {
+      try { captureTarget.releasePointerCapture(session.pointerId); } catch {}
+    }
+  }
+
+  function onPointerDown(event) {
+    if ((event.button != null && event.button !== 0) || !["idle", "cancelled"].includes(session.status)) return;
+    const touched = toGrid(event);
+    const anchor = typeof options.resolveAnchor === "function" ? options.resolveAnchor(touched, event, session) : touched;
+    if (!anchor) {
+      emit("onRejectedStart", touched);
+      return;
+    }
+    event.preventDefault?.();
+    beginRoadSegment(session, anchor, toClient(event), event.pointerId ?? null);
+    if (event.currentTarget?.setPointerCapture && event.pointerId != null) {
+      try { event.currentTarget.setPointerCapture(event.pointerId); } catch {}
+    }
+    emit("onStart", point(anchor));
+  }
+
+  function onPointerMove(event) {
+    if (session.status !== "dragging" || !pointerMatches(event)) return;
+    event.preventDefault?.();
+    updateRoadSegment(session, toGrid(event), toClient(event), options);
+    if (session.validation.issue) emit("onBlocked", session.validation);
+    else emit("onPreview", session.candidate.map(point));
+  }
+
+  function onPointerUp(event) {
+    if (session.status !== "dragging" || !pointerMatches(event)) return;
+    event.preventDefault?.();
+    const hasCandidate = session.candidate.length >= 2 && session.validation.valid;
+    session.status = hasCandidate ? "candidate" : "anchored";
+    releasePointer(event);
+    session.pointerId = null;
+    if (hasCandidate) {
+      emit("onRelease", session.candidate.map(point));
+      return;
+    }
+    emit("onAnchorOnly", session.anchor ? point(session.anchor) : null);
+  }
+
+  function cancelActive(event) {
+    if (session.status !== "dragging") return;
+    if (event?.pointerId != null && !pointerMatches(event)) return;
+    event?.preventDefault?.();
+    releasePointer(event);
+    cancelRoadSegment(session);
+    session.status = "cancelled";
+    emit("onCancel", session);
+  }
+
+  function attach(nextTarget) {
+    if (detach) detach();
+    target = nextTarget;
+    if (!target?.addEventListener) return () => {};
+    windowTarget = options.windowTarget || target.ownerDocument?.defaultView || (typeof window !== "undefined" ? window : null);
+    target.addEventListener("pointerdown", onPointerDown);
+    target.addEventListener("pointermove", onPointerMove);
+    target.addEventListener("pointerup", onPointerUp);
+    target.addEventListener("pointercancel", cancelActive);
+    target.addEventListener("lostpointercapture", cancelActive);
+    windowTarget?.addEventListener?.("blur", cancelActive);
+    if (target.style) target.style.touchAction = "none";
+    detach = () => {
+      target?.removeEventListener?.("pointerdown", onPointerDown);
+      target?.removeEventListener?.("pointermove", onPointerMove);
+      target?.removeEventListener?.("pointerup", onPointerUp);
+      target?.removeEventListener?.("pointercancel", cancelActive);
+      target?.removeEventListener?.("lostpointercapture", cancelActive);
+      windowTarget?.removeEventListener?.("blur", cancelActive);
+      if (session.status === "dragging") releasePointer();
+      if (target?.style) target.style.touchAction = "";
+      target = null;
+      windowTarget = null;
+      detach = null;
+    };
+    return detach;
+  }
+
+  return {
+    session,
+    attach,
+    detach: () => detach?.(),
+    cancel: () => cancelActive(),
+    commit: () => {
+      const result = commitRoadSegment(session);
+      if (result) emit("onCommit", result);
+      return result;
+    },
+  };
 }
 
 function selectionGeometry(session) {
@@ -397,6 +643,13 @@ const api = {
   rotateRectangle,
   corridorCenterline,
   corridorCells,
+  orthogonalSegmentPoints,
+  createRoadSegmentSession,
+  beginRoadSegment,
+  updateRoadSegment,
+  cancelRoadSegment,
+  commitRoadSegment,
+  createRoadSegmentController,
   validateSelection,
   createSelectionSession,
   updateSelection,

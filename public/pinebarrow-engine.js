@@ -26,9 +26,9 @@
       const STARTER_TREE = { x: PLAYER_ROAD_X + 3, y: TOWN_TOP - 3 };
       const CLAIM_SECTION_DEPTHS = [0, 42, 84];
       const CLAIM_SECTION_ENDS = [41, 83, CLAIM_DEPTH - 1];
-      // v16 adds project-backed residential lots, house upgrades, and
-      // corridor-selected road projects. Earlier road approvals remain valid.
-      const SAVE_VERSION = 16;
+      // v17 adds durable road segments, explicit route locking, and a saved
+      // material drop-off choice. Earlier road drafts and paved roads remain valid.
+      const SAVE_VERSION = 17;
       const MAIN_STREET_TOP = 142;
       const MAIN_STREET_BOTTOM = 146;
       const TOWN_SIDE_STREET_WIDTH = 2;
@@ -351,6 +351,9 @@
           pavedDepth: 3,
           roadTiles: new Set(),
           roadDraft: [],
+          roadDraftSegments: [],
+          roadRouteStatus: "draft",
+          roadDropoffTile: null,
           roadPlanning: false,
           roadPlanningProfile: "company-road",
           roadApproval: null,
@@ -489,6 +492,9 @@
         roadLock: root.querySelector("#pb7-road-lock"),
         roadUndo: root.querySelector("#pb7-road-undo"),
         roadClearRoute: root.querySelector("#pb7-road-clear-route"),
+        roadRouteLock: root.querySelector("#pb7-road-route-lock"),
+        roadUnlock: root.querySelector("#pb7-road-unlock"),
+        roadDropoff: root.querySelector("#pb7-road-dropoff"),
         readNews: root.querySelector("#pb7-read-news"),
         clear: root.querySelector("#pb7-clear"),
         prospect: root.querySelector("#pb7-prospect"),
@@ -599,6 +605,7 @@
       let roadDrawingActive = false;
       let roadSurveyPreviewPoints = [];
       let roadSurveyAnchorPoint = null;
+      let roadDropoffSelectionActive = false;
       let suppressPlacementClick = false;
       const truckSprite = new Image();
       let truckSpriteReady = false;
@@ -900,6 +907,7 @@
         if (!state.started) return;
         fastTravelOpen = !fastTravelOpen;
         if (fastTravelOpen) {
+          cancelTransientRoadInput();
           systemMenuOpen = false;
           state.menuOpen = false;
           newsReaderOpen = false;
@@ -920,6 +928,7 @@
       function openSystemMenuFromInput() {
         if (!state.started || systemMenuOpen) return;
         if (sitePlacement) cancelInfrastructurePlacement("Opening the company menu leaves this map selection uncommitted.", true);
+        cancelTransientRoadInput();
         settleMovementForReroute();
         state.path = [];
         state.pendingArrival = null;
@@ -936,6 +945,7 @@
       function openContextMenuFromInput() {
         if (!state.started || state.menuOpen) return;
         if (sitePlacement) cancelInfrastructurePlacement("Opening the context menu leaves this map selection uncommitted.", true);
+        cancelTransientRoadInput();
         settleMovementForReroute();
         systemMenuOpen = false;
         closeFastTravel();
@@ -1727,6 +1737,9 @@
           state.cleared = new Set(Array.isArray(saved.cleared) ? saved.cleared.filter(function (key) { return typeof key === "string"; }) : []);
           state.roadTiles = new Set(Array.isArray(saved.roadTiles) ? saved.roadTiles.filter(function (key) { return typeof key === "string"; }) : []);
           state.roadDraft = Array.isArray(saved.roadDraft) ? saved.roadDraft.filter(function (key) { return typeof key === "string"; }) : [];
+          state.roadDraftSegments = Array.isArray(saved.roadDraftSegments) ? saved.roadDraftSegments : [];
+          state.roadRouteStatus = saved.roadRouteStatus === "locked" ? "locked" : "draft";
+          state.roadDropoffTile = typeof saved.roadDropoffTile === "string" ? saved.roadDropoffTile : null;
           state.roadApproval = saved.roadApproval && typeof saved.roadApproval === "object" ? saved.roadApproval : null;
           state.roadPlanningProfile = saved.roadPlanningProfile && CONFIG.roadProfiles[saved.roadPlanningProfile]
             ? saved.roadPlanningProfile
@@ -1764,6 +1777,7 @@
           if (needsWorldLayoutMigration) {
             migratedWorldLayout = migrateLegacyWorldState();
           }
+          normalizeRoadDraftState(saved);
           clearRoadSurfaceDecoration();
 
           state.mineParcels.forEach(function (parcel) { normalizeSiteId(parcel, "claim"); });
@@ -2089,6 +2103,9 @@
           pavedDepth: state.pavedDepth,
           roadTiles: Array.from(state.roadTiles),
           roadDraft: state.roadDraft,
+          roadDraftSegments: state.roadDraftSegments,
+          roadRouteStatus: state.roadRouteStatus,
+          roadDropoffTile: state.roadDropoffTile,
           roadPlanning: state.roadPlanning,
           roadPlanningProfile: state.roadPlanningProfile,
           roadApproval: state.roadApproval,
@@ -3071,6 +3088,7 @@
       }
 
       function closeMenu() {
+        cancelTransientRoadInput();
         state.menuOpen = false;
         newsReaderOpen = false;
         marketScreenOpen = false;
@@ -3366,6 +3384,7 @@
         if (x < 0 || x >= WORLD_WIDTH || y < 0 || y >= WORLD_HEIGHT) return;
         if (sitePlacement) return;
         if (state.roadPlanning) {
+          if (roadDropoffSelectionActive) selectRoadDropoffTile(x, y);
           return;
         }
         const building = buildingAt(x, y);
@@ -5627,6 +5646,68 @@
         return parts.length === 2 && parts.every(Number.isFinite) ? { x: parts[0], y: parts[1] } : null;
       }
 
+      function flattenedRoadSegmentKeys(segments) {
+        const flattened = [];
+        (segments || []).forEach(function (segment) {
+          (segment || []).forEach(function (key) {
+            if (typeof key !== "string" || !pointFromKey(key)) return;
+            if (flattened[flattened.length - 1] !== key) flattened.push(key);
+          });
+        });
+        return flattened;
+      }
+
+      function roadSegmentsFromDraftKeys(keys) {
+        const route = (keys || []).filter(function (key) { return typeof key === "string" && pointFromKey(key); });
+        if (route.length < 2) return [];
+        const segments = [];
+        let current = [route[0], route[1]];
+        let axis = roadAxisBetween(pointFromKey(route[0]), pointFromKey(route[1]));
+        for (let index = 2; index < route.length; index += 1) {
+          const nextAxis = roadAxisBetween(pointFromKey(route[index - 1]), pointFromKey(route[index]));
+          if (nextAxis && nextAxis === axis) current.push(route[index]);
+          else {
+            segments.push(current);
+            current = [route[index - 1], route[index]];
+            axis = nextAxis;
+          }
+        }
+        segments.push(current);
+        return segments;
+      }
+
+      function syncRoadDraftFromSegments() {
+        state.roadDraft = flattenedRoadSegmentKeys(state.roadDraftSegments);
+      }
+
+      function normalizeRoadDraftState(saved) {
+        state.roadDraft = state.roadDraft.filter(function (key, index, route) {
+          return typeof key === "string" && Boolean(pointFromKey(key)) && (index === 0 || route[index - 1] !== key);
+        });
+        const suppliedSegments = Array.isArray(state.roadDraftSegments)
+          ? state.roadDraftSegments.map(function (segment) {
+            return Array.isArray(segment) ? segment.filter(function (key, index, route) {
+              return typeof key === "string" && Boolean(pointFromKey(key)) && (index === 0 || route[index - 1] !== key);
+            }) : [];
+          }).filter(function (segment) { return segment.length >= 2; })
+          : [];
+        const suppliedRoute = flattenedRoadSegmentKeys(suppliedSegments);
+        state.roadDraftSegments = suppliedRoute.length === state.roadDraft.length && suppliedRoute.every(function (key, index) { return key === state.roadDraft[index]; })
+          ? suppliedSegments
+          : roadSegmentsFromDraftKeys(state.roadDraft);
+        syncRoadDraftFromSegments();
+        const hasSavedStatus = saved && Object.prototype.hasOwnProperty.call(saved, "roadRouteStatus");
+        state.roadRouteStatus = hasSavedStatus && saved.roadRouteStatus === "locked"
+          ? "locked"
+          : !hasSavedStatus && state.roadDraft.length >= CONFIG.roadMinimumSurveyPoints
+            ? "locked"
+            : "draft";
+        if (!state.roadDraft.length) state.roadRouteStatus = "draft";
+        const dropoffPoint = pointFromKey(state.roadDropoffTile);
+        const dropoffCells = expandedRoadCells(roadDraftPoints(), activeRoadProfile().width);
+        if (!dropoffPoint || !dropoffCells.has(state.roadDropoffTile) || isPavedClaimRoad(dropoffPoint.x, dropoffPoint.y)) state.roadDropoffTile = null;
+      }
+
       function roadDraftPoints() {
         return state.roadDraft.map(pointFromKey).filter(Boolean);
       }
@@ -5777,9 +5858,17 @@
         roadSurveyAnchorPoint = null;
       }
 
-      function startRoadTileSelection() {
-        if (state.location !== "townhall" || !state.roadPlanning || state.roadApproval) return;
+      function cancelTransientRoadInput() {
+        if (!roadDrawingActive && !roadDropoffSelectionActive) return;
         detachRoadTileSelection();
+        roadSurveyPreviewPoints = [];
+        roadDropoffSelectionActive = false;
+      }
+
+      function startRoadTileSelection() {
+        if (state.location !== "townhall" || !state.roadPlanning || state.roadApproval || state.roadRouteStatus === "locked") return;
+        detachRoadTileSelection();
+        roadDropoffSelectionActive = false;
         roadSurveyPreviewPoints = [];
         let lastBlockedKey = "";
         const placement = window.PinebarrowPlacement;
@@ -5872,15 +5961,18 @@
           setContext("No road segment to commit", "Press Start tiles, touch the map, and drag across the tiles you want before committing the segment.", "warning");
           return;
         }
-        if (!roadPlacementController || !roadPlacementController.commit()) {
+        if (!roadPlacementController) {
           setContext("Road segment not ready", "Release a valid straight drag before committing this segment.", "warning");
           return;
         }
-        const merged = roadDraftPoints();
-        roadSurveyPreviewPoints.forEach(function (point) {
-          if (!merged.length || !sameRoadPoint(merged[merged.length - 1], point)) merged.push({ x: point.x, y: point.y });
-        });
-        state.roadDraft = merged.map(function (point) { return keyFor(point.x, point.y); });
+        const committed = roadPlacementController.commit();
+        if (!committed) {
+          setContext("Road segment not ready", "Release a valid straight drag before committing this segment.", "warning");
+          return;
+        }
+        state.roadDraftSegments.push(committed.points.map(function (point) { return keyFor(point.x, point.y); }));
+        syncRoadDraftFromSegments();
+        state.roadRouteStatus = "draft";
         state.roadApproval = null;
         roadSurveyPreviewPoints = [];
         detachRoadTileSelection();
@@ -5904,22 +5996,18 @@
       }
 
       function undoLastRoadSegment() {
-        if (!state.roadPlanning) return;
+        if (!state.roadPlanning || state.roadRouteStatus === "locked") return;
         detachRoadTileSelection();
         roadSurveyPreviewPoints = [];
-        const points = roadDraftPoints();
-        if (points.length < 2) {
-          state.roadDraft = [];
+        if (!state.roadDraftSegments.length) {
           setContext("Road route empty", "There is no committed segment left to undo.", "warning");
           renderInterface();
           return;
         }
-        const lastAxis = roadAxisBetween(points[points.length - 2], points[points.length - 1]);
-        let boundaryIndex = points.length - 1;
-        while (boundaryIndex > 0 && roadAxisBetween(points[boundaryIndex - 1], points[boundaryIndex]) === lastAxis) boundaryIndex -= 1;
-        const restored = boundaryIndex === 0 ? [] : points.slice(0, boundaryIndex + 1);
-        state.roadDraft = restored.map(function (point) { return keyFor(point.x, point.y); });
-        setContext("Last road segment undone", restored.length
+        state.roadDraftSegments.pop();
+        syncRoadDraftFromSegments();
+        if (state.roadDropoffTile && !expandedRoadCells(roadDraftPoints(), activeRoadProfile().width).has(state.roadDropoffTile)) state.roadDropoffTile = null;
+        setContext("Last road segment undone", state.roadDraft.length
           ? "The prior route is restored exactly. Start tiles from its endpoint to continue."
           : "The route is empty. Start tiles to draw a new first segment.", "success");
         renderInterface();
@@ -5930,8 +6018,68 @@
         detachRoadTileSelection();
         roadSurveyPreviewPoints = [];
         state.roadDraft = [];
+        state.roadDraftSegments = [];
+        state.roadRouteStatus = "draft";
+        state.roadDropoffTile = null;
+        roadDropoffSelectionActive = false;
         setContext("Road route cleared", "All editable road segments were cleared. No project, contract, material, or built road was created.");
         renderInterface();
+      }
+
+      function validateRoadDraftForLock() {
+        const points = roadDraftPoints();
+        const profile = activeRoadProfile();
+        if (points.length < CONFIG.roadMinimumSurveyPoints) return { title: "Road route incomplete", text: "Commit at least one straight segment before locking the route." };
+        if (!draftConnectsToRoad(points, profile.width)) return { title: "Road connection required", text: "Extend one route endpoint until the paving footprint touches an existing company road." };
+        const footprint = Array.from(expandedRoadCells(points, profile.width));
+        const blocked = footprint.map(pointFromKey).find(function (point) {
+          return point && !isPavedClaimRoad(point.x, point.y) && !isRoadSurveyCellLegal(point.x, point.y);
+        });
+        if (blocked) return { title: "Road footprint blocked", text: "The " + profile.width + "-wide paving footprint is blocked at " + blocked.x + "," + blocked.y + ". Edit the route before locking it." };
+        if (!roadDraftNewTiles(points, profile.width).length) return { title: "No new road proposed", text: "This route contains no new paving tiles. Extend it onto open company land." };
+        return null;
+      }
+
+      function lockRoadRoute() {
+        if (!state.roadPlanning || state.roadRouteStatus === "locked" || roadDrawingActive) return;
+        const issue = validateRoadDraftForLock();
+        if (issue) {
+          setContext(issue.title, issue.text, "warning");
+          return;
+        }
+        detachRoadTileSelection();
+        roadDropoffSelectionActive = false;
+        state.roadRouteStatus = "locked";
+        if (state.roadDropoffTile && !roadDraftNewTiles(roadDraftPoints(), activeRoadProfile().width).includes(state.roadDropoffTile)) state.roadDropoffTile = null;
+        setContext("Road tiles locked", state.roadDraft.length + " center tiles and their exact " + activeRoadProfile().width + "-wide footprint are protected. Set a material drop-off tile before submitting at Town Hall.", "success");
+      }
+
+      function unlockRoadRoute() {
+        if (!state.roadPlanning || state.roadRouteStatus !== "locked") return;
+        roadDropoffSelectionActive = false;
+        state.roadRouteStatus = "draft";
+        setContext("Road route unlocked for editing", "The geometry is unchanged. Use Start tiles from the current endpoint, Undo segment, or Clear route; lock the tiles again before submission.");
+      }
+
+      function beginRoadDropoffSelection() {
+        if (!state.roadPlanning || state.roadRouteStatus !== "locked") return;
+        detachRoadTileSelection();
+        suppressPlacementClick = false;
+        roadDropoffSelectionActive = true;
+        setContext("Choose the road drop-off", "Tap one highlighted new paving tile. This becomes the material delivery point and the temporary construction-site marker.");
+      }
+
+      function selectRoadDropoffTile(x, y) {
+        const key = keyFor(x, y);
+        const allowed = roadDraftNewTiles(roadDraftPoints(), activeRoadProfile().width);
+        if (!allowed.includes(key) || !isRoadSurveyCellLegal(x, y)) {
+          setContext("Drop-off must be on this route", "Choose one highlighted new paving tile inside the locked road footprint.", "warning");
+          return false;
+        }
+        state.roadDropoffTile = key;
+        roadDropoffSelectionActive = false;
+        setContext("Road drop-off set", "Materials for this road will be delivered at tile " + key + ". Reopen Town Hall and submit the locked route when ready.", "success");
+        return true;
       }
 
       function startRoadSurvey(profileId) {
@@ -5944,6 +6092,9 @@
         state.roadPlanning = true;
         state.roadPlanningProfile = profile.id;
         state.roadDraft = [];
+        state.roadDraftSegments = [];
+        state.roadRouteStatus = "draft";
+        state.roadDropoffTile = null;
         state.roadApproval = null;
         state.menuOpen = false;
         marketScreenOpen = false;
@@ -5952,6 +6103,7 @@
         state.zoomIndex = Math.max(state.zoomIndex, CONFIG.roadPlanningZoomIndex);
         detachRoadTileSelection();
         roadSurveyPreviewPoints = [];
+        roadDropoffSelectionActive = false;
         setContext("Road survey selected", profile.label + " is ready. Use Start tiles on the left, drag one straight centerline pass, then press Lock route. Lock each pass before using Start tiles again for a deliberate turn.");
       }
 
@@ -5959,6 +6111,14 @@
         if (state.location !== "townhall") return;
         if (roadDrawingActive) {
           setContext("Lock the highlighted route", "Press Lock route on the left before sending the survey to Town Hall.", "warning");
+          return;
+        }
+        if (state.roadRouteStatus !== "locked") {
+          setContext("Lock the road tiles first", "Finish and commit each segment, then press Lock tiles before Town Hall reviews the route.", "warning");
+          return;
+        }
+        if (!state.roadDropoffTile || !roadDraftNewTiles(roadDraftPoints(), activeRoadProfile().width).includes(state.roadDropoffTile)) {
+          setContext("Road drop-off required", "Press Set drop-off and choose one highlighted new paving tile before Town Hall approval.", "warning");
           return;
         }
         const points = roadDraftPoints();
@@ -6044,6 +6204,10 @@
         roadSurveyPreviewPoints = [];
         state.roadPlanning = false;
         state.roadDraft = [];
+        state.roadDraftSegments = [];
+        state.roadRouteStatus = "draft";
+        state.roadDropoffTile = null;
+        roadDropoffSelectionActive = false;
         state.roadApproval = null;
         setContext("Road survey cancelled", "No stone was purchased and no cash was spent. Start a new two-wide route from Town Hall whenever you are ready.");
       }
@@ -7421,24 +7585,44 @@
         el.contextTitle.textContent = state.contextTitle;
         el.context.textContent = state.contextText;
         root.dataset.roadPlanning = state.roadPlanning ? "true" : "false";
+        root.dataset.roadRouteStatus = state.roadRouteStatus;
+        root.dataset.roadDropoffSelecting = roadDropoffSelectionActive ? "true" : "false";
+        root.dataset.roadDropoffTile = state.roadDropoffTile || "";
         root.dataset.sitePlacement = sitePlacement ? sitePlacement.siteKind : "";
         const roadSurveyControlsVisible = state.location === "townhall" && state.roadPlanning && !state.roadApproval;
+        const roadRouteLocked = state.roadRouteStatus === "locked";
         if (el.roadSurveyControls) el.roadSurveyControls.hidden = !roadSurveyControlsVisible;
         if (el.roadStartDraw) {
-          el.roadStartDraw.disabled = !roadSurveyControlsVisible;
+          el.roadStartDraw.disabled = !roadSurveyControlsVisible || roadRouteLocked || roadDropoffSelectionActive;
           el.roadStartDraw.textContent = roadDrawingActive && roadSurveyPreviewPoints.length ? "Redraw tiles" : state.roadDraft.length ? "Add tiles" : "Start tiles";
         }
         if (el.roadLock) {
           el.roadLock.disabled = !roadSurveyControlsVisible || !roadDrawingActive || !roadSurveyPreviewPoints.length;
           el.roadLock.textContent = "Commit segment";
         }
-        if (el.roadUndo) el.roadUndo.disabled = !roadSurveyControlsVisible || roadDrawingActive || state.roadDraft.length < 2;
+        if (el.roadUndo) el.roadUndo.disabled = !roadSurveyControlsVisible || roadRouteLocked || roadDrawingActive || state.roadDraftSegments.length === 0;
         if (el.roadClearRoute) el.roadClearRoute.disabled = !roadSurveyControlsVisible || (!roadDrawingActive && state.roadDraft.length === 0);
+        if (el.roadRouteLock) {
+          el.roadRouteLock.disabled = !roadSurveyControlsVisible || roadRouteLocked || roadDrawingActive || state.roadDraft.length < CONFIG.roadMinimumSurveyPoints;
+          el.roadRouteLock.textContent = roadRouteLocked ? "Tiles locked" : "Lock tiles";
+        }
+        if (el.roadUnlock) {
+          el.roadUnlock.disabled = !roadSurveyControlsVisible || !roadRouteLocked;
+          el.roadUnlock.textContent = "Unlock / edit";
+        }
+        if (el.roadDropoff) {
+          el.roadDropoff.disabled = !roadSurveyControlsVisible || !roadRouteLocked;
+          el.roadDropoff.textContent = roadDropoffSelectionActive ? "Tap route tile" : state.roadDropoffTile ? "Change drop-off" : "Set drop-off";
+        }
         if (el.mapTip) {
           if (sitePlacement) el.mapTip.textContent = sitePlacement.siteKind === "mine" ? "MINE FOOTPRINT · selected permit locked · drag a 2×2 lot · Esc cancels" : sitePlacement.siteKind === "warehouse" ? "WAREHOUSE SITE · drag a 2×2 lot · Esc cancels" : "RESIDENTIAL LOT · drag the selected house footprint · Esc cancels";
-          else if (state.roadPlanning) el.mapTip.textContent = roadDrawingActive
-            ? roadSurveyPreviewPoints.length ? "ROAD SURVEY · straight segment held · commit it on the left" : roadSurveyAnchorPoint ? "ROAD SURVEY · anchor only · drag to make a segment" : "ROAD SURVEY · touch the first center tile"
-            : "ROAD SURVEY · tap Start tiles on the left";
+          else if (state.roadPlanning) el.mapTip.textContent = roadDropoffSelectionActive
+            ? "ROAD SURVEY · tap one highlighted new paving tile for drop-off"
+            : roadRouteLocked
+              ? state.roadDropoffTile ? "ROAD SURVEY · locked with drop-off · submit at Town Hall" : "ROAD SURVEY · tiles locked · set drop-off"
+              : roadDrawingActive
+                ? roadSurveyPreviewPoints.length ? "ROAD SURVEY · straight segment held · commit it on the left" : roadSurveyAnchorPoint ? "ROAD SURVEY · anchor only · drag to make a segment" : "ROAD SURVEY · touch the first center tile"
+                : "ROAD SURVEY · add segments, then lock tiles";
           else if (inputMode === "controller") el.mapTip.textContent = "Controller connected · RT drive · X cut · Y menu";
           else if (inputMode === "keyboard") el.mapTip.textContent = "Keyboard drive · E menu · Space cut";
           else el.mapTip.textContent = "Tap map · Arrows / WASD · Controller ready";
@@ -7537,8 +7721,12 @@
         el.roadPlan.hidden = state.location !== "townhall" || state.roadPlanning || state.roadDraft.length > 0 || Boolean(state.roadApproval);
         el.roadPlan.disabled = false;
         el.roadSubmit.hidden = state.location !== "townhall" || Boolean(state.roadApproval) || state.roadDraft.length === 0;
-        el.roadSubmit.disabled = roadDrawingActive || state.roadDraft.length < CONFIG.roadMinimumSurveyPoints;
-        el.roadSubmit.textContent = "Submit " + roadDraftNewTiles(roadDraftPoints(), activeRoadProfile().width).length + "-tile " + activeRoadProfile().width + "-wide route for approval";
+        el.roadSubmit.disabled = roadDrawingActive || state.roadRouteStatus !== "locked" || !state.roadDropoffTile || state.roadDraft.length < CONFIG.roadMinimumSurveyPoints;
+        el.roadSubmit.textContent = state.roadRouteStatus !== "locked"
+          ? "Lock road tiles before submission"
+          : !state.roadDropoffTile
+            ? "Set road drop-off before submission"
+            : "Approve " + roadDraftNewTiles(roadDraftPoints(), activeRoadProfile().width).length + "-tile " + activeRoadProfile().width + "-wide road project";
         el.roadAccept.hidden = state.location !== "townhall" || !state.roadApproval;
         el.roadAccept.disabled = !state.roadApproval;
         el.roadAccept.textContent = state.roadApproval ? "Open " + roadProfileFor(state.roadApproval.profileId).label + " project · $" + state.roadApproval.totalCost : "Open approved road project";
@@ -8860,6 +9048,21 @@
           ctx.fill();
           ctx.stroke();
         }
+        if (state.roadDropoffTile) {
+          const dropoff = pointFromKey(state.roadDropoffTile);
+          if (dropoff) {
+            const marker = screenPoint(dropoff.x + .5, dropoff.y + .5);
+            const size = Math.max(5, drawView.scale * .32);
+            ctx.setLineDash([]);
+            ctx.fillStyle = "#ffb22c";
+            ctx.strokeStyle = "#172746";
+            ctx.lineWidth = Math.max(2, drawView.scale * .1);
+            ctx.beginPath();
+            ctx.rect(marker.x - size, marker.y - size, size * 2, size * 2);
+            ctx.fill();
+            ctx.stroke();
+          }
+        }
         ctx.restore();
       }
 
@@ -9206,6 +9409,9 @@
       el.roadLock.addEventListener("click", lockRoadTileSelection);
       el.roadUndo.addEventListener("click", undoLastRoadSegment);
       el.roadClearRoute.addEventListener("click", clearRoadRoute);
+      el.roadRouteLock.addEventListener("click", lockRoadRoute);
+      el.roadUnlock.addEventListener("click", unlockRoadRoute);
+      el.roadDropoff.addEventListener("click", beginRoadDropoffSelection);
       el.roadSubmit.addEventListener("click", submitRoadSurvey);
       el.roadAccept.addEventListener("click", acceptRoadContract);
       el.roadCancel.addEventListener("click", cancelRoadSurvey);

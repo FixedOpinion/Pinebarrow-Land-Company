@@ -3070,6 +3070,10 @@ body {
   cursor: cell;
 }
 
+.game-app[data-road-dropoff-selecting="true"] #pb7-map {
+  cursor: crosshair;
+}
+
 .game-app[data-road-planning="true"] .map-tip {
   color: #172746;
   border-color: rgba(255, 215, 94, 0.9);

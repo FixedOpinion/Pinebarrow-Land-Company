@@ -337,7 +337,7 @@ test("two independent prospects survive save/reload and neither replaces the oth
   };
 
   const migrated = createEngineHarness(oldSave, engineSource);
-  assert.equal(migrated.saved().version, 16);
+  assert.equal(migrated.saved().version, 17);
   assert.equal(migrated.saved().worldLayoutVersion, 2);
   assert.deepEqual(migrated.saved().player, firstTile);
   assert.equal(migrated.saved().prospectsUsedToday, 0);
@@ -555,7 +555,7 @@ test("generic proposal records persist across save and reload without activating
   }, engineSource);
 
   const saved = game.saved();
-  assert.equal(saved.version, 16);
+  assert.equal(saved.version, 17);
   assert.equal(saved.proposals.length, 3);
   assert.deepEqual(saved.proposals, proposals);
   assert.equal(saved.nextProposalId, 4);
@@ -912,7 +912,7 @@ test("legacy P4 assets migrate north without losing IDs, stock, roads, or cargo"
   }, engineSource);
 
   const saved = game.saved();
-  assert.equal(saved.version, 16);
+  assert.equal(saved.version, 17);
   assert.equal(saved.worldLayoutVersion, 2);
   assert.deepEqual(saved.player, { x: 75, y: 122 });
   assert.deepEqual(saved.cargo, { stone: 2.5, clay: 0, coal: 0, iron: 0, copper: 0, tin: 0, quartz: 0, silver: 0, gold: 0, sapphire: 0, logs: 0, dirt: 1 });
@@ -1372,6 +1372,8 @@ test("Town Hall turns a centered two-wide road into a contract-backed constructi
     cleared,
     pavedDepth: 3,
     roadDraft,
+    roadRouteStatus: "locked",
+    roadDropoffTile: "46,122",
     roadPlanning: true,
     roadTiles: [],
   }, engineSource);
@@ -1444,6 +1446,8 @@ test("Town Hall accepts a two-wide road surveyed from a permit back to starter p
     cleared,
     pavedDepth: 3,
     roadDraft,
+    roadRouteStatus: "locked",
+    roadDropoffTile: "46,122",
     roadPlanning: true,
     roadTiles: [],
   }, engineSource);
@@ -1478,8 +1482,13 @@ test("Town Hall locks a touched straight road pass and protects it from later ma
   assert.match(pageSource, /id="pb7-road-survey-controls"/);
   assert.match(pageSource, /id="pb7-road-start-draw"/);
   assert.match(pageSource, /id="pb7-road-lock"/);
+  assert.match(pageSource, /id="pb7-road-route-lock"/);
+  assert.match(pageSource, /id="pb7-road-unlock"/);
+  assert.match(pageSource, /id="pb7-road-dropoff"/);
   game.element("pb7-road-plan").click();
   game.frame(16);
+  assert.equal(game.saved().overview, false, "road planning leaves the tiny whole-world overview");
+  assert.equal(game.saved().zoomIndex, 2, "road planning uses the precision tile scale");
   assert.equal(game.element("pb7-road-survey-controls").hidden, false);
   assert.equal(game.element("pb7-road-lock").disabled, true);
 
@@ -1490,14 +1499,83 @@ test("Town Hall locks a touched straight road pass and protects it from later ma
   canvas.emit("pointerup", { ...placementPointer(49, 123, 44.5, 123, 2), currentTarget: canvas });
   assert.equal(game.element("pb7-road-lock").disabled, false);
   game.element("pb7-road-lock").click();
+  assert.equal(game.saved().roadRouteStatus, "draft", "committing one segment does not silently lock the route");
+  game.element("pb7-road-route-lock").click();
 
   const lockedRoute = ["46,122", "47,122", "48,122", "49,122"];
   assert.deepEqual(game.saved().roadDraft, lockedRoute, "the first dominant direction keeps the pass straight despite a small diagonal drift");
+  assert.equal(game.saved().roadRouteStatus, "locked");
   canvas.emit("click", overviewPointer(55, 130));
   canvas.emit("click", overviewPointer(56, 131));
   game.element("pb7-menu-close").click();
   assert.deepEqual(game.saved().roadDraft, lockedRoute, "ordinary map and menu clicks cannot delete a locked route");
   assert.equal(game.saved().roadPlanning, true, "the player can return to Town Hall and submit the protected route");
+});
+
+test("locked road segments and explicit drop-off survive reload and unlock without geometry loss", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const cleared = [];
+  for (let x = 43; x <= 52; x += 1) {
+    for (let y = 119; y <= 124; y += 1) cleared.push(`${x},${y}`);
+  }
+  const game = createEngineHarness({
+    version: 17,
+    worldLayoutVersion: 2,
+    day: 1,
+    minutes: 480,
+    cash: 5000,
+    player: { x: 45, y: 146 },
+    location: "townhall",
+    selected: { type: "road", x: 45, y: 146 },
+    cleared,
+    pavedDepth: 3,
+    roadTiles: [],
+  }, engineSource);
+
+  game.element("pb7-road-plan").click();
+  game.frame(16);
+  const canvas = game.element("pb7-map");
+  game.element("pb7-road-start-draw").click();
+  canvas.emit("pointerdown", placementPointer(46, 122, 44.5, 123, 2, 61));
+  canvas.emit("pointermove", placementPointer(49, 123, 44.5, 123, 2, 61));
+  canvas.emit("pointerup", placementPointer(49, 123, 44.5, 123, 2, 61));
+  game.element("pb7-road-lock").click();
+  assert.equal(game.element("pb7-road-submit").disabled, true, "an editable route cannot be submitted");
+  game.element("pb7-road-route-lock").click();
+  assert.equal(game.element("pb7-road-submit").disabled, true, "drop-off remains mandatory after tile lock");
+
+  game.frame(32);
+  game.element("pb7-road-dropoff").click();
+  canvas.emit("click", placementPointer(47, 121, 49, 122, 2, 62));
+  const locked = game.saved();
+  assert.equal(locked.roadRouteStatus, "locked");
+  assert.equal(locked.roadDropoffTile, "47,121");
+  assert.deepEqual(locked.roadDraftSegments, [["46,122", "47,122", "48,122", "49,122"]]);
+  assert.equal(game.element("pb7-road-submit").disabled, false);
+
+  const reloaded = createEngineHarness(locked, engineSource);
+  const restored = reloaded.saved();
+  assert.equal(restored.roadRouteStatus, "locked");
+  assert.equal(restored.roadDropoffTile, "47,121");
+  assert.deepEqual(restored.roadDraft, locked.roadDraft);
+  assert.deepEqual(restored.roadDraftSegments, locked.roadDraftSegments);
+  const normalizedAgain = createEngineHarness(restored, engineSource).saved();
+  assert.deepEqual({
+    roadDraft: normalizedAgain.roadDraft,
+    roadDraftSegments: normalizedAgain.roadDraftSegments,
+    roadRouteStatus: normalizedAgain.roadRouteStatus,
+    roadDropoffTile: normalizedAgain.roadDropoffTile,
+  }, {
+    roadDraft: restored.roadDraft,
+    roadDraftSegments: restored.roadDraftSegments,
+    roadRouteStatus: restored.roadRouteStatus,
+    roadDropoffTile: restored.roadDropoffTile,
+  }, "road draft normalization is idempotent");
+  reloaded.element("pb7-road-unlock").click();
+  const editable = reloaded.saved();
+  assert.equal(editable.roadRouteStatus, "draft");
+  assert.equal(editable.roadDropoffTile, "47,121");
+  assert.deepEqual(editable.roadDraft, locked.roadDraft, "unlock changes editability, not geometry");
 });
 
 test("road turns require a second committed segment and undo restores the prior route", async () => {
@@ -1791,7 +1869,7 @@ test("Town Hall routes a residential proposal through builder and procurement re
   details.emit("click", { target: { closest: () => ({ dataset: { projectAction: "approve", proposalId: "proposal-house-1" } }) } });
 
   let saved = game.saved();
-  assert.equal(saved.version, 16);
+  assert.equal(saved.version, 17);
   assert.equal(saved.proposals[0].status, "approved");
   assert.equal(saved.proposals[0].stage, "coming-soon");
   assert.equal(saved.constructionProjects.length, 0);
@@ -1819,7 +1897,7 @@ test("Town Hall routes a residential proposal through builder and procurement re
   assert.equal(saved.procurementContracts[0].providerId, "player-company");
 
   const reloaded = createEngineHarness(saved, engineSource).saved();
-  assert.equal(reloaded.version, 16);
+  assert.equal(reloaded.version, 17);
   assert.deepEqual(reloaded.constructionProjects, saved.constructionProjects);
   assert.deepEqual(reloaded.constructionBids, saved.constructionBids);
   assert.deepEqual(reloaded.procurementContracts, saved.procurementContracts);
@@ -1849,7 +1927,7 @@ test("Town Hall selects a residential lot and files an identity-preserving house
   canvas.emit("pointermove", { ...placementPointer(47, 123, 47, 122), currentTarget: canvas });
   canvas.emit("pointerup", { ...placementPointer(47, 123, 47, 122), currentTarget: canvas });
   let saved = game.saved();
-  assert.equal(saved.version, 16);
+  assert.equal(saved.version, 17);
   assert.equal(saved.proposals.length, 1);
   assert.equal(saved.proposals[0].buildingId, "worker-house");
   assert.equal(saved.proposals[0].footprintSnapshot.designId, "worker-house");
@@ -2323,7 +2401,7 @@ test("Town Hall records a selected mine footprint and an independent warehouse p
   mineCanvas.emit("pointermove", { ...placementPointer(48, 122, 48, 122, 2), currentTarget: mineCanvas });
   mineCanvas.emit("pointerup", { ...placementPointer(48, 122, 48, 122, 2), currentTarget: mineCanvas });
   const selectedMine = mineGame.saved();
-  assert.equal(selectedMine.version, 16);
+  assert.equal(selectedMine.version, 17);
   assert.deepEqual(selectedMine.mineParcels[0].selectedFootprint, { x: 47, y: 121, w: 2, h: 2, orientation: 0 });
   assert.equal(selectedMine.mineParcels[0].placementRequired, false);
   assert.equal(selectedMine.mineParcels[0].footprintSnapshot.designId, "mine-starter");
@@ -2413,7 +2491,7 @@ test("v14 warehouse links migrate once and reassignment preserves a single expli
   };
   const game = createEngineHarness(oldSave, engineSource);
   const migrated = game.saved();
-  assert.equal(migrated.version, 16);
+  assert.equal(migrated.version, 17);
   assert.deepEqual(migrated.warehouses.find((warehouse) => warehouse.id === "warehouse-a").assignedMineIds, ["mine-route-a"]);
   assert.deepEqual(migrated.warehouses.find((warehouse) => warehouse.id === "warehouse-b").assignedMineIds, ["mine-route-b"]);
 

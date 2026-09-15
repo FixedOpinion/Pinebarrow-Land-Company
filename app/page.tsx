@@ -165,6 +165,9 @@ export default function Home() {
                 <button id="pb7-road-lock" type="button" aria-label="Commit current road segment">Commit<br />segment</button>
                 <button id="pb7-road-undo" type="button" aria-label="Undo last road segment">Undo<br />segment</button>
                 <button id="pb7-road-clear-route" type="button" aria-label="Clear road route">Clear<br />route</button>
+                <button id="pb7-road-route-lock" type="button" aria-label="Lock road tiles">Lock<br />tiles</button>
+                <button id="pb7-road-unlock" type="button" aria-label="Unlock and edit road route">Unlock<br />edit</button>
+                <button id="pb7-road-dropoff" type="button" aria-label="Set road material drop-off tile">Set<br />drop-off</button>
               </section>
               <button id="pb7-play-fullscreen" className="fullscreen-launch" type="button" aria-label="Play Pinebarrow in full screen">
                 <span aria-hidden="true">⛶</span>

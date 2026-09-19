@@ -103,6 +103,7 @@ function createCanvasContext() {
 
 function createEngineHarness(savedState, engineSource, options = {}) {
   const storage = new Map([[SAVE_KEY, JSON.stringify(savedState)]]);
+  let failProfileWrites = false;
   const elements = new Map();
   let documentRef = null;
   const getElement = (id) => {
@@ -174,7 +175,10 @@ function createEngineHarness(savedState, engineSource, options = {}) {
     document,
     localStorage: {
       getItem: (key) => storage.get(key) ?? null,
-      setItem: (key, value) => storage.set(key, value),
+      setItem: (key, value) => {
+        if (failProfileWrites && key === PROFILE_KEY) throw new Error("profile storage unavailable");
+        storage.set(key, value);
+      },
       removeItem: (key) => storage.delete(key),
     },
     addEventListener(type, listener) {
@@ -268,6 +272,9 @@ function createEngineHarness(savedState, engineSource, options = {}) {
     },
     frame: runAnimationFrame,
     fullscreenElement: () => document.fullscreenElement,
+    setProfileWriteFailure(value) {
+      failProfileWrites = Boolean(value);
+    },
     saved: () => JSON.parse(storage.get(PROFILE_KEY)).save,
   };
 }
@@ -1358,6 +1365,8 @@ test("the HUD removes the road-tile counter while retaining the readable truck g
 test("Town Hall turns a centered two-wide road into a contract-backed construction project", async () => {
   const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
   const roadDraft = ["46,122", "46,123", "47,123"];
+  const routeTiles = ["46,122", "46,123", "47,122", "47,123"];
+  const footprintTiles = ["45,122", "46,122", "45,123", "46,123", "47,122", "47,123"];
   const cleared = ["46,122", "47,122", "46,123", "47,123", "46,124", "47,124"];
   const game = createEngineHarness({
     version: 12,
@@ -1382,36 +1391,125 @@ test("Town Hall turns a centered two-wide road into a contract-backed constructi
   assert.equal(game.element("pb7-road-submit").disabled, false);
   game.element("pb7-road-submit").click();
   const approved = game.saved();
-  assert.ok(approved.roadApproval);
-  assert.deepEqual(approved.roadApproval.routeTiles, ["46,122", "46,123", "47,122", "47,123"]);
-  assert.equal(approved.roadApproval.stonePrice, 58);
+  assert.equal(approved.constructionProjects.length, 1, "approval creates the authoritative project immediately");
+  const project = approved.constructionProjects[0];
+  assert.deepEqual(approved.roadApproval, { projectId: project.id }, "the compatibility field is only a project pointer");
+  assert.equal(project.siteKind, "road");
+  assert.equal(project.roadProfileId, "company-road");
+  assert.deepEqual(project.roadRoutePoints, roadDraft);
+  assert.deepEqual(project.roadRouteSegments, [["46,122", "46,123"], ["46,123", "47,123"]]);
+  assert.deepEqual(project.roadRouteTiles, routeTiles);
+  assert.deepEqual(project.roadFootprintTiles, footprintTiles);
+  assert.equal(project.roadDropoffTile, "46,122");
+  assert.deepEqual(project.footprintSnapshot.routePoints, roadDraft);
+  assert.deepEqual(project.footprintSnapshot.routeTiles, routeTiles);
+  assert.deepEqual(project.footprintSnapshot.footprintTiles, footprintTiles);
+  assert.equal(project.footprintSnapshot.dropoffTile, "46,122");
+  assert.equal(project.footprintSnapshot.estimate.stonePrice, 58);
+  assert.equal(project.roadPackages.length, 1);
+  assert.deepEqual(approved.roadDraft, []);
+  assert.deepEqual(approved.roadDraftSegments, []);
+  assert.equal(approved.roadPlanning, false);
+  assert.equal(approved.roadTiles.length, 0, "approval does not build road tiles");
+  assert.equal(approved.constructionBids.length, 3);
+  assert.ok(approved.constructionBids.every((bid) => bid.projectId === project.id));
+  assert.equal(approved.procurementContracts.length, 3);
+  assert.ok(approved.procurementContracts.every((contract) => contract.projectId === project.id));
+  assert.deepEqual(approved.procurementContracts.map((contract) => contract.category), ["materials", "logistics", "hauling"]);
+  assert.deepEqual(approved.procurementContracts.map((contract) => contract.family), ["road-materials", "road-logistics", "road-logistics"]);
   assert.equal(approved.cargo.stone, 2);
+  assert.equal(game.element("pinebarrow-visible-menu-demo").dataset.activeRoadProjectCount, "1");
+  assert.equal(game.element("pinebarrow-visible-menu-demo").dataset.approvedRoadProjectId, project.id);
+  assert.match(game.element("pb7-location-details").innerHTML, new RegExp(project.id));
+  for (const record of approved.constructionBids.concat(approved.procurementContracts)) {
+    assert.match(game.element("pb7-location-details").innerHTML, new RegExp(record.id));
+  }
+
+  const contractsGame = createEngineHarness(structuredClone(approved), engineSource);
+  contractsGame.element("pb7-company-management").click();
+  contractsGame.element("pb7-management-tab-contracts").click();
+  const contractBoard = contractsGame.element("pb7-management-contract-board");
+  assert.match(contractBoard.innerHTML, new RegExp(project.id));
+  for (const record of approved.constructionBids.concat(approved.procurementContracts)) {
+    assert.match(contractBoard.innerHTML, new RegExp(record.id), `Contracts exposes stable record ${record.id}`);
+  }
+  const builderBidId = approved.constructionBids[0].id;
+  contractBoard.emit("click", {
+    target: locationActionTarget("[data-project-action]", { projectAction: "award-builder", bidId: builderBidId }),
+  });
+  assert.equal(contractsGame.saved().constructionProjects[0].status, "procurement");
+  for (const contract of approved.procurementContracts) {
+    contractBoard.emit("click", {
+      target: locationActionTarget("[data-project-action]", { projectAction: "bid-procurement", procurementId: contract.id }),
+    });
+  }
+  const contracted = contractsGame.saved();
+  assert.equal(contracted.constructionProjects[0].id, project.id);
+  assert.equal(contracted.constructionProjects[0].status, "ready-to-build");
+  assert.deepEqual(contracted.procurementContracts.map((contract) => contract.id), approved.procurementContracts.map((contract) => contract.id));
+
+  for (const status of ["procurement", "ready-to-build", "building"]) {
+    const intermediate = structuredClone(contracted);
+    intermediate.constructionProjects[0].status = status;
+    intermediate.constructionProjects[0].buildProgress = status === "building" ? 0.4 : 0;
+    intermediate.constructionProjects[0].laborDelivered = status === "building" ? intermediate.constructionProjects[0].laborRequired * 0.4 : 0;
+    const once = createEngineHarness(intermediate, engineSource).saved();
+    const twice = createEngineHarness(once, engineSource).saved();
+    assert.equal(twice.constructionProjects.length, 1, `${status} reload keeps one project`);
+    assert.equal(twice.constructionProjects[0].id, project.id);
+    assert.deepEqual(twice.constructionProjects[0].roadRouteTiles, routeTiles);
+    assert.deepEqual(twice.constructionBids.map((bid) => bid.id), contracted.constructionBids.map((bid) => bid.id));
+    assert.deepEqual(twice.procurementContracts.map((contract) => contract.id), contracted.procurementContracts.map((contract) => contract.id));
+  }
+
+  const worldGame = createEngineHarness({
+    ...structuredClone(approved),
+    player: { x: 46, y: 122 },
+    selected: { type: "road", x: 46, y: 122 },
+    location: "road",
+    zoomIndex: 2,
+    overview: false,
+  }, engineSource);
+  worldGame.frame(16);
+  const worldCanvas = worldGame.element("pb7-map");
+  worldCanvas.emit("click", placementPointer(46, 122, 46.5, 122.5, 2));
+  assert.equal(worldGame.element("pinebarrow-visible-menu-demo").dataset.selectedRoadProjectId, project.id);
+  assert.match(worldGame.element("pb7-location-kicker").textContent, /road construction site/i);
+  assert.match(worldGame.element("pb7-location-details").innerHTML, new RegExp(project.id));
+  for (const record of approved.constructionBids.concat(approved.procurementContracts)) {
+    assert.match(worldGame.element("pb7-location-details").innerHTML, new RegExp(record.id), `world site exposes stable record ${record.id}`);
+  }
+  worldGame.element("pb7-location-details").emit("click", {
+    target: locationActionTarget("[data-project-action]", { projectAction: "award-builder", bidId: builderBidId }),
+  });
+  assert.equal(worldGame.saved().constructionProjects[0].status, "procurement", "the world marker manages the same project");
+
+  game.element("pb7-road-submit").click();
+  assert.equal(game.saved().constructionProjects.length, 1, "repeated submit cannot create a duplicate project");
 
   const reloadedApproval = createEngineHarness(approved, engineSource);
-  assert.ok(reloadedApproval.saved().roadApproval, "the approved route survives a fresh game load");
-  assert.deepEqual(reloadedApproval.saved().roadApproval.routeTiles, approved.roadApproval.routeTiles);
+  const reloaded = reloadedApproval.saved();
+  assert.deepEqual(reloaded.roadApproval, { projectId: project.id }, "the project pointer survives a fresh game load");
+  assert.equal(reloaded.constructionProjects.length, 1);
+  assert.deepEqual(reloaded.constructionProjects[0].roadRouteTiles, routeTiles);
+  assert.deepEqual(reloaded.constructionProjects[0].roadFootprintTiles, footprintTiles);
   assert.equal(reloadedApproval.element("pb7-road-accept").hidden, false);
+  assert.match(reloadedApproval.element("pb7-road-accept").textContent, new RegExp(project.id));
   reloadedApproval.element("pb7-location-details").emit("click", {
     target: locationActionTarget("[data-road-profile]", { roadProfile: "company-road" }),
   });
-  assert.deepEqual(reloadedApproval.saved().roadApproval.routeTiles, approved.roadApproval.routeTiles, "starting another survey cannot erase an approved route");
-  assert.match(reloadedApproval.saved().contextText, /already awaiting project opening/i);
+  assert.deepEqual(reloadedApproval.saved().roadApproval, { projectId: project.id }, "starting another survey cannot erase the approved project");
+  assert.match(reloadedApproval.saved().contextText, /already owns this route/i);
 
   game.element("pb7-road-accept").click();
   const opened = game.saved();
   assert.equal(opened.roadContractsCompleted, 0);
   assert.equal(opened.roadTiles.length, 0);
   assert.equal(opened.constructionProjects.length, 1);
-  assert.equal(opened.constructionProjects[0].siteKind, "road");
-  assert.equal(opened.constructionProjects[0].roadProfileId, "company-road");
-  assert.equal(opened.constructionProjects[0].roadRouteTiles.length, 4);
-  assert.equal(opened.constructionProjects[0].roadPackages.length, 1);
-  assert.equal(opened.constructionBids.length, 3);
-  assert.equal(opened.procurementContracts.length, 3);
+  assert.equal(opened.constructionProjects[0].id, project.id, "Open project reuses the project created by submit");
   assert.equal(game.element("pb7-management-screen").hidden, false);
   assert.equal(game.element("pb7-project-management-panel").hidden, false);
 
-  const project = opened.constructionProjects[0];
   const ready = createEngineHarness({
     ...opened,
     cargo: { stone: 2 },
@@ -1422,7 +1520,10 @@ test("Town Hall turns a centered two-wide road into a contract-backed constructi
   for (let tick = 1; tick <= 90; tick += 1) ready.frame(tick * 1000);
   const built = ready.saved();
   assert.equal(built.roadContractsCompleted, 1);
-  assert.equal(built.roadTiles.length, 4);
+  assert.deepEqual(built.roadTiles, routeTiles, "only the frozen new-work tiles become paved on completion");
+  assert.equal(built.constructionProjects[0].id, project.id);
+  assert.equal(built.constructionProjects[0].status, "completed");
+  assert.equal(built.roadApproval, null);
   assert.ok(built.roadMarketImpact.strength > 0);
   assert.equal(built.cargo.stone, 0.6);
   assert.match(built.contextText, /paved 4 route tiles/i);
@@ -1455,7 +1556,157 @@ test("Town Hall accepts a two-wide road surveyed from a permit back to starter p
   game.element("pb7-road-submit").click();
   const approved = game.saved();
   assert.ok(approved.roadApproval, "a route may end on starter pavement");
-  assert.deepEqual(approved.roadApproval.routeTiles, ["46,122", "46,123", "47,122", "47,123"]);
+  assert.equal(approved.constructionProjects.length, 1);
+  assert.equal(approved.roadApproval.projectId, approved.constructionProjects[0].id);
+  assert.deepEqual(approved.constructionProjects[0].roadRouteTiles, ["46,122", "46,123", "47,122", "47,123"]);
+});
+
+test("road approval fails atomically when the project ledger is full", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const existingProjects = Array.from({ length: 64 }, (_value, index) => ({
+    id: `project-full-${index + 1}`,
+    buildingId: "worker-house",
+    ownerId: "player",
+    status: "completed",
+    siteKind: "town",
+    requirements: {},
+    delivered: {},
+    laborRequired: 0,
+    laborDelivered: 0,
+    createdDay: 1,
+    deadlineDay: 1,
+  }));
+  const roadDraft = ["46,122", "46,123", "47,123"];
+  const game = createEngineHarness({
+    version: 17,
+    worldLayoutVersion: 2,
+    day: 1,
+    minutes: 480,
+    cash: 5000,
+    player: { x: 45, y: 146 },
+    location: "townhall",
+    selected: { type: "road", x: 45, y: 146 },
+    cleared: ["46,122", "47,122", "46,123", "47,123", "46,124", "47,124"],
+    pavedDepth: 3,
+    roadDraft,
+    roadRouteStatus: "locked",
+    roadDropoffTile: "46,122",
+    roadPlanning: true,
+    roadTiles: [],
+    constructionProjects: existingProjects,
+    constructionBids: [],
+    procurementContracts: [],
+    nextProjectId: 65,
+  }, engineSource);
+
+  game.element("pb7-road-submit").click();
+  const blocked = game.saved();
+  assert.equal(blocked.constructionProjects.length, 64);
+  assert.equal(blocked.constructionBids.length, 0);
+  assert.equal(blocked.procurementContracts.length, 0);
+  assert.deepEqual(blocked.roadDraft, roadDraft);
+  assert.equal(blocked.roadRouteStatus, "locked");
+  assert.equal(blocked.roadDropoffTile, "46,122");
+  assert.equal(blocked.roadApproval, null);
+  assert.match(blocked.contextTitle, /ledger full/i);
+});
+
+test("road approval rolls back every record when durable save fails", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const roadDraft = ["46,122", "46,123", "47,123"];
+  const game = createEngineHarness({
+    version: 17,
+    worldLayoutVersion: 2,
+    day: 1,
+    minutes: 480,
+    cash: 5000,
+    player: { x: 45, y: 146 },
+    location: "townhall",
+    selected: { type: "road", x: 45, y: 146 },
+    cleared: ["46,122", "47,122", "46,123", "47,123", "46,124", "47,124"],
+    pavedDepth: 3,
+    roadDraft,
+    roadRouteStatus: "locked",
+    roadDropoffTile: "46,122",
+    roadPlanning: true,
+    roadTiles: [],
+  }, engineSource);
+
+  game.setProfileWriteFailure(true);
+  game.element("pb7-road-submit").click();
+  assert.match(game.element("pb7-context-title").textContent, /approval failed safely/i);
+  assert.equal(game.element("pinebarrow-visible-menu-demo").dataset.constructionProjectCount, "0");
+  assert.equal(game.element("pinebarrow-visible-menu-demo").dataset.constructionOpenBidCount, "0");
+  assert.equal(game.element("pinebarrow-visible-menu-demo").dataset.constructionOpenProcurementCount, "0");
+  assert.equal(game.element("pinebarrow-visible-menu-demo").dataset.roadRouteStatus, "locked");
+  assert.equal(game.element("pinebarrow-visible-menu-demo").dataset.roadDropoffTile, "46,122");
+  const durable = game.saved();
+  assert.deepEqual(durable.roadDraft, roadDraft);
+  assert.equal(durable.roadRouteStatus, "locked");
+  assert.equal(durable.roadDropoffTile, "46,122");
+  assert.equal(durable.constructionProjects.length, 0);
+  assert.equal(durable.constructionBids.length, 0);
+  assert.equal(durable.procurementContracts.length, 0);
+});
+
+test("withdrawing a road project preserves history and never builds the route", async () => {
+  const engineSource = await readFile(new URL("../public/pinebarrow-engine.js", import.meta.url), "utf8");
+  const game = createEngineHarness({
+    version: 17,
+    worldLayoutVersion: 2,
+    day: 2,
+    minutes: 480,
+    cash: 5000,
+    player: { x: 45, y: 146 },
+    location: "townhall",
+    selected: { type: "road", x: 45, y: 146 },
+    cleared: ["46,122", "47,122", "46,123", "47,123", "46,124", "47,124"],
+    pavedDepth: 3,
+    roadDraft: ["46,122", "46,123", "47,123"],
+    roadRouteStatus: "locked",
+    roadDropoffTile: "46,122",
+    roadPlanning: true,
+    roadTiles: [],
+  }, engineSource);
+
+  game.element("pb7-road-submit").click();
+  const approved = game.saved();
+  const projectId = approved.roadApproval.projectId;
+  game.element("pb7-road-cancel").click();
+  const cancelled = game.saved();
+  assert.equal(cancelled.roadApproval, null);
+  assert.equal(cancelled.roadTiles.length, 0);
+  assert.equal(cancelled.constructionProjects.length, 1);
+  assert.equal(cancelled.constructionProjects[0].id, projectId);
+  assert.equal(cancelled.constructionProjects[0].status, "cancelled");
+  assert.equal(cancelled.constructionProjects[0].cancelledDay, 2);
+  assert.ok(cancelled.constructionBids.every((bid) => bid.status === "withdrawn"));
+  assert.ok(cancelled.procurementContracts.every((contract) => contract.status === "cancelled"));
+
+  const reloaded = createEngineHarness(cancelled, engineSource).saved();
+  assert.equal(reloaded.constructionProjects[0].status, "cancelled");
+  assert.equal(reloaded.roadTiles.length, 0);
+
+  const buildingSave = structuredClone(approved);
+  const buildingProject = buildingSave.constructionProjects[0];
+  buildingProject.status = "building";
+  buildingProject.laborDelivered = buildingProject.laborRequired * 0.5;
+  buildingProject.buildProgress = 0.5;
+  buildingSave.constructionBids = buildingSave.constructionBids.map((bid, index) => ({ ...bid, status: index === 0 ? "awarded" : "rejected" }));
+  buildingSave.procurementContracts = buildingSave.procurementContracts.map((contract) => ({
+    ...contract,
+    status: "fulfilled",
+    providerId: "player-company",
+    delivered: contract.quantity,
+  }));
+  const building = createEngineHarness(buildingSave, engineSource);
+  building.element("pb7-road-cancel").click();
+  for (let tick = 1; tick <= 120; tick += 1) building.frame(tick * 1000);
+  const abandoned = building.saved();
+  assert.equal(abandoned.constructionProjects[0].status, "cancelled");
+  assert.equal(abandoned.constructionProjects[0].buildProgress, 0.5, "withdrawal retains historical partial progress");
+  assert.equal(abandoned.roadContractsCompleted, 0);
+  assert.equal(abandoned.roadTiles.length, 0, "a withdrawn building-stage project never writes completed road tiles");
 });
 
 test("Town Hall locks a touched straight road pass and protects it from later map clicks", async () => {

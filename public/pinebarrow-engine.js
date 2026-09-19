@@ -718,6 +718,8 @@
           return parcel.status === "owned" && !parcel.warehouseId && pointBesideParcel(x, y, parcel);
         });
         if (warehouseSite) return { type: "warehouse-site", parcelId: warehouseSite.id };
+        const roadProject = activeRoadProjectAtTile(x, y);
+        if (roadProject) return { type: "road-project", projectId: roadProject.id };
         return isSurveyableGround(x, y) ? { type: "cleared", x: x, y: y } : { type: "road", x: x, y: y };
       }
 
@@ -779,7 +781,7 @@
 
       function finishManualStep(arrival) {
         const destination = arrival && arrival.destination ? arrival.destination : { type: "road", x: state.player.x, y: state.player.y };
-        if (["building", "mine", "warehouse", "mine-site", "warehouse-site"].includes(destination.type)) {
+        if (["building", "mine", "warehouse", "mine-site", "warehouse-site", "road-project"].includes(destination.type)) {
           state.pendingArrival = destination;
           finishArrival();
           return;
@@ -966,7 +968,7 @@
       }
 
       function locationSupportsContextMenu() {
-        return ["market", "townhall", "garage", "rental", "newsstand", "mine", "warehouse", "cleared", "mine-site", "warehouse-site"].includes(state.location);
+        return ["market", "townhall", "garage", "rental", "newsstand", "mine", "warehouse", "cleared", "mine-site", "warehouse-site", "road-project"].includes(state.location);
       }
 
       function interactFromInput() {
@@ -1492,6 +1494,18 @@
         project.roadRouteTiles = Array.isArray(project.roadRouteTiles)
           ? Array.from(new Set(project.roadRouteTiles.filter(function (key) { return typeof key === "string"; })))
           : [];
+        project.roadFootprintTiles = Array.isArray(project.roadFootprintTiles)
+          ? Array.from(new Set(project.roadFootprintTiles.filter(function (key) { return typeof key === "string"; })))
+          : project.roadRouteTiles.slice();
+        project.roadRoutePoints = Array.isArray(project.roadRoutePoints)
+          ? project.roadRoutePoints.filter(function (key) { return typeof key === "string" && Boolean(pointFromKey(key)); })
+          : [];
+        project.roadRouteSegments = Array.isArray(project.roadRouteSegments) ? project.roadRouteSegments.map(function (segment) {
+          return Array.isArray(segment) ? segment.filter(function (key) { return typeof key === "string" && Boolean(pointFromKey(key)); }) : [];
+        }).filter(function (segment) { return segment.length >= 2; }) : [];
+        project.roadDropoffTile = typeof project.roadDropoffTile === "string" && project.roadRouteTiles.includes(project.roadDropoffTile)
+          ? project.roadDropoffTile
+          : null;
         project.roadPackages = Array.isArray(project.roadPackages) ? project.roadPackages.map(function (item, index) {
           const packageRecord = item && typeof item === "object" ? item : {};
           return {
@@ -1514,6 +1528,8 @@
         project.serviceCostPaid = Number.isFinite(project.serviceCostPaid) ? Math.max(0, Math.round(project.serviceCostPaid)) : 0;
         project.delayDays = Number.isFinite(project.delayDays) ? Math.max(0, Math.round(project.delayDays)) : 0;
         project.completedDay = Number.isFinite(project.completedDay) ? Math.max(0, Math.round(project.completedDay)) : null;
+        project.cancelledDay = Number.isFinite(project.cancelledDay) ? Math.max(0, Math.round(project.cancelledDay)) : null;
+        project.cancelReason = typeof project.cancelReason === "string" ? project.cancelReason : null;
         project.buildingRecordId = typeof project.buildingRecordId === "string" ? project.buildingRecordId : null;
         return project;
       }
@@ -1538,6 +1554,7 @@
         if (typeof contract.id !== "string" || !contract.id) contract.id = allocateProcurementContractId();
         contract.projectId = typeof contract.projectId === "string" ? contract.projectId : null;
         contract.category = typeof contract.category === "string" && contract.category ? contract.category : "mine-supply";
+        contract.family = typeof contract.family === "string" && contract.family ? contract.family : null;
         contract.material = typeof contract.material === "string" ? contract.material : null;
         contract.service = typeof contract.service === "string" ? contract.service : null;
         contract.providerId = typeof contract.providerId === "string" && contract.providerId ? contract.providerId : null;
@@ -3255,7 +3272,7 @@
           finishManualStep(arrival);
           return;
         }
-        if (["building", "mine", "warehouse", "mine-site", "warehouse-site"].includes(arrival.type)) {
+        if (["building", "mine", "warehouse", "mine-site", "warehouse-site", "road-project"].includes(arrival.type)) {
           state.menuOpen = true;
           systemMenuOpen = false;
           closeFastTravel();
@@ -3322,6 +3339,9 @@
           setContext("Warehouse construction edge", parcelCleared(state.warehouseParcel)
             ? "You are standing outside the 2×2 boundary. The warehouse construction controls are ready."
             : "Clear all four highlighted warehouse tiles, then return to this outside edge to build.");
+        } else if (arrival.type === "road-project") {
+          const project = roadProjectById(arrival.projectId);
+          if (project) openRoadProjectSite(project);
         } else if (arrival.type === "road") {
           state.location = "road";
           setContext("Roadside", "Click a reachable tree beside the two-tile-wide path, or use Starter tree from the destination list.");
@@ -3385,6 +3405,11 @@
         if (sitePlacement) return;
         if (state.roadPlanning) {
           if (roadDropoffSelectionActive) selectRoadDropoffTile(x, y);
+          return;
+        }
+        const roadProject = activeRoadProjectAtTile(x, y);
+        if (roadProject) {
+          openRoadProjectSite(roadProject);
           return;
         }
         const building = buildingAt(x, y);
@@ -4958,7 +4983,7 @@
       }
 
       function managementAccessAvailable() {
-        return ["townhall", "market", "mine", "warehouse", "mine-site", "warehouse-site"].includes(state.location);
+        return ["townhall", "market", "mine", "warehouse", "mine-site", "warehouse-site", "road-project"].includes(state.location);
       }
 
       function openManagementScreen(tab) {
@@ -5462,6 +5487,10 @@
 
       function renderContractTerminal() {
         if (!el.managementContractBoard) return;
+        const roadProjects = state.constructionProjects.filter(function (project) { return project && project.siteKind === "road"; }).slice().reverse();
+        const roadMarkup = '<section class="active-contracts road-project-contracts"><h3>Road project contracts</h3>' + (roadProjects.length
+          ? roadProjects.map(standaloneProjectActionMarkup).join("")
+          : '<p class="empty-management-state">No road project has been approved. Lock a survey and its drop-off, then approve it at Town Hall.</p>') + '</section>';
         const active = state.companyContracts.filter(function (contract) { return contract.status === "active" || contract.status === "complete"; }).slice().reverse();
         const activeMarkup = '<section class="active-contracts"><h3>Contract ledger</h3>' + (active.length ? active.map(function (contract) {
           const mine = state.mines.find(function (item) { return item.id === contract.mineId; });
@@ -5486,7 +5515,7 @@
           const buttonText = alreadyAccepted ? "Already accepted" : !matchingMines.length ? "Build or upgrade a matching mine" : !canAcceptHere ? "Visit Market to accept" : "Accept & dispatch";
           return '<article class="contract-offer-card" data-development="' + (offer.developmentBusinessId ? "true" : "false") + '"><header><span>' + detailText(offer.developmentBusinessId ? "FOUNDING ORDER" : "COMMERCIAL ORDER") + '</span><b>' + detailText(offer.buyer) + '</b></header><div class="contract-terms"><strong>' + offer.quantity + ' t ' + detailText(materialNames[offer.material]) + '</strong><em>$' + offer.unitPrice + '/t</em><small>' + offer.truckSize.toUpperCase() + ' truck</small></div><div class="offer-reward">Total contract value · $' + Math.round(offer.quantity * offer.unitPrice) + '</div><p>' + detailText(offer.description) + '</p><label>Assign mine<select data-contract-mine="' + detailText(offer.id) + '">' + options + '</select></label><button type="button" data-accept-contract="' + detailText(offer.id) + '" ' + (disabled ? 'disabled' : '') + '>' + buttonText + '</button></article>';
         }).join("") + '</section>';
-        el.managementContractBoard.innerHTML = activeMarkup + offerMarkup;
+        el.managementContractBoard.innerHTML = roadMarkup + activeMarkup + offerMarkup;
       }
 
       function renderProjectManagement() {
@@ -6085,7 +6114,10 @@
       function startRoadSurvey(profileId) {
         if (state.location !== "townhall") return;
         if (state.roadApproval) {
-          setContext("Approved road route protected", "This route is already awaiting project opening. Use Open approved road project or cancel it before starting another survey.", "warning");
+          const approvedProject = roadProjectForApproval();
+          setContext("Approved road project protected", approvedProject
+            ? "Project " + approvedProject.id + " already owns this route. Open or withdraw that project before starting another survey."
+            : "A legacy approved route is preserved. Restore or cancel it before starting another survey.", "warning");
           return;
         }
         const profile = roadProfileFor(profileId || "company-road");
@@ -6110,7 +6142,7 @@
       function submitRoadSurvey() {
         if (state.location !== "townhall") return;
         if (roadDrawingActive) {
-          setContext("Lock the highlighted route", "Press Lock route on the left before sending the survey to Town Hall.", "warning");
+          setContext("Commit the highlighted segment", "Release the drag and press Commit segment before sending the survey to Town Hall.", "warning");
           return;
         }
         if (state.roadRouteStatus !== "locked") {
@@ -6128,6 +6160,7 @@
         }
         const profile = activeRoadProfile();
         const routeTiles = roadDraftNewTiles(points, profile.width);
+        const footprintTiles = Array.from(expandedRoadCells(points, profile.width));
         if (!routeTiles.length) {
           setContext("No new road proposed", "This survey only overlaps road that is already paved. Extend it onto open land.");
           return;
@@ -6141,64 +6174,138 @@
         const stonePrice = prices.stone;
         const stoneCost = Math.ceil(stoneTons * stonePrice);
         const laborCost = routeTiles.length * CONFIG.roadLaborPerTile;
-        state.roadApproval = {
-          day: state.day,
-          routeTiles: routeTiles,
-          routePoints: state.roadDraft.slice(),
-          profileId: profile.id,
-          width: profile.width,
-          requiredBuilderLevel: profile.requiredBuilderLevel,
-          packages: roadPackageRecords(routeTiles),
-          stoneTons: stoneTons,
-          stonePrice: stonePrice,
-          stoneCost: stoneCost,
-          laborCost: laborCost,
-          totalCost: stoneCost + laborCost
+        const totalCost = stoneCost + laborCost;
+        const eligibleBuilderCount = CONFIG.constructionBuilders.filter(function (builder) {
+          return builder.level >= profile.requiredBuilderLevel && (!builder.minProjectLevel || profile.requiredBuilderLevel >= builder.minProjectLevel);
+        }).length;
+        const procurementCount = 3;
+        if (state.constructionProjects.length >= CONFIG.maxConstructionProjects || state.constructionBids.length + eligibleBuilderCount > CONFIG.maxConstructionBids || state.procurementContracts.length + procurementCount > CONFIG.maxProcurementContracts) {
+          setContext("Road project ledger full", "Town Hall could not create every required project and contract record. The locked route and drop-off remain unchanged; finish or cancel older work before trying again.", "danger");
+          return;
+        }
+        const transaction = {
+          projectLength: state.constructionProjects.length,
+          bidLength: state.constructionBids.length,
+          procurementLength: state.procurementContracts.length,
+          nextProjectId: state.nextProjectId,
+          nextConstructionBidId: state.nextConstructionBidId,
+          nextProcurementContractId: state.nextProcurementContractId,
+          roadDraft: state.roadDraft.slice(),
+          roadDraftSegments: state.roadDraftSegments.map(function (segment) { return segment.slice(); }),
+          roadRouteStatus: state.roadRouteStatus,
+          roadDropoffTile: state.roadDropoffTile,
+          roadPlanning: state.roadPlanning,
+          roadApproval: state.roadApproval,
+          profileRecord: activeProfileSlot ? profileRecords.get(activeProfileSlot) || null : null
         };
-        state.roadPlanning = false;
+        let project = null;
+        try {
+          const dropoff = pointFromKey(state.roadDropoffTile);
+          project = openConstructionProject({
+            buildingId: profile.id,
+            ownerId: "player",
+            route: "town-hall-road",
+            siteKind: "road",
+            point: { x: dropoff.x, y: dropoff.y, w: 1, h: 1, doorX: dropoff.x, doorY: dropoff.y },
+            cost: laborCost,
+            requirements: { stone: stoneTons },
+            laborRequired: laborCost,
+            buildTimeDays: profile.buildTimeDays,
+            requiredBuilderLevel: profile.requiredBuilderLevel,
+            footprintSnapshot: {
+              snapshotVersion: 2,
+              designId: profile.id,
+              category: "road",
+              mode: "orthogonal-segments",
+              sourceRoute: "town-hall-road",
+              routePoints: state.roadDraft.slice(),
+              routeSegments: state.roadDraftSegments.map(function (segment) { return segment.slice(); }),
+              footprintTiles: footprintTiles.slice(),
+              routeTiles: routeTiles.slice(),
+              dropoffTile: state.roadDropoffTile,
+              width: profile.width,
+              requiredBuilderLevel: profile.requiredBuilderLevel,
+              estimate: { cost: totalCost, labor: laborCost, materials: stoneTons, days: profile.buildTimeDays, stonePrice: stonePrice, stoneCost: stoneCost }
+            },
+            roadProfileId: profile.id,
+            roadRoutePoints: state.roadDraft,
+            roadRouteSegments: state.roadDraftSegments,
+            roadFootprintTiles: footprintTiles,
+            roadRouteTiles: routeTiles,
+            roadDropoffTile: state.roadDropoffTile,
+            roadPackages: roadPackageRecords(routeTiles)
+          });
+          if (!project) throw new Error("project unavailable");
+          project.roadPackages = roadPackageRecords(project.roadRouteTiles, project.id);
+          const projectBids = constructionBidsForProject(project.id);
+          const projectContracts = procurementContractsForProject(project.id);
+          if (projectBids.length !== eligibleBuilderCount || projectContracts.length !== procurementCount || projectContracts.some(function (contract) { return contract.projectId !== project.id; })) throw new Error("incomplete project linkage");
+          state.roadApproval = { projectId: project.id };
+          state.roadPlanning = false;
+          state.roadDraft = [];
+          state.roadDraftSegments = [];
+          state.roadRouteStatus = "draft";
+          state.roadDropoffTile = null;
+          roadDropoffSelectionActive = false;
+          if (!saveState(true)) throw new Error("save unavailable");
+        } catch {
+          state.constructionProjects.length = transaction.projectLength;
+          state.constructionBids.length = transaction.bidLength;
+          state.procurementContracts.length = transaction.procurementLength;
+          state.nextProjectId = transaction.nextProjectId;
+          state.nextConstructionBidId = transaction.nextConstructionBidId;
+          state.nextProcurementContractId = transaction.nextProcurementContractId;
+          state.roadDraft = transaction.roadDraft;
+          state.roadDraftSegments = transaction.roadDraftSegments;
+          state.roadRouteStatus = transaction.roadRouteStatus;
+          state.roadDropoffTile = transaction.roadDropoffTile;
+          state.roadPlanning = transaction.roadPlanning;
+          state.roadApproval = transaction.roadApproval;
+          if (activeProfileSlot) {
+            if (transaction.profileRecord) profileRecords.set(activeProfileSlot, transaction.profileRecord);
+            else profileRecords.delete(activeProfileSlot);
+          }
+          setContext("Road approval failed safely", "Town Hall could not save the complete project transaction. The locked route and drop-off are still here; no partial project or contract was kept.", "danger");
+          return;
+        }
         roadSurveyPreviewPoints = [];
         detachRoadTileSelection();
-        setContext("Town Hall approved the route", profile.label + " has " + routeTiles.length + " paving tiles in " + state.roadApproval.packages.length + " construction package" + (state.roadApproval.packages.length === 1 ? "" : "s") + ". Award a builder and the supply, logistics, and hauling contracts from the project ledger.");
+        setContext("Road project " + project.id + " approved", projectStatusText(project) + ". The exact " + routeTiles.length + "-tile work footprint and drop-off " + project.roadDropoffTile + " remain visible. Next: award the Road Construction Contract, then claim Materials and Logistics from this project.", "success");
       }
 
       function acceptRoadContract() {
         const approval = state.roadApproval;
         if (state.location !== "townhall" || !approval) return;
-        const profile = roadProfileFor(approval.profileId);
-        const point = pointFromKey((approval.routePoints || [])[0]) || pointFromKey((approval.routeTiles || [])[0]) || { x: PLAYER_ROAD_X, y: TOWN_TOP - 1 };
-        const project = openConstructionProject({
-          buildingId: profile.id,
-          ownerId: "player",
-          route: "town-hall-road",
-          siteKind: "road",
-          point: { x: point.x, y: point.y, w: profile.width, h: 1, doorX: point.x, doorY: point.y },
-          cost: approval.laborCost,
-          requirements: { stone: approval.stoneTons },
-          laborRequired: approval.laborCost,
-          buildTimeDays: profile.buildTimeDays,
-          requiredBuilderLevel: profile.requiredBuilderLevel,
-          footprintSnapshot: {
-            snapshotVersion: 1, designId: profile.id, category: "road", mode: "corridor", sourceRoute: "town-hall-road",
-            routePoints: (approval.routePoints || []).slice(), routeTiles: (approval.routeTiles || []).slice(), width: profile.width,
-            requiredBuilderLevel: profile.requiredBuilderLevel, estimate: { cost: approval.totalCost, labor: approval.laborCost, materials: approval.stoneTons, days: profile.buildTimeDays }
-          },
-          roadProfileId: profile.id,
-          roadRouteTiles: approval.routeTiles,
-          roadPackages: approval.packages
-        });
-        if (!project) {
-          setContext("Road project unavailable", "The construction ledger is full. Complete or clear a project before opening this road contract.", "danger");
+        const project = roadProjectForApproval();
+        if (project) {
+          setContext("Road project " + project.id, projectStatusText(project) + " · drop-off " + project.roadDropoffTile + ". This is the same project shown by its map marker and Contracts.");
+          openManagementScreen("projects");
           return;
         }
-        project.roadPackages = roadPackageRecords(project.roadRouteTiles, project.id);
+        const legacyPoints = Array.isArray(approval.routePoints) ? approval.routePoints.filter(function (key) { return typeof key === "string" && Boolean(pointFromKey(key)); }) : [];
+        if (legacyPoints.length < CONFIG.roadMinimumSurveyPoints) {
+          setContext("Legacy road approval needs review", "This old approval has no recoverable centerline. It was preserved, but Town Hall cannot invent a route or project from it.", "danger");
+          return;
+        }
+        state.roadPlanningProfile = approval.profileId && CONFIG.roadProfiles[approval.profileId] ? approval.profileId : "company-road";
+        state.roadDraft = legacyPoints;
+        state.roadDraftSegments = roadSegmentsFromDraftKeys(legacyPoints);
+        syncRoadDraftFromSegments();
+        state.roadRouteStatus = "locked";
+        state.roadDropoffTile = null;
+        state.roadPlanning = true;
         state.roadApproval = null;
-        state.roadDraft = [];
-        setContext("Road project opened", profile.label + " is now in the ledger with " + project.roadPackages.length + " construction package" + (project.roadPackages.length === 1 ? "" : "s") + ". Award a qualified builder, then bid its supply, logistics, and hauling contracts.", "success");
-        saveState(true);
-        openManagementScreen("projects");
+        state.overview = false;
+        state.zoomIndex = Math.max(state.zoomIndex, CONFIG.roadPlanningZoomIndex);
+        setContext("Legacy approved route restored", "The exact old centerline is locked and visible. Choose its explicit drop-off, then submit once to create the authoritative road project.", "success");
       }
 
       function cancelRoadSurvey() {
+        const approvedProject = roadProjectForApproval();
+        if (approvedProject) {
+          cancelConstructionProject(approvedProject.id);
+          return;
+        }
         if (state.location !== "townhall" && !state.roadPlanning) return;
         detachRoadTileSelection();
         roadSurveyPreviewPoints = [];
@@ -6424,7 +6531,10 @@
         if (button === el.upgradeTruckSpeed) return state.truckSpeedLevel >= CONFIG.maxTruckLevel ? "Truck speed is already at maximum level." : "You need $" + nextTruckSpeedCost() + " for the next speed upgrade.";
         if (button === el.roadPlan) return "Start from Town Hall, then tap a connected route on the map.";
         if (button === el.roadSubmit) return "Draw at least two connected center points and return to Town Hall.";
-        if (button === el.roadAccept) return state.roadApproval ? "You need $" + state.roadApproval.totalCost + " for purchased stone and road labor." : "Submit a surveyed route for Town Hall approval first.";
+        if (button === el.roadAccept) {
+          const approvedProject = roadProjectForApproval();
+          return approvedProject ? "Open road project " + approvedProject.id + " to manage its builder, materials, and logistics contracts." : state.roadApproval ? "Restore this legacy approved route before opening a project." : "Submit a surveyed route for Town Hall approval first.";
+        }
         if (button === el.roadCancel) return "There is no active road survey or approved quote to cancel.";
         if (button === el.prospect) {
           if (!state.prospectorHired) return "Hire the permanent prospector at Town Hall.";
@@ -6511,13 +6621,14 @@
           ? (warehouseParcel.status === "available" ? "Purchase agreement ready" : warehouseParcel.status === "owned" ? "Land owned" : warehouseParcel.status)
           : "No warehouse lot selected";
         const roadApproval = state.roadApproval;
+        const approvedRoadProject = roadProjectForApproval();
         return '<section class="townhall-prospect-board townhall-project-ledger" aria-label="Infrastructure siting"><header><span>Infrastructure siting</span><strong>project-ledger route</strong></header>' +
           '<p class="townhall-proposal-overflow">Mine permits keep the surveyed geology. Warehouses are independently selected, then purchased and built through the same construction ledger.</p>' +
           '<div class="townhall-project-actions"><strong>Mine footprint · ' + detailText(mineStatus) + '</strong><p>Drag the starter 2×2 mine inside its geology permit. The map records the road-access edge with the proposal.</p>' +
             '<button type="button" data-site-plan-action="mine"' + minePlanParcelAttribute + (mineReady ? "" : " disabled") + '>' + (mineReady && !infrastructurePlacementRequired(mineParcel) ? "Re-select mine footprint" : "Select mine footprint") + '</button></div>' +
           '<div class="townhall-project-actions"><strong>Warehouse lot · ' + detailText(warehouseStatus) + '</strong><p>Select an independent starter warehouse with road access. It does not appear automatically beside a mine.</p>' +
             '<button type="button" data-site-plan-action="warehouse"' + (ownedMine ? "" : " disabled") + '>Select warehouse site</button></div>' +
-          '<div class="townhall-project-actions"><strong>Road corridor · project-backed</strong><p>' + (roadApproval ? "An approved route is protected below. Open its construction project or cancel it before surveying another corridor." : "Drag a centered route line; paving expands evenly on each side, including at turns. Town Hall then opens builder, stone-supply, logistics, and hauling contracts. Long routes are packaged in groups of ten paving tiles.") + '</p>' +
+          '<div class="townhall-project-actions"><strong>Road corridor · project-backed</strong><p>' + (approvedRoadProject ? "Project " + detailText(approvedRoadProject.id) + " owns the frozen route and drop-off below. Open or withdraw that same project before surveying another corridor." : roadApproval ? "A legacy approved route is protected below. Restore it, choose a drop-off, and submit once to create its authoritative project." : "Drag a centered route line; paving expands evenly on each side, including at turns. Town Hall approval atomically creates the builder, stone-supply, logistics, and hauling records. Long routes are packaged in groups of ten paving tiles.") + '</p>' +
             '<button type="button" data-road-profile="company-road"' + (roadApproval ? " disabled" : "") + '>Survey 2-wide company road</button><button type="button" data-road-profile="main-street"' + (roadApproval ? " disabled" : "") + '>Survey 4-wide main street · City Planner</button></div>' +
         '</section>';
       }
@@ -6587,6 +6698,37 @@
 
       function projectForProposal(proposalId) {
         return state.constructionProjects.find(function (project) { return project.proposalId === proposalId; }) || null;
+      }
+
+      function roadProjectById(projectId) {
+        return state.constructionProjects.find(function (project) {
+          return project && project.id === projectId && project.siteKind === "road";
+        }) || null;
+      }
+
+      function roadProjectForApproval() {
+        return state.roadApproval && typeof state.roadApproval.projectId === "string"
+          ? roadProjectById(state.roadApproval.projectId)
+          : null;
+      }
+
+      function activeRoadProjectAtTile(x, y) {
+        const key = keyFor(x, y);
+        return state.constructionProjects.find(function (project) {
+          return project && project.siteKind === "road" && project.roadDropoffTile === key && !["completed", "cancelled"].includes(project.status);
+        }) || null;
+      }
+
+      function openRoadProjectSite(project) {
+        if (!project || project.siteKind !== "road") return;
+        const point = pointFromKey(project.roadDropoffTile) || { x: project.x, y: project.y };
+        state.selected = { type: "road-project", projectId: project.id, x: point.x, y: point.y };
+        state.location = "road-project";
+        state.menuOpen = true;
+        systemMenuOpen = false;
+        marketScreenOpen = false;
+        managementScreenOpen = false;
+        setContext("Road project " + project.id, projectStatusText(project) + " · drop-off " + project.roadDropoffTile + ". Builder, material, logistics, hauling, progress, and cancellation all read this project record.");
       }
 
       function siteProjectFor(siteKind, siteParcelId) {
@@ -6721,9 +6863,10 @@
       function constructionProjectSitePoint(project) {
         const proposal = project.proposalId && state.proposals.find(function (record) { return record.id === project.proposalId; });
         const lot = proposal && proposal.lot;
+        const roadDropoff = project && project.siteKind === "road" ? pointFromKey(project.roadDropoffTile) : null;
         return {
-          x: Number.isFinite(project.x) ? project.x : (lot && Number.isFinite(lot.x) ? lot.x : 0),
-          y: Number.isFinite(project.y) ? project.y : (lot && Number.isFinite(lot.y) ? lot.y : 0),
+          x: roadDropoff ? roadDropoff.x : Number.isFinite(project.x) ? project.x : (lot && Number.isFinite(lot.x) ? lot.x : 0),
+          y: roadDropoff ? roadDropoff.y : Number.isFinite(project.y) ? project.y : (lot && Number.isFinite(lot.y) ? lot.y : 0),
           w: project.w || (lot && lot.w) || 2,
           h: project.h || (lot && lot.h) || 2,
           doorX: Number.isFinite(project.doorX) ? project.doorX : (lot && Number.isFinite(lot.doorX) ? lot.doorX : project.x),
@@ -6882,17 +7025,18 @@
 
       function completeConstructionProject(project) {
         if (project.status === "completed") return;
-        createCompletedBuildingFromProject(project);
         project.status = "completed";
         project.buildProgress = 1;
         project.laborDelivered = project.laborRequired;
         project.completedDay = state.day;
+        if (project.siteKind === "road" && state.roadApproval && state.roadApproval.projectId === project.id) state.roadApproval = null;
         const proposal = project.proposalId && state.proposals.find(function (record) { return record.id === project.proposalId; });
         if (proposal) {
           proposal.status = "completed";
           proposal.stage = "completed";
           proposal.completedDay = state.day;
         }
+        createCompletedBuildingFromProject(project);
       }
 
       function processConstructionProjects(minutes) {
@@ -6932,7 +7076,8 @@
           const contract = {
             id: allocateProcurementContractId(),
             projectId: project.id,
-            category: "mine-supply",
+            category: project.siteKind === "road" ? "materials" : "mine-supply",
+            family: project.siteKind === "road" ? "road-materials" : "materials",
             material: material,
             service: null,
             quantity: project.requirements[material],
@@ -6953,6 +7098,7 @@
             id: allocateProcurementContractId(),
             projectId: project.id,
             category: service.category,
+            family: project.siteKind === "road" ? "road-logistics" : service.category,
             material: null,
             service: service.service,
             quantity: 1,
@@ -6986,6 +7132,10 @@
           upgradeBuildingId: options.upgradeBuildingId || null,
           roadProfileId: options.roadProfileId || null,
           roadRouteTiles: Array.isArray(options.roadRouteTiles) ? Array.from(new Set(options.roadRouteTiles.filter(function (key) { return typeof key === "string"; }))) : [],
+          roadFootprintTiles: Array.isArray(options.roadFootprintTiles) ? Array.from(new Set(options.roadFootprintTiles.filter(function (key) { return typeof key === "string"; }))) : [],
+          roadRoutePoints: Array.isArray(options.roadRoutePoints) ? options.roadRoutePoints.filter(function (key) { return typeof key === "string"; }).slice() : [],
+          roadRouteSegments: Array.isArray(options.roadRouteSegments) ? options.roadRouteSegments.map(function (segment) { return Array.isArray(segment) ? segment.slice() : []; }).filter(function (segment) { return segment.length >= 2; }) : [],
+          roadDropoffTile: typeof options.roadDropoffTile === "string" ? options.roadDropoffTile : null,
           roadPackages: Array.isArray(options.roadPackages) ? options.roadPackages.map(function (item) { return { id: item && item.id || "", tileKeys: Array.isArray(item && item.tileKeys) ? item.tileKeys.slice() : [] }; }) : [],
           x: Number.isFinite(point.x) ? point.x : null,
           y: Number.isFinite(point.y) ? point.y : null,
@@ -7017,6 +7167,8 @@
           deadlineDay: state.day + Math.max(1, Math.ceil(buildTimeDays)) + 3,
           delayDays: 0,
           completedDay: null,
+          cancelledDay: null,
+          cancelReason: null,
           buildingRecordId: null
         };
         state.constructionProjects.push(project);
@@ -7116,11 +7268,24 @@
         renderInterface();
       }
 
+      function canManageConstructionProject(project) {
+        if (!project) return false;
+        if (state.location === "townhall") return true;
+        if (project.siteKind !== "road") return false;
+        if (state.location === "road-project" && state.selected && state.selected.projectId === project.id) return true;
+        return managementScreenOpen && managementScreenTab === "contracts";
+      }
+
       function awardConstructionBid(bidId) {
-        if (state.location !== "townhall") return;
         const bid = state.constructionBids.find(function (record) { return record.id === bidId; });
         if (!bid || bid.status !== "open") return;
         const project = state.constructionProjects.find(function (record) { return record.id === bid.projectId; });
+        if (!canManageConstructionProject(project)) {
+          setContext(project && project.siteKind === "road" ? "Project access required" : "Town Hall required", project && project.siteKind === "road"
+            ? "Open this road from Town Hall, Contracts, or its world drop-off marker before awarding the construction contract."
+            : "This project can be reviewed at the site, but builder awards are completed at Town Hall.", "warning");
+          return;
+        }
         if (!project || project.status !== "awaiting-builder") return;
         if (project.ownerId !== "crowe" && state.cash < bid.price) {
           setContext("Builder award blocked", "The company cannot fund this builder bid yet. Cash settlement happens when the bid is awarded.", "danger");
@@ -7148,10 +7313,15 @@
       }
 
       function bidOnProcurementContract(contractId) {
-        if (state.location !== "townhall") return;
         const contract = state.procurementContracts.find(function (record) { return record.id === contractId; });
         if (!contract || contract.status !== "open") return;
         const project = state.constructionProjects.find(function (record) { return record.id === contract.projectId; });
+        if (!canManageConstructionProject(project)) {
+          setContext(project && project.siteKind === "road" ? "Project access required" : "Town Hall required", project && project.siteKind === "road"
+            ? "Open this road from Town Hall, Contracts, or its world drop-off marker before claiming the contract."
+            : "This project can be reviewed at the site, but procurement bids are completed at Town Hall.", "warning");
+          return;
+        }
         if (!project || !["procurement", "ready-to-build", "delayed"].includes(project.status)) return;
         contract.providerId = "player-company";
         contract.status = "awarded";
@@ -7159,6 +7329,26 @@
         setContext("Procurement contract awarded", (contract.material ? materialNames[contract.material] : proposalDisplayText(contract.service, "Service")) + " is assigned to your company. Time will now settle delivery, labor, and completion.", "success");
         saveState(true);
         renderInterface();
+      }
+
+      function cancelConstructionProject(projectId) {
+        const project = state.constructionProjects.find(function (record) { return record.id === projectId; });
+        if (!project || ["completed", "cancelled"].includes(project.status)) return;
+        if (!canManageConstructionProject(project)) {
+          setContext("Project access required", "Open this project at Town Hall, in Contracts, or from its road drop-off site before withdrawing it.", "warning");
+          return;
+        }
+        project.status = "cancelled";
+        project.cancelledDay = state.day;
+        project.cancelReason = "withdrawn-by-owner";
+        constructionBidsForProject(project.id).forEach(function (bid) {
+          if (["open", "awarded"].includes(bid.status)) bid.status = "withdrawn";
+        });
+        procurementContractsForProject(project.id).forEach(function (contract) {
+          if (["open", "awarded"].includes(contract.status)) contract.status = "cancelled";
+        });
+        if (state.roadApproval && state.roadApproval.projectId === project.id) state.roadApproval = null;
+        setContext("Project " + project.id + " withdrawn", "The historical project, exact route, drop-off, bids, contracts, deliveries, and progress remain in the ledger. No road tiles were built.", "success");
       }
 
       function projectStatusText(project) {
@@ -7178,6 +7368,39 @@
       function projectContractLabel(contract) {
         if (contract.material) return materialNames[contract.material] + " supply · " + contract.quantity + " t · " + round1(contract.delivered).toFixed(1) + " delivered";
         return proposalDisplayText(contract.service, "Service") + " contract" + (contract.status === "fulfilled" ? " · settled" : "");
+      }
+
+      function roadProjectActionMarkup(project) {
+        const builderBids = constructionBidsForProject(project.id);
+        const procurement = procurementContractsForProject(project.id);
+        const materials = procurement.filter(function (contract) { return Boolean(contract.material); });
+        const logistics = procurement.filter(function (contract) { return !contract.material; });
+        const canManage = canManageConstructionProject(project);
+        const active = !["completed", "cancelled"].includes(project.status);
+        const canAwardBuilder = canManage && project.status === "awaiting-builder";
+        const canClaimProcurement = canManage && ["procurement", "ready-to-build", "delayed"].includes(project.status);
+        const materialRequired = Number(project.requirements && project.requirements.stone) || 0;
+        const materialDelivered = Number(project.delivered && project.delivered.stone) || 0;
+        const bidMarkup = builderBids.map(function (bid) {
+          const action = bid.status === "open"
+            ? '<button type="button" data-project-action="award-builder" data-bid-id="' + detailText(bid.id) + '"' + (canAwardBuilder ? "" : " disabled") + '>' + (canAwardBuilder ? "Award bid" : "Open · award first") + '</button>'
+            : '<em>' + detailText(proposalDisplayText(bid.status, "Bid")) + '</em>';
+          return '<span data-contract-id="' + detailText(bid.id) + '"><b>' + detailText(bid.builderLabel) + '</b><em>$' + bid.price + ' · ' + bid.durationDays + ' days · ' + detailText(bid.status) + '</em>' + action + '</span>';
+        }).join("");
+        const procurementMarkup = function (contract) {
+          const action = contract.status === "open"
+            ? '<button type="button" data-project-action="bid-procurement" data-procurement-id="' + detailText(contract.id) + '"' + (canClaimProcurement ? "" : " disabled") + '>' + (canClaimProcurement ? "Claim contract" : project.status === "awaiting-builder" ? "Award builder first" : "Not claimable") + '</button>'
+            : '<em>' + detailText(proposalDisplayText(contract.status, "Contract")) + '</em>';
+          return '<span data-contract-id="' + detailText(contract.id) + '"><b>' + detailText(projectContractLabel(contract)) + '</b><em>' + detailText(contract.id) + ' · ' + detailText(contract.status) + '</em>' + action + '</span>';
+        };
+        return '<article class="townhall-project-actions road-project-ledger-card" data-road-project-id="' + detailText(project.id) + '">' +
+          '<strong>' + detailText(project.id) + ' · ' + detailText(projectStatusText(project)) + '</strong>' +
+          '<p>' + detailText((CONFIG.buildingDefinitions[project.buildingId] || {}).label || "Road project") + ' · drop-off ' + detailText(project.roadDropoffTile || "missing") + ' · ' + (project.roadRouteTiles || []).length + ' new paving tiles · ' + Math.round((Number(project.buildProgress) || 0) * 100) + '% built</p>' +
+          '<div class="townhall-contract-list"><small>Road Construction Contract · project ' + detailText(project.id) + '</small>' + (bidMarkup || '<p>No qualified builder bid was posted.</p>') + '</div>' +
+          '<div class="townhall-contract-list"><small>Materials Contract · ' + round1(materialDelivered).toFixed(1) + ' / ' + round1(materialRequired).toFixed(1) + ' t staged</small>' + materials.map(procurementMarkup).join("") + '</div>' +
+          '<div class="townhall-contract-list"><small>Logistics Contract · warehouse staging and site hauling</small>' + logistics.map(procurementMarkup).join("") + '</div>' +
+          (active ? '<button type="button" data-project-action="cancel-project" data-project-id="' + detailText(project.id) + '">Withdraw project</button>' : '<p>Historical project retained · ' + detailText(project.status) + '</p>') +
+        '</article>';
       }
 
       function proposalProjectActionMarkup(proposal) {
@@ -7212,15 +7435,21 @@
       }
 
       function handleProjectAction(action, id) {
-        if (["award-builder", "bid-procurement"].includes(action) && state.location !== "townhall") {
-          setContext("Town Hall required", "This project can be reviewed at the site, but builder awards and contract bids are completed at Town Hall.", "warning");
-          return;
-        }
         if (action === "approve") approveDevelopmentProposal(id);
         else if (action === "purchase") purchaseDevelopmentProposal(id);
         else if (action === "create-project") createConstructionProject(id);
         else if (action === "award-builder") awardConstructionBid(id);
         else if (action === "bid-procurement") bidOnProcurementContract(id);
+        else if (action === "cancel-project") cancelConstructionProject(id);
+      }
+
+      function projectActionId(button) {
+        if (!button || !button.dataset) return null;
+        const action = button.dataset.projectAction;
+        if (action === "award-builder") return button.dataset.bidId;
+        if (action === "bid-procurement") return button.dataset.procurementId;
+        if (action === "cancel-project") return button.dataset.projectId;
+        return button.dataset.proposalId;
       }
 
       function townHallResidentialBoardMarkup() {
@@ -7285,6 +7514,7 @@
       }
 
       function standaloneProjectActionMarkup(project) {
+        if (project.siteKind === "road") return roadProjectActionMarkup(project);
         const definition = constructionProjectDefinition(project);
         const builderBids = constructionBidsForProject(project.id);
         const procurement = procurementContractsForProject(project.id);
@@ -7394,6 +7624,7 @@
           cleared: "Field crew",
           "mine-site": "Construction site",
           "warehouse-site": "Construction site",
+          "road-project": "Road construction site",
           development: "Property management"
         };
         el.locationKicker.textContent = defaultKickers[state.location] || "Available here";
@@ -7415,16 +7646,49 @@
 
         if (state.location === "townhall") {
           const approval = state.roadApproval;
+          const approvedProject = roadProjectForApproval();
+          const approvedEstimate = approvedProject && approvedProject.footprintSnapshot && approvedProject.footprintSnapshot.estimate && typeof approvedProject.footprintSnapshot.estimate === "object"
+            ? approvedProject.footprintSnapshot.estimate
+            : null;
+          const approvedTileCount = approvedProject
+            ? approvedProject.roadRouteTiles.length
+            : approval && Array.isArray(approval.routeTiles) ? approval.routeTiles.length : 0;
+          const approvedStone = approvedProject
+            ? Number(approvedProject.requirements && approvedProject.requirements.stone) || 0
+            : approval && Number(approval.stoneTons) || 0;
+          const approvedStoneCost = approvedEstimate && Number.isFinite(approvedEstimate.stoneCost)
+            ? approvedEstimate.stoneCost
+            : approval && Number.isFinite(approval.stoneCost) ? approval.stoneCost : null;
+          const approvedTotal = approvedEstimate && Number.isFinite(approvedEstimate.totalCost)
+            ? approvedEstimate.totalCost
+            : approval && Number.isFinite(approval.totalCost) ? approval.totalCost : null;
           const draftTiles = roadDraftNewTiles(roadDraftPoints()).length;
           el.locationDetails.hidden = false;
           el.locationDetails.innerHTML = detailCards([
             ["Road contracts", String(state.roadContractsCompleted)],
-            ["Survey", approval ? "Approved" : state.roadPlanning ? "Active" : state.roadDraft.length ? "Ready to submit" : "No route"],
-            ["Proposed paving", approval ? approval.routeTiles.length + " tiles" : draftTiles + " tiles"],
+            ["Survey", approvedProject ? projectStatusText(approvedProject) : approval ? "Legacy approval" : state.roadPlanning ? "Active" : state.roadDraft.length ? "Ready to submit" : "No route"],
+            ["Proposed paving", approval ? approvedTileCount + " tiles" : draftTiles + " tiles"],
             ["Stone market", "$" + prices.stone + "/t"],
-            ["Approved stone", approval ? approval.stoneTons.toFixed(1) + " t · $" + approval.stoneCost : "None"],
-            ["Contract total", approval ? "$" + approval.totalCost : "Not quoted"]
+            ["Approved stone", approval ? round1(approvedStone).toFixed(1) + " t" + (approvedStoneCost == null ? "" : " · $" + approvedStoneCost) : "None"],
+            ["Project estimate", approval && approvedTotal != null ? "$" + approvedTotal : "Not quoted"]
           ]) + townHallProspectBoardMarkup() + townHallInfrastructurePlanningMarkup() + townHallResidentialBoardMarkup() + townHallProjectLedgerMarkup() + townHallWarehouseRoutingMarkup() + townHallWorkforceBoardMarkup();
+          return;
+        }
+
+        if (state.location === "road-project") {
+          const project = state.selected && state.selected.projectId ? roadProjectById(state.selected.projectId) : null;
+          if (!project) return;
+          const materialRequired = Number(project.requirements && project.requirements.stone) || 0;
+          const materialDelivered = Number(project.delivered && project.delivered.stone) || 0;
+          el.locationDetails.hidden = false;
+          el.locationDetails.innerHTML = detailCards([
+            ["Project", project.id],
+            ["Status", projectStatusText(project)],
+            ["Drop-off", project.roadDropoffTile || "Missing"],
+            ["New paving", (project.roadRouteTiles || []).length + " tiles"],
+            ["Stone staged", round1(materialDelivered).toFixed(1) + " / " + round1(materialRequired).toFixed(1) + " t"],
+            ["Build progress", Math.round((Number(project.buildProgress) || 0) * 100) + "%"]
+          ]) + roadProjectActionMarkup(project);
           return;
         }
 
@@ -7588,6 +7852,12 @@
         root.dataset.roadRouteStatus = state.roadRouteStatus;
         root.dataset.roadDropoffSelecting = roadDropoffSelectionActive ? "true" : "false";
         root.dataset.roadDropoffTile = state.roadDropoffTile || "";
+        root.dataset.activeRoadProjectCount = String(state.constructionProjects.filter(function (project) {
+          return project && project.siteKind === "road" && !["completed", "cancelled"].includes(project.status);
+        }).length);
+        const approvedRoadProject = roadProjectForApproval();
+        root.dataset.approvedRoadProjectId = approvedRoadProject ? approvedRoadProject.id : "";
+        root.dataset.selectedRoadProjectId = state.location === "road-project" && state.selected && typeof state.selected.projectId === "string" ? state.selected.projectId : "";
         root.dataset.sitePlacement = sitePlacement ? sitePlacement.siteKind : "";
         const roadSurveyControlsVisible = state.location === "townhall" && state.roadPlanning && !state.roadApproval;
         const roadRouteLocked = state.roadRouteStatus === "locked";
@@ -7678,9 +7948,10 @@
           : state.location === "warehouse-site" && state.warehouseParcel
             ? siteProjectFor("warehouse", state.warehouseParcel.id)
             : null;
-        el.companyManagement.hidden = !["townhall", "mine", "warehouse"].includes(state.location) && !siteProject;
+        const selectedRoadProject = state.location === "road-project" && state.selected ? roadProjectById(state.selected.projectId) : null;
+        el.companyManagement.hidden = !["townhall", "mine", "warehouse"].includes(state.location) && !siteProject && !selectedRoadProject;
         el.companyManagement.disabled = false;
-        el.companyManagement.textContent = state.location === "townhall" ? "Open project ledger" : siteProject ? "View site project" : state.location === "mine" ? "Open Mine Management" : "Open Warehouse Management";
+        el.companyManagement.textContent = state.location === "townhall" ? "Open project ledger" : selectedRoadProject ? "Open road project contracts" : siteProject ? "View site project" : state.location === "mine" ? "Open Mine Management" : "Open Warehouse Management";
         el.haulers.forEach(function (button) {
           const sizeKey = button.dataset.haulerSize;
           const hauler = CONFIG.haulers[sizeKey];
@@ -7729,7 +8000,12 @@
             : "Approve " + roadDraftNewTiles(roadDraftPoints(), activeRoadProfile().width).length + "-tile " + activeRoadProfile().width + "-wide road project";
         el.roadAccept.hidden = state.location !== "townhall" || !state.roadApproval;
         el.roadAccept.disabled = !state.roadApproval;
-        el.roadAccept.textContent = state.roadApproval ? "Open " + roadProfileFor(state.roadApproval.profileId).label + " project · $" + state.roadApproval.totalCost : "Open approved road project";
+        if (state.roadApproval) {
+          const project = roadProjectForApproval();
+          el.roadAccept.textContent = project ? "Open road project " + project.id + " · " + projectStatusText(project) : "Restore legacy approved route";
+        } else {
+          el.roadAccept.textContent = "Open approved road project";
+        }
         el.roadCancel.hidden = state.location !== "townhall" || (!state.roadPlanning && !state.roadDraft.length && !state.roadApproval);
         el.roadCancel.disabled = false;
         el.readNews.hidden = state.location !== "newsstand";
@@ -9014,7 +9290,8 @@
       function drawRoadSurvey(colors) {
         const points = roadSurveyDisplayPoints();
         if (!points.length && !roadSurveyAnchorPoint) return;
-        const profile = state.roadApproval ? roadProfileFor(state.roadApproval.profileId) : activeRoadProfile();
+        const legacyApprovalProfile = state.roadApproval && typeof state.roadApproval.profileId === "string" ? state.roadApproval.profileId : null;
+        const profile = legacyApprovalProfile ? roadProfileFor(legacyApprovalProfile) : activeRoadProfile();
         const previewCells = points.length ? expandedRoadCells(points, profile.width) : new Set();
         const centerline = roadCenterline(points);
         ctx.save();
@@ -9074,6 +9351,13 @@
         ctx.save();
         projects.forEach(function (project) {
           const progress = Math.max(.18, Math.min(.78, Number(project.buildProgress) || 0));
+          (project.roadFootprintTiles || project.roadRouteTiles || []).forEach(function (key) {
+            const cell = pointFromKey(key);
+            if (!cell) return;
+            const point = screenPoint(cell.x, cell.y);
+            ctx.fillStyle = "rgba(255, 226, 156, " + Math.max(.1, progress * .28) + ")";
+            ctx.fillRect(point.x + 1, point.y + 1, Math.max(1, drawView.scale - 2), Math.max(1, drawView.scale - 2));
+          });
           (project.roadRouteTiles || []).forEach(function (key) {
             const cell = pointFromKey(key);
             if (!cell) return;
@@ -9081,6 +9365,29 @@
             ctx.fillStyle = "rgba(255, 194, 77, " + progress + ")";
             ctx.fillRect(point.x + 1, point.y + 1, Math.max(1, drawView.scale - 2), Math.max(1, drawView.scale - 2));
           });
+          const dropoff = pointFromKey(project.roadDropoffTile);
+          if (dropoff) {
+            const marker = screenPoint(dropoff.x + .5, dropoff.y + .5);
+            const size = Math.max(5, drawView.scale * .36);
+            ctx.fillStyle = "#ffb22c";
+            ctx.strokeStyle = "#172746";
+            ctx.lineWidth = Math.max(2, drawView.scale * .12);
+            ctx.beginPath();
+            ctx.moveTo(marker.x, marker.y - size);
+            ctx.lineTo(marker.x + size, marker.y);
+            ctx.lineTo(marker.x, marker.y + size);
+            ctx.lineTo(marker.x - size, marker.y);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            if (drawView.scale >= 6) {
+              ctx.fillStyle = "#172746";
+              ctx.font = "900 " + Math.max(7, Math.min(11, drawView.scale * .5)) + "px system-ui, sans-serif";
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+              ctx.fillText("P", marker.x, marker.y);
+            }
+          }
         });
         ctx.restore();
       }
@@ -9402,7 +9709,7 @@
       el.marketplace.addEventListener("click", function () { openMarketScreen("exchange"); });
       el.contracts.addEventListener("click", function () { openManagementScreen("contracts"); });
       el.companyManagement.addEventListener("click", function () {
-        openManagementScreen(["townhall", "mine-site", "warehouse-site"].includes(state.location) ? "projects" : state.location === "warehouse" ? "warehouses" : "mines");
+        openManagementScreen(state.location === "road-project" ? "contracts" : ["townhall", "mine-site", "warehouse-site"].includes(state.location) ? "projects" : state.location === "warehouse" ? "warehouses" : "mines");
       });
       el.roadPlan.addEventListener("click", startRoadSurvey);
       el.roadStartDraw.addEventListener("click", startRoadTileSelection);
@@ -9425,10 +9732,7 @@
           const projectButton = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-project-action]") : null;
           if (projectButton) {
             const action = projectButton.dataset.projectAction;
-            const id = action === "award-builder" ? projectButton.dataset.bidId
-              : action === "bid-procurement" ? projectButton.dataset.procurementId
-                : projectButton.dataset.proposalId;
-            handleProjectAction(action, id);
+            handleProjectAction(action, projectActionId(projectButton));
             return;
           }
           const workforceButton = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-workforce-action]") : null;
@@ -9527,10 +9831,7 @@
         const projectButton = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-project-action]") : null;
         if (!projectButton) return;
         const action = projectButton.dataset.projectAction;
-        const id = action === "award-builder" ? projectButton.dataset.bidId
-          : action === "bid-procurement" ? projectButton.dataset.procurementId
-            : projectButton.dataset.proposalId;
-        handleProjectAction(action, id);
+        handleProjectAction(action, projectActionId(projectButton));
       });
       el.exchangeMaterial.addEventListener("change", function () {
         const material = el.exchangeMaterial.value;
@@ -9567,6 +9868,11 @@
         if (button) cancelExchangeOrder(button.dataset.cancelOrder);
       });
       el.managementContractBoard.addEventListener("click", function (event) {
+        const projectButton = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-project-action]") : null;
+        if (projectButton && projectButton.dataset && projectButton.dataset.projectAction) {
+          handleProjectAction(projectButton.dataset.projectAction, projectActionId(projectButton));
+          return;
+        }
         const button = event.target && typeof event.target.closest === "function" ? event.target.closest("[data-accept-contract]") : null;
         if (!button) return;
         const offerId = button.dataset.acceptContract;
